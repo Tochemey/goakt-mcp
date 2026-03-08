@@ -30,7 +30,7 @@ import (
 )
 
 // TestPackageCompiles verifies that the ingress package compiles and can be used.
-// Phase 0 placeholder; real ingress logic and tests will be added in Phase 11.
+// Phase 0 placeholder; real ingress logic and tests will be added in the coming phases.
 func TestPackageCompiles(t *testing.T) {
 	require.True(t, true, "testify should be available for assertions")
 }

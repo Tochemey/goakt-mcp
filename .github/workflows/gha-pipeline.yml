@@ -82,12 +82,12 @@ jobs:
           args: --timeout 10m --config .golangci.yml
       - name: Run tests
         run: go test ./... -mod=vendor -p 1 -race -v -coverprofile=coverage.out -covermode=atomic -timeout 15m
-      # - name: Upload coverage to Codecov
-      #   if: matrix.os == 'linux'
-      #   uses: codecov/codecov-action@v5
-      #   with:
-      #     token: ${{ secrets.CODECOV_TOKEN }}
-      #     files: ./coverage.out
-      #     fail_ci_if_error: false
-      #     verbose: true
-      #     slug: Tochemey/goakt-mcp
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'linux'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.out
+          fail_ci_if_error: false
+          verbose: true
+          slug: Tochemey/goakt-mcp
