@@ -29,7 +29,7 @@ import (
 )
 
 // TestMainPackageCompiles verifies that the CLI entrypoint package compiles.
-// Phase 0 placeholder; real CLI logic and tests will be added in Phase 2.
+// Phase 0 placeholder; real CLI logic and tests will be added in the coming implementation phases.
 func TestMainPackageCompiles(t *testing.T) {
 	require.True(t, true, "testify should be available for assertions")
 }

@@ -4,6 +4,9 @@
 </h2>
 
 ---
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Tochemey/goakt-mcp/gha-pipeline.yml)](https://github.com/Tochemey/goakt-mcp/actions/workflows/gha-pipeline.yml)
+[![codecov](https://codecov.io/gh/Tochemey/goakt-mcp/graph/badge.svg?token=EkuaJqCDZr)](https://codecov.io/gh/Tochemey/goakt-mcp)
+
 
 goakt-mcp is a production-oriented MCP gateway built in Go. It sits between clients and MCP servers and provides a resilient, observable, and scalable execution layer for tool calls.
 
