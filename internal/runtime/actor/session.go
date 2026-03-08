@@ -33,6 +33,7 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // session is the SessionActor.
@@ -61,11 +62,11 @@ import (
 //
 // All fields are unexported to enforce actor immutability rules.
 type session struct {
-	tenantID runtime.TenantID
-	clientID runtime.ClientID
-	toolID   runtime.ToolID
-	tool     runtime.Tool
-	executor runtime.ToolExecutor
+	tenantID mcp.TenantID
+	clientID mcp.ClientID
+	toolID   mcp.ToolID
+	tool     mcp.Tool
+	executor mcp.ToolExecutor
 	logger   goaktlog.Logger
 }
 
@@ -94,7 +95,7 @@ func (x *session) PreStart(ctx *goaktactor.Context) error {
 	}
 
 	if x.toolID.IsZero() {
-		return runtime.NewRuntimeError(runtime.ErrCodeInternal, "session dependency not found")
+		return mcp.NewRuntimeError(mcp.ErrCodeInternal, "session dependency not found")
 	}
 
 	x.logger.Infof("actor session:%s-%s-%s started", x.tenantID, x.clientID, x.toolID)
@@ -129,11 +130,11 @@ func (x *session) PostStop(ctx *goaktactor.Context) error {
 // it performs real MCP execution; otherwise a stub result is returned.
 func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runtime.SessionInvoke) {
 	if msg.Invocation == nil {
-		ctx.Response(&runtime.SessionInvokeResult{Err: runtime.NewRuntimeError(runtime.ErrCodeInvalidRequest, "invocation is required")})
+		ctx.Response(&runtime.SessionInvokeResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "invocation is required")})
 		return
 	}
 	if msg.Invocation.ToolID != x.toolID {
-		ctx.Response(&runtime.SessionInvokeResult{Err: runtime.NewRuntimeError(runtime.ErrCodeInvalidRequest, "tool ID mismatch")})
+		ctx.Response(&runtime.SessionInvokeResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID mismatch")})
 		return
 	}
 
@@ -142,7 +143,7 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.PausePassivation{})
 
 	start := time.Now()
-	var result *runtime.ExecutionResult
+	var result *mcp.ExecutionResult
 
 	if x.executor != nil {
 		execCtx := ctx.Context()
@@ -158,9 +159,9 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 		result, err = x.executor.Execute(execCtx, msg.Invocation)
 		duration := time.Since(start)
 		if err != nil {
-			result = &runtime.ExecutionResult{
-				Status:      runtime.ExecutionStatusFailure,
-				Err:         runtime.WrapRuntimeError(runtime.ErrCodeInternal, "execution failed", err),
+			result = &mcp.ExecutionResult{
+				Status:      mcp.ExecutionStatusFailure,
+				Err:         mcp.WrapRuntimeError(mcp.ErrCodeInternal, "execution failed", err),
 				Duration:    duration,
 				Correlation: msg.Invocation.Correlation,
 			}
@@ -169,8 +170,8 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 		}
 	} else {
 		// Stub mode: no executor configured.
-		result = &runtime.ExecutionResult{
-			Status:      runtime.ExecutionStatusSuccess,
+		result = &mcp.ExecutionResult{
+			Status:      mcp.ExecutionStatusSuccess,
 			Output:      map[string]any{},
 			Duration:    time.Since(start),
 			Correlation: msg.Invocation.Correlation,

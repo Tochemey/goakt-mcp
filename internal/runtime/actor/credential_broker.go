@@ -30,8 +30,8 @@ import (
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // credentialCacheEntry holds cached credentials with expiration.
@@ -80,7 +80,7 @@ func newCredentialBroker(providers []credentials.Provider, cacheTTL time.Duratio
 // PreStart initializes the CredentialBroker.
 func (x *credentialBroker) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
-	x.logger.Infof("actor=%s started", runtime.ActorNameCredentialBroker)
+	x.logger.Infof("actor=%s started", mcp.ActorNameCredentialBroker)
 	return nil
 }
 
@@ -88,7 +88,7 @@ func (x *credentialBroker) PreStart(ctx *goaktactor.Context) error {
 func (x *credentialBroker) Receive(ctx *goaktactor.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goaktactor.PostStart:
-		x.logger.Debugf("actor=%s post-start", runtime.ActorNameCredentialBroker)
+		x.logger.Debugf("actor=%s post-start", mcp.ActorNameCredentialBroker)
 	case *credentials.ResolveRequest:
 		x.handleResolve(ctx, msg)
 	default:
@@ -101,7 +101,7 @@ func (x *credentialBroker) Receive(ctx *goaktactor.ReceiveContext) {
 // so no synchronization is needed.
 func (x *credentialBroker) PostStop(ctx *goaktactor.Context) error {
 	x.cache = make(map[string]*credentialCacheEntry)
-	x.logger.Infof("actor=%s stopped", runtime.ActorNameCredentialBroker)
+	x.logger.Infof("actor=%s stopped", mcp.ActorNameCredentialBroker)
 	return nil
 }
 
@@ -124,7 +124,7 @@ func (x *credentialBroker) handleResolve(ctx *goaktactor.ReceiveContext, msg *cr
 	for _, provider := range x.providers {
 		creds, err := provider.Resolve(goCtx, msg.TenantID, msg.ToolID)
 		if err != nil {
-			x.logger.Warnf("actor=%s provider=%s resolve failed: %v", runtime.ActorNameCredentialBroker, provider.ID(), err)
+			x.logger.Warnf("actor=%s provider=%s resolve failed: %v", mcp.ActorNameCredentialBroker, provider.ID(), err)
 			continue
 		}
 
@@ -136,7 +136,7 @@ func (x *credentialBroker) handleResolve(ctx *goaktactor.ReceiveContext, msg *cr
 
 	if len(resolved) == 0 {
 		ctx.Response(&credentials.ResolveResult{
-			Err: runtime.NewRuntimeError(runtime.ErrCodeCredentialUnavailable, "no credentials found for tenant and tool"),
+			Err: mcp.NewRuntimeError(mcp.ErrCodeCredentialUnavailable, "no credentials found for tenant and tool"),
 		})
 		return
 	}

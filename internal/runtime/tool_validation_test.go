@@ -29,100 +29,102 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestValidateTool(t *testing.T) {
 	tests := []struct {
 		name    string
-		tool    Tool
+		tool    mcp.Tool
 		wantErr bool
-		code    ErrorCode
+		code    mcp.ErrorCode
 	}{
 		{
 			name: "valid stdio tool",
-			tool: Tool{
-				ID:        ToolID("my-tool"),
-				Transport: TransportStdio,
-				Stdio:     &StdioTransportConfig{Command: "npx"},
+			tool: mcp.Tool{
+				ID:        mcp.ToolID("my-tool"),
+				Transport: mcp.TransportStdio,
+				Stdio:     &mcp.StdioTransportConfig{Command: "npx"},
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid http tool",
-			tool: Tool{
-				ID:        ToolID("http-tool"),
-				Transport: TransportHTTP,
-				HTTP:      &HTTPTransportConfig{URL: "http://localhost:8080"},
+			tool: mcp.Tool{
+				ID:        mcp.ToolID("http-tool"),
+				Transport: mcp.TransportHTTP,
+				HTTP:      &mcp.HTTPTransportConfig{URL: "http://localhost:8080"},
 			},
 			wantErr: false,
 		},
 		{
 			name: "empty tool ID",
-			tool: Tool{
+			tool: mcp.Tool{
 				ID:        "",
-				Transport: TransportStdio,
-				Stdio:     &StdioTransportConfig{Command: "npx"},
+				Transport: mcp.TransportStdio,
+				Stdio:     &mcp.StdioTransportConfig{Command: "npx"},
 			},
 			wantErr: true,
-			code:    ErrCodeInvalidRequest,
+			code:    mcp.ErrCodeInvalidRequest,
 		},
 		{
 			name: "stdio without command",
-			tool: Tool{
-				ID:        ToolID("bad-stdio"),
-				Transport: TransportStdio,
-				Stdio:     &StdioTransportConfig{Command: ""},
+			tool: mcp.Tool{
+				ID:        mcp.ToolID("bad-stdio"),
+				Transport: mcp.TransportStdio,
+				Stdio:     &mcp.StdioTransportConfig{Command: ""},
 			},
 			wantErr: true,
-			code:    ErrCodeInvalidRequest,
+			code:    mcp.ErrCodeInvalidRequest,
 		},
 		{
 			name: "stdio with nil config",
-			tool: Tool{
-				ID:        ToolID("bad-stdio"),
-				Transport: TransportStdio,
+			tool: mcp.Tool{
+				ID:        mcp.ToolID("bad-stdio"),
+				Transport: mcp.TransportStdio,
 				Stdio:     nil,
 			},
 			wantErr: true,
-			code:    ErrCodeInvalidRequest,
+			code:    mcp.ErrCodeInvalidRequest,
 		},
 		{
 			name: "http without URL",
-			tool: Tool{
-				ID:        ToolID("bad-http"),
-				Transport: TransportHTTP,
-				HTTP:      &HTTPTransportConfig{URL: ""},
+			tool: mcp.Tool{
+				ID:        mcp.ToolID("bad-http"),
+				Transport: mcp.TransportHTTP,
+				HTTP:      &mcp.HTTPTransportConfig{URL: ""},
 			},
 			wantErr: true,
-			code:    ErrCodeInvalidRequest,
+			code:    mcp.ErrCodeInvalidRequest,
 		},
 		{
 			name: "http with nil config",
-			tool: Tool{
-				ID:        ToolID("bad-http"),
-				Transport: TransportHTTP,
+			tool: mcp.Tool{
+				ID:        mcp.ToolID("bad-http"),
+				Transport: mcp.TransportHTTP,
 				HTTP:      nil,
 			},
 			wantErr: true,
-			code:    ErrCodeInvalidRequest,
+			code:    mcp.ErrCodeInvalidRequest,
 		},
 		{
 			name: "invalid transport",
-			tool: Tool{
-				ID:        ToolID("bad-transport"),
-				Transport: TransportType("grpc"),
-				Stdio:     &StdioTransportConfig{Command: "npx"},
+			tool: mcp.Tool{
+				ID:        mcp.ToolID("bad-transport"),
+				Transport: mcp.TransportType("grpc"),
+				Stdio:     &mcp.StdioTransportConfig{Command: "npx"},
 			},
 			wantErr: true,
-			code:    ErrCodeInvalidRequest,
+			code:    mcp.ErrCodeInvalidRequest,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateTool(tt.tool)
+			err := mcp.ValidateTool(tt.tool)
 			if tt.wantErr {
 				require.Error(t, err)
-				var rErr *RuntimeError
+				var rErr *mcp.RuntimeError
 				require.True(t, errors.As(err, &rErr), "expected RuntimeError")
 				assert.Equal(t, tt.code, rErr.Code)
 			} else {

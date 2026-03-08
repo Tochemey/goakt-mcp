@@ -29,12 +29,12 @@ import (
 
 	goaktextension "github.com/tochemey/goakt/v4/extension"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func init() {
-	gob.Register(&runtime.StdioTransportConfig{})
-	gob.Register(&runtime.HTTPTransportConfig{})
+	gob.Register(&mcp.StdioTransportConfig{})
+	gob.Register(&mcp.HTTPTransportConfig{})
 }
 
 // ToolDependencyID is the fixed identifier for the tool dependency injected
@@ -44,13 +44,13 @@ const ToolDependencyID = "tool"
 // ToolDependency wraps a Tool for injection into ToolSupervisorActor via
 // WithDependencies. The supervisor resolves this dependency in PreStart.
 type ToolDependency struct {
-	tool runtime.Tool
+	tool mcp.Tool
 }
 
 var _ goaktextension.Dependency = (*ToolDependency)(nil)
 
 // NewToolDependency creates a dependency wrapping the given tool.
-func NewToolDependency(tool runtime.Tool) *ToolDependency {
+func NewToolDependency(tool mcp.Tool) *ToolDependency {
 	return &ToolDependency{tool: tool}
 }
 
@@ -76,7 +76,7 @@ func (x *ToolDependency) UnmarshalBinary(data []byte) error {
 }
 
 // Tool returns the wrapped tool definition.
-func (x *ToolDependency) Tool() runtime.Tool {
+func (x *ToolDependency) Tool() mcp.Tool {
 	return x.tool
 }
 
@@ -87,13 +87,13 @@ const CircuitConfigDependencyID = "circuit_config"
 // CircuitConfigDependency optionally overrides circuit breaker parameters.
 // Used in tests to avoid long OpenDuration waits.
 type CircuitConfigDependency struct {
-	cfg runtime.CircuitConfig
+	cfg mcp.CircuitConfig
 }
 
 var _ goaktextension.Dependency = (*CircuitConfigDependency)(nil)
 
 // NewCircuitConfigDependency creates a circuit config dependency.
-func NewCircuitConfigDependency(cfg runtime.CircuitConfig) *CircuitConfigDependency {
+func NewCircuitConfigDependency(cfg mcp.CircuitConfig) *CircuitConfigDependency {
 	return &CircuitConfigDependency{cfg: cfg}
 }
 
@@ -103,7 +103,7 @@ func (c *CircuitConfigDependency) ID() string {
 }
 
 // Config returns the circuit breaker configuration.
-func (c *CircuitConfigDependency) Config() runtime.CircuitConfig {
+func (c *CircuitConfigDependency) Config() mcp.CircuitConfig {
 	return c.cfg
 }
 

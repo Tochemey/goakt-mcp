@@ -29,9 +29,9 @@ import (
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // policyActor is the PolicyActor.
@@ -54,7 +54,7 @@ import (
 type policyActor struct {
 	evaluator     *policy.Evaluator
 	config        config.Config
-	requestCounts map[runtime.TenantID]int
+	requestCounts map[mcp.TenantID]int
 	currentMinute int64
 	logger        goaktlog.Logger
 }
@@ -68,14 +68,14 @@ func newPolicyActor(config config.Config) *policyActor {
 	return &policyActor{
 		evaluator:     policy.NewEvaluator(config),
 		config:        config,
-		requestCounts: make(map[runtime.TenantID]int),
+		requestCounts: make(map[mcp.TenantID]int),
 	}
 }
 
 // PreStart initializes the PolicyActor before message processing begins.
 func (x *policyActor) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
-	x.logger.Infof("actor=%s started", runtime.ActorNamePolicy)
+	x.logger.Infof("actor=%s started", mcp.ActorNamePolicy)
 	return nil
 }
 
@@ -83,7 +83,7 @@ func (x *policyActor) PreStart(ctx *goaktactor.Context) error {
 func (x *policyActor) Receive(ctx *goaktactor.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goaktactor.PostStart:
-		x.logger.Debugf("actor=%s post-start", runtime.ActorNamePolicy)
+		x.logger.Debugf("actor=%s post-start", mcp.ActorNamePolicy)
 	case *policy.EvaluateRequest:
 		x.handleEvaluate(ctx, msg)
 	default:
@@ -93,7 +93,7 @@ func (x *policyActor) Receive(ctx *goaktactor.ReceiveContext) {
 
 // PostStop performs cleanup after PolicyActor has stopped.
 func (x *policyActor) PostStop(ctx *goaktactor.Context) error {
-	x.logger.Infof("actor=%s stopped", runtime.ActorNamePolicy)
+	x.logger.Infof("actor=%s stopped", mcp.ActorNamePolicy)
 	return nil
 }
 
@@ -106,7 +106,7 @@ func (x *policyActor) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy
 			Result: policy.Result{
 				Decision: policy.DecisionDeny,
 				Reason:   "missing policy input",
-				Err:      runtime.NewRuntimeError(runtime.ErrCodeInvalidRequest, "missing policy input"),
+				Err:      mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "missing policy input"),
 			},
 		})
 		return
@@ -117,7 +117,7 @@ func (x *policyActor) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy
 	now := time.Now()
 	minute := now.Unix() / 60
 	if minute != x.currentMinute {
-		x.requestCounts = make(map[runtime.TenantID]int)
+		x.requestCounts = make(map[mcp.TenantID]int)
 		x.currentMinute = minute
 	}
 
@@ -132,7 +132,7 @@ func (x *policyActor) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy
 
 // lookupTenantConfig returns the TenantConfig for the given tenant, or nil
 // when the tenant is not explicitly configured. Used to resolve quota limits.
-func (x *policyActor) lookupTenantConfig(tenantID runtime.TenantID) *config.TenantConfig {
+func (x *policyActor) lookupTenantConfig(tenantID mcp.TenantID) *config.TenantConfig {
 	for i := range x.config.Tenants {
 		tc := &x.config.Tenants[i]
 		if tc.ID == tenantID {

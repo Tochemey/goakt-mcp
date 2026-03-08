@@ -27,22 +27,24 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-// TestRuntimePackageContracts verifies that the runtime package exports the
+// TestRuntimePackageContracts verifies that the mcp package exports the
 // expected top-level symbols and that their zero values are coherent.
 func TestRuntimePackageContracts(t *testing.T) {
 	// identity types are string-based; zero values must be empty
-	require.True(t, TenantID("").IsZero())
-	require.True(t, ClientID("").IsZero())
-	require.True(t, ToolID("").IsZero())
-	require.True(t, SessionID("").IsZero())
-	require.True(t, RequestID("").IsZero())
-	require.True(t, TraceID("").IsZero())
+	require.True(t, mcp.TenantID("").IsZero())
+	require.True(t, mcp.ClientID("").IsZero())
+	require.True(t, mcp.ToolID("").IsZero())
+	require.True(t, mcp.SessionID("").IsZero())
+	require.True(t, mcp.RequestID("").IsZero())
+	require.True(t, mcp.TraceID("").IsZero())
 
 	// a zero CorrelationMeta is fully empty
-	require.True(t, CorrelationMeta{}.IsZero())
+	require.True(t, mcp.CorrelationMeta{}.IsZero())
 
 	// a zero Tool is not available (zero ToolState is not enabled or degraded)
-	require.False(t, Tool{}.IsAvailable())
+	require.False(t, mcp.Tool{}.IsAvailable())
 }

@@ -21,7 +21,29 @@
 // SOFTWARE.
 //
 
-// Package ingress provides all inbound interfaces and request handling for the
-// goakt-mcp gateway. It includes the data-plane HTTP handlers, control-plane
-// administrative handlers, and request/response DTOs used by ingress adapters.
-package ingress
+package mcp
+
+import "fmt"
+
+// Actor name constants for well-known singleton actors.
+const (
+	ActorNameGatewayManager   = "gateway-manager"
+	ActorNameRegistrar        = "registrar"
+	ActorNameHealth           = "health"
+	ActorNameJournal          = "journal"
+	ActorNameCredentialBroker = "credential-broker" //nolint:gosec
+	ActorNameRouter           = "router"
+	ActorNamePolicy           = "policy"
+)
+
+// ToolSupervisorName returns the deterministic actor name for the tool supervisor
+// responsible for the given tool.
+func ToolSupervisorName(toolID ToolID) string {
+	return fmt.Sprintf("supervisor-%s", toolID)
+}
+
+// SessionName returns the deterministic actor name for the session owned by the
+// given tenant, client, and tool combination.
+func SessionName(tenantID TenantID, clientID ClientID, toolID ToolID) string {
+	return fmt.Sprintf("session-%s-%s-%s", tenantID, clientID, toolID)
+}

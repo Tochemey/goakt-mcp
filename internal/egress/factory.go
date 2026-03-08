@@ -30,8 +30,8 @@ import (
 
 	egresshttp "github.com/tochemey/goakt-mcp/internal/egress/http"
 	"github.com/tochemey/goakt-mcp/internal/egress/stdio"
-	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // CompositeExecutorFactory creates ToolExecutor instances by delegating to
@@ -56,11 +56,11 @@ func NewCompositeExecutorFactory(startupTimeout time.Duration, httpClient *http.
 
 // Create returns an executor for the tool's transport, or nil when the tool
 // has no configured transport.
-func (f *CompositeExecutorFactory) Create(ctx context.Context, tool runtime.Tool, creds map[string]string) (runtime.ToolExecutor, error) {
+func (f *CompositeExecutorFactory) Create(ctx context.Context, tool mcp.Tool, creds map[string]string) (mcp.ToolExecutor, error) {
 	switch tool.Transport {
-	case runtime.TransportStdio:
+	case mcp.TransportStdio:
 		return f.stdio.Create(ctx, tool, creds)
-	case runtime.TransportHTTP:
+	case mcp.TransportHTTP:
 		return f.http.Create(ctx, tool, creds)
 	default:
 		return nil, nil

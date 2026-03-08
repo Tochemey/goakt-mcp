@@ -27,19 +27,21 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestActorNameConstants(t *testing.T) {
-	assert.Equal(t, "gateway-manager", ActorNameGatewayManager)
-	assert.Equal(t, "registrar", ActorNameRegistrar)
-	assert.Equal(t, "health", ActorNameHealth)
-	assert.Equal(t, "journal", ActorNameJournal)
-	assert.Equal(t, "credential-broker", ActorNameCredentialBroker)
+	assert.Equal(t, "gateway-manager", mcp.ActorNameGatewayManager)
+	assert.Equal(t, "registrar", mcp.ActorNameRegistrar)
+	assert.Equal(t, "health", mcp.ActorNameHealth)
+	assert.Equal(t, "journal", mcp.ActorNameJournal)
+	assert.Equal(t, "credential-broker", mcp.ActorNameCredentialBroker)
 }
 
 func TestToolSupervisorName(t *testing.T) {
 	tests := []struct {
-		toolID   ToolID
+		toolID   mcp.ToolID
 		expected string
 	}{
 		{"filesystem", "supervisor-filesystem"},
@@ -48,16 +50,16 @@ func TestToolSupervisorName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.toolID), func(t *testing.T) {
-			assert.Equal(t, tt.expected, ToolSupervisorName(tt.toolID))
+			assert.Equal(t, tt.expected, mcp.ToolSupervisorName(tt.toolID))
 		})
 	}
 }
 
 func TestSessionName(t *testing.T) {
 	tests := []struct {
-		tenantID TenantID
-		clientID ClientID
-		toolID   ToolID
+		tenantID mcp.TenantID
+		clientID mcp.ClientID
+		toolID   mcp.ToolID
 		expected string
 	}{
 		{"acme", "user-1", "filesystem", "session-acme-user-1-filesystem"},
@@ -65,16 +67,16 @@ func TestSessionName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
-			assert.Equal(t, tt.expected, SessionName(tt.tenantID, tt.clientID, tt.toolID))
+			assert.Equal(t, tt.expected, mcp.SessionName(tt.tenantID, tt.clientID, tt.toolID))
 		})
 	}
 }
 
 func TestSessionNameUniqueness(t *testing.T) {
-	name1 := SessionName("acme", "user-1", "filesystem")
-	name2 := SessionName("acme", "user-2", "filesystem")
-	name3 := SessionName("other", "user-1", "filesystem")
-	name4 := SessionName("acme", "user-1", "docs-search")
+	name1 := mcp.SessionName("acme", "user-1", "filesystem")
+	name2 := mcp.SessionName("acme", "user-2", "filesystem")
+	name3 := mcp.SessionName("other", "user-1", "filesystem")
+	name4 := mcp.SessionName("acme", "user-1", "docs-search")
 
 	assert.NotEqual(t, name1, name2, "different clients must produce different session names")
 	assert.NotEqual(t, name1, name3, "different tenants must produce different session names")

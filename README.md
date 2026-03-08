@@ -1,6 +1,6 @@
 <h2 align="center">
   <img src="assets/logo.png" alt="GoAkt - Distributed Actor framework for Go" width="800"/><br />
-  Distributed MCP gateway built in Go
+  Distributed MCP gateway library built in Go using the actor model
 </h2>
 
 ---
@@ -8,13 +8,13 @@
 [![codecov](https://codecov.io/gh/Tochemey/goakt-mcp/graph/badge.svg?token=EkuaJqCDZr)](https://codecov.io/gh/Tochemey/goakt-mcp)
 
 
-goakt-mcp is a production-oriented MCP gateway built in Go. It sits between clients and MCP servers and provides a resilient, observable, and scalable execution layer for tool calls.
+goakt-mcp is a production-oriented MCP gateway library built in Go. It provides a resilient, observable, and scalable execution layer for tool calls through a programmatic Go API.
 
-Instead of behaving like a thin JSON-RPC proxy, goakt-mcp is designed as an operational control plane for MCP workloads. It manages tool lifecycle, session affinity, supervision, routing, credential brokering, policy enforcement, and auditability behind a single gateway API.
+Instead of behaving like a thin JSON-RPC proxy, goakt-mcp is designed as an operational control plane for MCP workloads. It manages tool lifecycle, session affinity, supervision, routing, credential brokering, policy enforcement, and auditability behind a single `Gateway` API.
 
 ## Status
 
-The project is in the design and buildout phase. The architecture and product direction are defined; the runtime is intended to support production-ready v1 capabilities. This repository should be read as a project in progress, not as a finished gateway.
+The project is in the design and buildout phase. The architecture and product direction are defined; the runtime is intended to support production-ready v1 capabilities. This repository should be read as a project in progress, not as a finished library.
 
 ## Why goakt-mcp
 
@@ -31,7 +31,7 @@ The actor model is a strong fit for this problem space. goakt-mcp is built on [G
 
 goakt-mcp is intended to provide:
 
-- A single HTTP gateway for MCP tool invocation
+- A programmatic Go API for MCP tool invocation and management
 - Support for both stdio and HTTP-based MCP transports
 - Per-tool supervision, circuit breakers, passivation, and backpressure
 - Sticky session ownership per tenant + client + tool
@@ -41,100 +41,123 @@ goakt-mcp is intended to provide:
 - Tenant-aware policy enforcement, quotas, and auditing
 - OpenTelemetry traces, metrics, structured logs, and durable audit records
 
-## API Shape
+## Quick Start
 
-The primary data-plane endpoints are expected to include:
+```go
+package main
 
-- `POST /v1/tools/{tool}/invoke`
-- `GET /v1/tools`
-- `GET /healthz`
-- `GET /readyz`
+import (
+	"context"
+	"fmt"
+	"log"
 
-The control plane is expected to include endpoints for registering, updating, disabling, and removing tools.
+	goaktmcp "github.com/tochemey/goakt-mcp"
+	"github.com/tochemey/goakt-mcp/mcp"
+)
 
-## Example Invoke Request
+func main() {
+	cfg := mcp.Config{
+		Tools: []mcp.Tool{
+			{
+				ID:        "filesystem",
+				Transport: mcp.TransportStdio,
+				Stdio:     &mcp.StdioTransportConfig{Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"}},
+				State:     mcp.ToolStateEnabled,
+			},
+		},
+	}
 
-```json
-{
-  "tenant_id": "acme-dev",
-  "client_id": "client-app-123",
-  "request_id": "req_01JXYZ",
-  "trace_id": "trace_01JXYZ",
-  "method": "tools/call",
-  "params": {
-    "name": "search_docs",
-    "arguments": {
-      "query": "actor supervision"
-    }
-  },
-  "metadata": {
-    "source": "gateway-client"
-  }
+	gw, err := goaktmcp.New(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ctx := context.Background()
+	if err := gw.Start(ctx); err != nil {
+		log.Fatal(err)
+	}
+	defer gw.Stop(ctx)
+
+	// List registered tools
+	tools, _ := gw.ListTools(ctx)
+	fmt.Printf("Registered tools: %d\n", len(tools))
+
+	// Invoke a tool
+	result, err := gw.Invoke(ctx, &mcp.Invocation{
+		ToolID: "filesystem",
+		Method: "tools/call",
+		Params: map[string]any{
+			"name":      "list_directory",
+			"arguments": map[string]any{"path": "/tmp"},
+		},
+		Correlation: mcp.CorrelationMeta{
+			TenantID: "acme-dev",
+			ClientID: "my-app",
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("Result: %v\n", result.Status)
+
+	// Dynamically register a new tool
+	_ = gw.RegisterTool(ctx, mcp.Tool{
+		ID:        "new-tool",
+		Transport: mcp.TransportHTTP,
+		HTTP:      &mcp.HTTPTransportConfig{URL: "https://mcp.example.com"},
+		State:     mcp.ToolStateEnabled,
+	})
 }
 ```
 
-## Example Configuration
+## API
 
-```yaml
-tenants:
-  - id: acme-dev
-    quotas:
-      requests_per_minute: 1000
-      concurrent_sessions: 200
-http:
-  listen_address: ":8080"
-  # Optional TLS for ingress (HTTPS). Omit for plain HTTP.
-  # tls:
-  #   cert_file: /etc/goakt-mcp/tls/server.crt
-  #   key_file: /etc/goakt-mcp/tls/server.key
-  #   client_ca_file: /etc/goakt-mcp/tls/client-ca.crt  # optional, enables mTLS
-cluster:
-  enabled: true
-  discovery: consul
-  singleton_role: control-plane
-telemetry:
-  otlp_endpoint: "http://otel-collector:4318"
-audit:
-  backend: s3
-  bucket: goakt-mcp-audit
-credentials:
-  providers: ["env", "vault"]
-runtime:
-  session_idle_timeout: 5m
-  request_timeout: 30s
-  startup_timeout: 10s
-tools:
-  - id: filesystem
-    transport: stdio
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-    env: {}
-    working_directory: /
-    startup_timeout: 10s
-    request_timeout: 30s
-    idle_timeout: 5m
-    routing: sticky
-    credential_policy: optional
-    authorization_policy: tenant_allowlist
-  - id: docs-search
-    transport: http
-    url: "https://mcp.internal.example.com"
-    # Optional TLS for egress (custom CA, client certs, or dev skip-verify)
-    # http_tls:
-    #   ca_cert_file: /etc/goakt-mcp/tls/mcp-ca.crt
-    #   client_cert_file: /etc/goakt-mcp/tls/client.crt
-    #   client_key_file: /etc/goakt-mcp/tls/client.key
-    #   insecure_skip_verify: false  # dev only; never use in production
-    request_timeout: 15s
-    idle_timeout: 2m
-    routing: least_loaded
-    credential_policy: required
-    authorization_policy: tenant_allowlist
+The `Gateway` is the sole public entry point. Users construct it with a `Config` and options, then call methods:
+
+| Method                     | Description                                |
+|----------------------------|--------------------------------------------|
+| `New(cfg, ...opts)`        | Create a new Gateway                       |
+| `Start(ctx)`               | Start the actor system and bootstrap tools |
+| `Stop(ctx)`                | Gracefully shut down                       |
+| `Invoke(ctx, inv)`         | Execute a tool invocation                  |
+| `ListTools(ctx)`           | List all registered tools                  |
+| `RegisterTool(ctx, tool)`  | Dynamically register a tool                |
+| `UpdateTool(ctx, tool)`    | Update a tool's metadata                   |
+| `DisableTool(ctx, toolID)` | Disable a tool                             |
+| `RemoveTool(ctx, toolID)`  | Remove a tool                              |
+
+## Configuration
+
+Configuration is constructed programmatically. Build a `Config` struct with your tools, tenants, and runtime settings:
+
+```go
+import "github.com/tochemey/goakt-mcp/mcp"
+
+cfg := mcp.Config{
+    LogLevel: "info",
+    Runtime: mcp.RuntimeConfig{
+        SessionIdleTimeout: 5 * time.Minute,
+        RequestTimeout:     30 * time.Second,
+    },
+    Tools: []mcp.Tool{
+        {
+            ID:        "filesystem",
+            Transport: mcp.TransportStdio,
+            Stdio:     &mcp.StdioTransportConfig{Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"}},
+            State:     mcp.ToolStateEnabled,
+        },
+    },
+}
 ```
 
-## Design Document
+Defaults are applied for zero-valued runtime fields. See `mcp.Config` and related types for the full configuration model.
 
-For the full architecture, runtime decisions, and production scope, see `IDEATION.md`.
+### Cluster Discovery
+
+goakt-mcp supports multi-node clustering with:
+
+- **Kubernetes**: In-cluster pod discovery using labels and port names
+- **DNS-SD**: DNS-based service discovery for local development
 
 ## License
 

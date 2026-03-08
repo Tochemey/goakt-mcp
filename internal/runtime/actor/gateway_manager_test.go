@@ -30,8 +30,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestGatewayManager(t *testing.T) {
@@ -41,17 +41,17 @@ func TestGatewayManager(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, runtime.ActorNameGatewayManager, newGatewayManager(testConfig()))
+		pid, err := system.Spawn(ctx, mcp.ActorNameGatewayManager, NewGatewayManager(testConfig()))
 		require.NoError(t, err)
 		require.NotNil(t, pid)
-		assert.Equal(t, runtime.ActorNameGatewayManager, pid.Name())
+		assert.Equal(t, mcp.ActorNameGatewayManager, pid.Name())
 	})
 
 	t.Run("spawns foundational children on PostStart", func(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, runtime.ActorNameGatewayManager, newGatewayManager(testConfig()))
+		pid, err := system.Spawn(ctx, mcp.ActorNameGatewayManager, NewGatewayManager(testConfig()))
 		require.NoError(t, err)
 
 		waitForActors()
@@ -62,11 +62,11 @@ func TestGatewayManager(t *testing.T) {
 			childNames[c.Name()] = true
 		}
 
-		assert.True(t, childNames[runtime.ActorNameRegistrar], "RegistryActor must be spawned")
-		assert.True(t, childNames[runtime.ActorNameHealth], "HealthActor must be spawned")
-		assert.True(t, childNames[runtime.ActorNameJournal], "JournalActor must be spawned")
-		assert.True(t, childNames[runtime.ActorNamePolicy], "PolicyActor must be spawned")
-		assert.True(t, childNames[runtime.ActorNameRouter], "RouterActor must be spawned")
+		assert.True(t, childNames[mcp.ActorNameRegistrar], "RegistryActor must be spawned")
+		assert.True(t, childNames[mcp.ActorNameHealth], "HealthActor must be spawned")
+		assert.True(t, childNames[mcp.ActorNameJournal], "JournalActor must be spawned")
+		assert.True(t, childNames[mcp.ActorNamePolicy], "PolicyActor must be spawned")
+		assert.True(t, childNames[mcp.ActorNameRouter], "RouterActor must be spawned")
 		assert.Len(t, children, 5, "GatewayManager must spawn exactly five foundational actors")
 	})
 
@@ -74,7 +74,7 @@ func TestGatewayManager(t *testing.T) {
 		kit, ctx := newTestKit(t)
 
 		cfg := testConfig()
-		pid, err := kit.ActorSystem().Spawn(ctx, runtime.ActorNameGatewayManager, newGatewayManager(cfg))
+		pid, err := kit.ActorSystem().Spawn(ctx, mcp.ActorNameGatewayManager, NewGatewayManager(cfg))
 		require.NoError(t, err)
 		waitForActors()
 		require.NoError(t, pid.Tell(ctx, pid, "unknown"))

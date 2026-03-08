@@ -26,7 +26,7 @@ package extension
 import (
 	goaktextension "github.com/tochemey/goakt/v4/extension"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // ExecutorFactoryExtensionID is the fixed identifier for the ExecutorFactory
@@ -37,13 +37,13 @@ const ExecutorFactoryExtensionID = "executor-factory"
 // actor system extension. ToolSupervisor resolves this extension to create
 // executors when spawning sessions.
 type ExecutorFactoryExtension struct {
-	factory runtime.ExecutorFactory
+	factory mcp.ExecutorFactory
 }
 
 var _ goaktextension.Extension = (*ExecutorFactoryExtension)(nil)
 
 // NewExecutorFactoryExtension creates an extension wrapping the given factory.
-func NewExecutorFactoryExtension(factory runtime.ExecutorFactory) *ExecutorFactoryExtension {
+func NewExecutorFactoryExtension(factory mcp.ExecutorFactory) *ExecutorFactoryExtension {
 	return &ExecutorFactoryExtension{factory: factory}
 }
 
@@ -53,6 +53,6 @@ func (e *ExecutorFactoryExtension) ID() string {
 }
 
 // Factory returns the wrapped ExecutorFactory.
-func (e *ExecutorFactoryExtension) Factory() runtime.ExecutorFactory {
+func (e *ExecutorFactoryExtension) Factory() mcp.ExecutorFactory {
 	return e.factory
 }

@@ -34,32 +34,32 @@ import (
 	goaktlog "github.com/tochemey/goakt/v4/log"
 	"github.com/tochemey/goakt/v4/testkit"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // askTimeout is the default timeout for Ask calls in tests.
 const askTimeout = 5 * time.Second
 
 // validStdioTool returns a valid stdio tool for use in tests.
-func validStdioTool(id runtime.ToolID) runtime.Tool {
-	return runtime.Tool{
+func validStdioTool(id mcp.ToolID) mcp.Tool {
+	return mcp.Tool{
 		ID:        id,
-		Transport: runtime.TransportStdio,
-		Stdio:     &runtime.StdioTransportConfig{Command: "npx"},
-		State:     runtime.ToolStateEnabled,
+		Transport: mcp.TransportStdio,
+		Stdio:     &mcp.StdioTransportConfig{Command: "npx"},
+		State:     mcp.ToolStateEnabled,
 	}
 }
 
 // validHTTPTool returns a valid HTTP tool for use in tests.
-func validHTTPTool(id runtime.ToolID) runtime.Tool {
-	return runtime.Tool{
+func validHTTPTool(id mcp.ToolID) mcp.Tool {
+	return mcp.Tool{
 		ID:        id,
-		Transport: runtime.TransportHTTP,
-		HTTP:      &runtime.HTTPTransportConfig{URL: "http://localhost:8080"},
-		State:     runtime.ToolStateEnabled,
+		Transport: mcp.TransportHTTP,
+		HTTP:      &mcp.HTTPTransportConfig{URL: "http://localhost:8080"},
+		State:     mcp.ToolStateEnabled,
 	}
 }
 
@@ -85,9 +85,6 @@ func testActorSystem(t *testing.T) (goaktactor.ActorSystem, func()) {
 // testConfig returns a minimal Config suitable for use in tests.
 func testConfig() config.Config {
 	return config.Config{
-		HTTP: config.HTTPConfig{
-			ListenAddress: config.DefaultHTTPListenAddress,
-		},
 		Runtime: config.RuntimeConfig{
 			SessionIdleTimeout: config.DefaultSessionIdleTimeout,
 			RequestTimeout:     config.DefaultRequestTimeout,
@@ -97,7 +94,7 @@ func testConfig() config.Config {
 }
 
 // testConfigWithTenants returns a Config with tenant allowlist for policy tests.
-func testConfigWithTenants(tenantIDs ...runtime.TenantID) config.Config {
+func testConfigWithTenants(tenantIDs ...mcp.TenantID) config.Config {
 	cfg := testConfig()
 	for _, id := range tenantIDs {
 		cfg.Tenants = append(cfg.Tenants, config.TenantConfig{ID: id, Quotas: config.TenantQuotaConfig{}})
@@ -113,11 +110,11 @@ func waitForActors() {
 }
 
 // sessionInvocation returns a minimal Invocation for session tests.
-func sessionInvocation(toolID runtime.ToolID, tenantID, clientID string) *runtime.Invocation {
-	return &runtime.Invocation{
-		Correlation: runtime.CorrelationMeta{
-			TenantID:  runtime.TenantID(tenantID),
-			ClientID:  runtime.ClientID(clientID),
+func sessionInvocation(toolID mcp.ToolID, tenantID, clientID string) *mcp.Invocation {
+	return &mcp.Invocation{
+		Correlation: mcp.CorrelationMeta{
+			TenantID:  mcp.TenantID(tenantID),
+			ClientID:  mcp.ClientID(clientID),
 			RequestID: "req-1",
 		},
 		ToolID: toolID,
@@ -158,7 +155,7 @@ func (m *mockCredentialProvider) ID() string {
 	return "mock"
 }
 
-func (m *mockCredentialProvider) Resolve(_ context.Context, _ runtime.TenantID, _ runtime.ToolID) (map[string]string, error) {
+func (m *mockCredentialProvider) Resolve(_ context.Context, _ mcp.TenantID, _ mcp.ToolID) (map[string]string, error) {
 	if m.err != nil {
 		return nil, m.err
 	}

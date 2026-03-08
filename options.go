@@ -21,6 +21,30 @@
 // SOFTWARE.
 //
 
-// Package http provides data-plane HTTP handlers for the goakt-mcp gateway.
-// It implements the public API endpoints for tool invocation and discovery.
-package http
+package goaktmcp
+
+import (
+	"os"
+
+	goaktlog "github.com/tochemey/goakt/v4/log"
+)
+
+// LogLevel wraps goaktlog.Level for gateway logging configuration.
+// Use with WithLogger to configure the gateway's log level.
+type LogLevel = goaktlog.Level
+
+// Option configures a Gateway.
+type Option func(*Gateway)
+
+// WithLogger sets the log level for the gateway. When set, the gateway uses
+// GoAkt's slog-based logger at the specified level. Pass goaktlog.InvalidLevel
+// to suppress all output (e.g. in tests).
+func WithLogger(level LogLevel) Option {
+	return func(g *Gateway) {
+		if level == goaktlog.InvalidLevel {
+			g.logger = goaktlog.DiscardLogger
+		} else {
+			g.logger = goaktlog.NewSlog(level, os.Stdout)
+		}
+	}
+}

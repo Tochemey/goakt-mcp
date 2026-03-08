@@ -32,7 +32,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // DefaultCredentialTTL is the default cache TTL for resolved credentials.
@@ -49,13 +49,13 @@ type Provider interface {
 	// Resolve returns credentials for the given tenant and tool.
 	// Returns (nil, nil) when the provider has no credentials for this combination.
 	// Returns (nil, err) when resolution fails.
-	Resolve(ctx context.Context, tenantID runtime.TenantID, toolID runtime.ToolID) (map[string]string, error)
+	Resolve(ctx context.Context, tenantID mcp.TenantID, toolID mcp.ToolID) (map[string]string, error)
 }
 
 // ResolveRequest is a request to resolve credentials for an invocation.
 type ResolveRequest struct {
-	TenantID runtime.TenantID
-	ToolID   runtime.ToolID
+	TenantID mcp.TenantID
+	ToolID   mcp.ToolID
 }
 
 // ResolveResult is the response to ResolveRequest.

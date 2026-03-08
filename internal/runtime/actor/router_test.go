@@ -36,6 +36,7 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestRouterActor(t *testing.T) {
@@ -45,7 +46,7 @@ func TestRouterActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		registryPID, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		registryPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -54,7 +55,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, runtime.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -65,7 +66,7 @@ func TestRouterActor(t *testing.T) {
 		require.True(t, ok)
 		require.NoError(t, result.Err)
 		require.NotNil(t, result.Result)
-		assert.Equal(t, runtime.ExecutionStatusSuccess, result.Result.Status)
+		assert.Equal(t, mcp.ExecutionStatusSuccess, result.Result.Status)
 		assert.Equal(t, "tenant1", string(result.Result.Correlation.TenantID))
 		assert.Equal(t, "client1", string(result.Result.Correlation.ClientID))
 	})
@@ -74,11 +75,11 @@ func TestRouterActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		registryPID, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		registryPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, runtime.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -88,7 +89,7 @@ func TestRouterActor(t *testing.T) {
 		result, ok := resp.(*runtime.RouteResult)
 		require.True(t, ok)
 		require.Error(t, result.Err)
-		assert.ErrorIs(t, result.Err, runtime.ErrToolNotFound)
+		assert.ErrorIs(t, result.Err, mcp.ErrToolNotFound)
 	})
 
 	t.Run("circuit open rejects work", func(t *testing.T) {
@@ -96,7 +97,7 @@ func TestRouterActor(t *testing.T) {
 		defer stop()
 
 		tool := validStdioTool("circuit-tool")
-		registryPID, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		registryPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -113,12 +114,12 @@ func TestRouterActor(t *testing.T) {
 		supervisorPID, ok := gsResult.Supervisor.(*goaktactor.PID)
 		require.True(t, ok)
 
-		for i := 0; i < runtime.DefaultCircuitFailureThreshold; i++ {
+		for i := 0; i < mcp.DefaultCircuitFailureThreshold; i++ {
 			_ = goaktactor.Tell(ctx, supervisorPID, &runtime.ReportFailure{ToolID: tool.ID})
 		}
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, runtime.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -128,9 +129,9 @@ func TestRouterActor(t *testing.T) {
 		result, ok := resp.(*runtime.RouteResult)
 		require.True(t, ok)
 		require.Error(t, result.Err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.True(t, assert.ErrorAs(t, result.Err, &rErr))
-		assert.Equal(t, runtime.ErrCodeToolUnavailable, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeToolUnavailable, rErr.Code)
 	})
 
 	t.Run("tool disabled", func(t *testing.T) {
@@ -138,8 +139,8 @@ func TestRouterActor(t *testing.T) {
 		defer stop()
 
 		tool := validStdioTool("disabled-tool")
-		tool.State = runtime.ToolStateDisabled
-		registryPID, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		tool.State = mcp.ToolStateDisabled
+		registryPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -147,7 +148,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, runtime.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -157,20 +158,20 @@ func TestRouterActor(t *testing.T) {
 		result, ok := resp.(*runtime.RouteResult)
 		require.True(t, ok)
 		require.Error(t, result.Err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.True(t, assert.ErrorAs(t, result.Err, &rErr))
-		assert.Equal(t, runtime.ErrCodeToolDisabled, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeToolDisabled, rErr.Code)
 	})
 
 	t.Run("invalid invocation nil", func(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		registryPID, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		registryPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, runtime.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -179,20 +180,20 @@ func TestRouterActor(t *testing.T) {
 		result, ok := resp.(*runtime.RouteResult)
 		require.True(t, ok)
 		require.Error(t, result.Err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.True(t, assert.ErrorAs(t, result.Err, &rErr))
-		assert.Equal(t, runtime.ErrCodeInvalidRequest, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
 	})
 
 	t.Run("invalid invocation missing tool ID", func(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		registryPID, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		registryPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, runtime.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -202,9 +203,9 @@ func TestRouterActor(t *testing.T) {
 		result, ok := resp.(*runtime.RouteResult)
 		require.True(t, ok)
 		require.Error(t, result.Err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.True(t, assert.ErrorAs(t, result.Err, &rErr))
-		assert.Equal(t, runtime.ErrCodeInvalidRequest, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
 	})
 
 	t.Run("policy denies tenant not in allowlist", func(t *testing.T) {
@@ -212,20 +213,20 @@ func TestRouterActor(t *testing.T) {
 		defer stop()
 
 		cfg := testConfigWithTenants("allowed-tenant")
-		policyPID, err := system.Spawn(ctx, runtime.ActorNamePolicy, newPolicyActor(cfg))
+		policyPID, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyActor(cfg))
 		require.NoError(t, err)
 
-		registryPID, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		registryPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
 		tool := validStdioTool("policy-tool")
-		tool.AuthorizationPolicy = runtime.AuthorizationPolicyTenantAllowlist
+		tool.AuthorizationPolicy = mcp.AuthorizationPolicyTenantAllowlist
 		_, err = goaktactor.Ask(ctx, registryPID, &runtime.RegisterTool{Tool: tool}, askTimeout)
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, runtime.ActorNameRouter, newRouterActor(registryPID, policyPID, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, policyPID, nil, nil))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -235,9 +236,9 @@ func TestRouterActor(t *testing.T) {
 		result, ok := resp.(*runtime.RouteResult)
 		require.True(t, ok)
 		require.Error(t, result.Err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.True(t, assert.ErrorAs(t, result.Err, &rErr))
-		assert.Equal(t, runtime.ErrCodePolicyDenied, rErr.Code)
+		assert.Equal(t, mcp.ErrCodePolicyDenied, rErr.Code)
 	})
 
 	t.Run("successful route with journal records audit event", func(t *testing.T) {
@@ -268,8 +269,9 @@ func TestRouterActor(t *testing.T) {
 		require.True(t, ok)
 		require.NoError(t, result.Err)
 		require.NotNil(t, result.Result)
-		assert.Equal(t, runtime.ExecutionStatusSuccess, result.Result.Status)
+		assert.Equal(t, mcp.ExecutionStatusSuccess, result.Result.Status)
 
+		waitForActors()
 		events := sink.Events()
 		require.NotEmpty(t, events)
 		assert.Equal(t, audit.EventTypeInvocationComplete, events[len(events)-1].Type)
@@ -289,7 +291,7 @@ func TestRouterActor(t *testing.T) {
 		waitForActors()
 
 		tool := validStdioTool("cred-tool")
-		tool.CredentialPolicy = runtime.CredentialPolicyRequired
+		tool.CredentialPolicy = mcp.CredentialPolicyRequired
 		probe := kit.NewProbe(ctx)
 		probe.SendSync("registry-cred", &runtime.RegisterTool{Tool: tool}, askTimeout)
 		probe.ExpectAnyMessage()
@@ -322,7 +324,7 @@ func TestRouterActor(t *testing.T) {
 		waitForActors()
 
 		tool := validStdioTool("cred-req-tool")
-		tool.CredentialPolicy = runtime.CredentialPolicyRequired
+		tool.CredentialPolicy = mcp.CredentialPolicyRequired
 		probe := kit.NewProbe(ctx)
 		probe.SendSync("registry-unavail", &runtime.RegisterTool{Tool: tool}, askTimeout)
 		probe.ExpectAnyMessage()
@@ -338,9 +340,9 @@ func TestRouterActor(t *testing.T) {
 		result, ok := resp.(*runtime.RouteResult)
 		require.True(t, ok)
 		require.Error(t, result.Err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.True(t, assert.ErrorAs(t, result.Err, &rErr))
-		assert.Equal(t, runtime.ErrCodeCredentialUnavailable, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeCredentialUnavailable, rErr.Code)
 		probe.Stop()
 	})
 
@@ -385,9 +387,9 @@ func TestRouterActor(t *testing.T) {
 		result2, ok := resp2.(*runtime.RouteResult)
 		require.True(t, ok)
 		require.Error(t, result2.Err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.True(t, assert.ErrorAs(t, result2.Err, &rErr))
-		assert.Equal(t, runtime.ErrCodeRateLimited, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeRateLimited, rErr.Code)
 		probe.Stop()
 	})
 }

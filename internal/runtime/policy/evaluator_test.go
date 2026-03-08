@@ -29,21 +29,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestEvaluator(t *testing.T) {
 	t.Run("allow when no authorization policy", func(t *testing.T) {
 		e := NewEvaluator(config.Config{})
-		tool := runtime.Tool{
+		tool := mcp.Tool{
 			ID:                  "tool-1",
-			Transport:           runtime.TransportStdio,
-			Stdio:               &runtime.StdioTransportConfig{Command: "npx"},
+			Transport:           mcp.TransportStdio,
+			Stdio:               &mcp.StdioTransportConfig{Command: "npx"},
 			AuthorizationPolicy: "", // no policy
 		}
 		in := &Input{
-			Invocation: &runtime.Invocation{ToolID: "tool-1"},
+			Invocation: &mcp.Invocation{ToolID: "tool-1"},
 			Tool:       tool,
 			TenantID:   "tenant-1",
 			ClientID:   "client-1",
@@ -55,14 +55,14 @@ func TestEvaluator(t *testing.T) {
 
 	t.Run("allow when tenant_allowlist and no tenants configured", func(t *testing.T) {
 		e := NewEvaluator(config.Config{})
-		tool := runtime.Tool{
+		tool := mcp.Tool{
 			ID:                  "tool-1",
-			Transport:           runtime.TransportStdio,
-			Stdio:               &runtime.StdioTransportConfig{Command: "npx"},
-			AuthorizationPolicy: runtime.AuthorizationPolicyTenantAllowlist,
+			Transport:           mcp.TransportStdio,
+			Stdio:               &mcp.StdioTransportConfig{Command: "npx"},
+			AuthorizationPolicy: mcp.AuthorizationPolicyTenantAllowlist,
 		}
 		in := &Input{
-			Invocation: &runtime.Invocation{ToolID: "tool-1"},
+			Invocation: &mcp.Invocation{ToolID: "tool-1"},
 			Tool:       tool,
 			TenantID:   "any-tenant",
 			ClientID:   "client-1",
@@ -78,14 +78,14 @@ func TestEvaluator(t *testing.T) {
 			},
 		}
 		e := NewEvaluator(cfg)
-		tool := runtime.Tool{
+		tool := mcp.Tool{
 			ID:                  "tool-1",
-			Transport:           runtime.TransportStdio,
-			Stdio:               &runtime.StdioTransportConfig{Command: "npx"},
-			AuthorizationPolicy: runtime.AuthorizationPolicyTenantAllowlist,
+			Transport:           mcp.TransportStdio,
+			Stdio:               &mcp.StdioTransportConfig{Command: "npx"},
+			AuthorizationPolicy: mcp.AuthorizationPolicyTenantAllowlist,
 		}
 		in := &Input{
-			Invocation: &runtime.Invocation{ToolID: "tool-1"},
+			Invocation: &mcp.Invocation{ToolID: "tool-1"},
 			Tool:       tool,
 			TenantID:   "allowed-tenant",
 			ClientID:   "client-1",
@@ -101,14 +101,14 @@ func TestEvaluator(t *testing.T) {
 			},
 		}
 		e := NewEvaluator(cfg)
-		tool := runtime.Tool{
+		tool := mcp.Tool{
 			ID:                  "tool-1",
-			Transport:           runtime.TransportStdio,
-			Stdio:               &runtime.StdioTransportConfig{Command: "npx"},
-			AuthorizationPolicy: runtime.AuthorizationPolicyTenantAllowlist,
+			Transport:           mcp.TransportStdio,
+			Stdio:               &mcp.StdioTransportConfig{Command: "npx"},
+			AuthorizationPolicy: mcp.AuthorizationPolicyTenantAllowlist,
 		}
 		in := &Input{
-			Invocation: &runtime.Invocation{ToolID: "tool-1"},
+			Invocation: &mcp.Invocation{ToolID: "tool-1"},
 			Tool:       tool,
 			TenantID:   "denied-tenant",
 			ClientID:   "client-1",
@@ -117,9 +117,9 @@ func TestEvaluator(t *testing.T) {
 		assert.False(t, result.Allowed())
 		assert.Equal(t, DecisionDeny, result.Decision)
 		require.Error(t, result.Err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.True(t, assert.ErrorAs(t, result.Err, &rErr))
-		assert.Equal(t, runtime.ErrCodePolicyDenied, rErr.Code)
+		assert.Equal(t, mcp.ErrCodePolicyDenied, rErr.Code)
 	})
 
 	t.Run("throttle when concurrent session limit reached", func(t *testing.T) {
@@ -134,13 +134,13 @@ func TestEvaluator(t *testing.T) {
 			},
 		}
 		e := NewEvaluator(cfg)
-		tool := runtime.Tool{
+		tool := mcp.Tool{
 			ID:        "tool-1",
-			Transport: runtime.TransportStdio,
-			Stdio:     &runtime.StdioTransportConfig{Command: "npx"},
+			Transport: mcp.TransportStdio,
+			Stdio:     &mcp.StdioTransportConfig{Command: "npx"},
 		}
 		in := &Input{
-			Invocation:              &runtime.Invocation{ToolID: "tool-1"},
+			Invocation:              &mcp.Invocation{ToolID: "tool-1"},
 			Tool:                    tool,
 			TenantID:                "tenant-1",
 			ClientID:                "client-1",
@@ -152,9 +152,9 @@ func TestEvaluator(t *testing.T) {
 		assert.False(t, result.Allowed())
 		assert.Equal(t, DecisionThrottle, result.Decision)
 		require.Error(t, result.Err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.True(t, assert.ErrorAs(t, result.Err, &rErr))
-		assert.Equal(t, runtime.ErrCodeConcurrencyLimitReached, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeConcurrencyLimitReached, rErr.Code)
 	})
 
 	t.Run("throttle when rate limit exceeded", func(t *testing.T) {
@@ -169,13 +169,13 @@ func TestEvaluator(t *testing.T) {
 			},
 		}
 		e := NewEvaluator(cfg)
-		tool := runtime.Tool{
+		tool := mcp.Tool{
 			ID:        "tool-1",
-			Transport: runtime.TransportStdio,
-			Stdio:     &runtime.StdioTransportConfig{Command: "npx"},
+			Transport: mcp.TransportStdio,
+			Stdio:     &mcp.StdioTransportConfig{Command: "npx"},
 		}
 		in := &Input{
-			Invocation:              &runtime.Invocation{ToolID: "tool-1"},
+			Invocation:              &mcp.Invocation{ToolID: "tool-1"},
 			Tool:                    tool,
 			TenantID:                "tenant-1",
 			ClientID:                "client-1",
@@ -187,9 +187,9 @@ func TestEvaluator(t *testing.T) {
 		assert.False(t, result.Allowed())
 		assert.Equal(t, DecisionThrottle, result.Decision)
 		require.Error(t, result.Err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.True(t, assert.ErrorAs(t, result.Err, &rErr))
-		assert.Equal(t, runtime.ErrCodeRateLimited, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeRateLimited, rErr.Code)
 	})
 
 	t.Run("deny when input is nil", func(t *testing.T) {

@@ -28,13 +28,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestApplyDefaults(t *testing.T) {
 	t.Run("fills zero values", func(t *testing.T) {
 		cfg := Config{}
 		ApplyDefaults(&cfg)
-		assert.Equal(t, DefaultHTTPListenAddress, cfg.HTTP.ListenAddress)
 		assert.Equal(t, DefaultSessionIdleTimeout, cfg.Runtime.SessionIdleTimeout)
 		assert.Equal(t, DefaultRequestTimeout, cfg.Runtime.RequestTimeout)
 		assert.Equal(t, DefaultStartupTimeout, cfg.Runtime.StartupTimeout)
@@ -46,7 +47,6 @@ func TestApplyDefaults(t *testing.T) {
 
 	t.Run("preserves explicit values", func(t *testing.T) {
 		cfg := Config{
-			HTTP: HTTPConfig{ListenAddress: ":9999"},
 			Runtime: RuntimeConfig{
 				SessionIdleTimeout:  10 * time.Minute,
 				RequestTimeout:      60 * time.Second,
@@ -54,11 +54,12 @@ func TestApplyDefaults(t *testing.T) {
 				HealthProbeInterval: 1 * time.Minute,
 				ShutdownTimeout:     45 * time.Second,
 			},
-			Tools:   []ToolConfig{{ID: "t"}},
+			Tools: []mcp.Tool{
+				{ID: "t", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "npx"}, State: mcp.ToolStateEnabled},
+			},
 			Tenants: []TenantConfig{{ID: "x"}},
 		}
 		ApplyDefaults(&cfg)
-		assert.Equal(t, ":9999", cfg.HTTP.ListenAddress)
 		assert.Equal(t, 10*time.Minute, cfg.Runtime.SessionIdleTimeout)
 		assert.Equal(t, 60*time.Second, cfg.Runtime.RequestTimeout)
 		assert.Equal(t, 20*time.Second, cfg.Runtime.StartupTimeout)

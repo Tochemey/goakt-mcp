@@ -23,6 +23,8 @@
 
 package runtime
 
+import "github.com/tochemey/goakt-mcp/mcp"
+
 // Session command and response types for SessionActor and ToolSupervisorActor.
 //
 // These messages define the contract for session lifecycle, invocation routing,
@@ -36,9 +38,9 @@ package runtime
 // Credentials are passed when creating a new session for executor setup (e.g. HTTP auth).
 // Must be used with Ask. Response is GetOrCreateSessionResult.
 type GetOrCreateSession struct {
-	TenantID    TenantID
-	ClientID    ClientID
-	ToolID      ToolID
+	TenantID    mcp.TenantID
+	ClientID    mcp.ClientID
+	ToolID      mcp.ToolID
 	Credentials map[string]string
 }
 
@@ -56,11 +58,11 @@ type GetOrCreateSessionResult struct {
 // The session serializes invocations through its mailbox and tracks in-flight
 // work. Must be used with Ask. Response is SessionInvokeResult.
 type SessionInvoke struct {
-	Invocation *Invocation
+	Invocation *mcp.Invocation
 }
 
 // SessionInvokeResult is the response to SessionInvoke.
 type SessionInvokeResult struct {
-	Result *ExecutionResult
+	Result *mcp.ExecutionResult
 	Err    error
 }

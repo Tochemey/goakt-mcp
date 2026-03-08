@@ -28,15 +28,15 @@ package mcpconv
 import (
 	"encoding/base64"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // ParamsFromInvocation extracts the tool name and arguments from an Invocation.
 // Params is expected to contain "name" and "arguments" keys per the MCP tools/call
 // convention. When "name" is absent, the ToolID is used as a fallback.
-func ParamsFromInvocation(inv *runtime.Invocation) (string, any) {
+func ParamsFromInvocation(inv *mcp.Invocation) (string, any) {
 	if inv == nil || inv.Params == nil {
 		return "", nil
 	}
@@ -49,7 +49,7 @@ func ParamsFromInvocation(inv *runtime.Invocation) (string, any) {
 
 // CallResultToOutput converts an MCP CallToolResult into the runtime output map.
 // Returns nil when res is nil.
-func CallResultToOutput(res *mcp.CallToolResult) map[string]any {
+func CallResultToOutput(res *sdkmcp.CallToolResult) map[string]any {
 	if res == nil {
 		return nil
 	}
@@ -65,38 +65,38 @@ func CallResultToOutput(res *mcp.CallToolResult) map[string]any {
 
 // ContentErrorText extracts a human-readable error message from a CallToolResult.
 // Falls back to "tool error" when no text content is present.
-func ContentErrorText(res *mcp.CallToolResult) string {
+func ContentErrorText(res *sdkmcp.CallToolResult) string {
 	if res == nil || len(res.Content) == 0 {
 		return "tool error"
 	}
-	if t, ok := res.Content[0].(*mcp.TextContent); ok {
+	if t, ok := res.Content[0].(*sdkmcp.TextContent); ok {
 		return t.Text
 	}
 	return "tool error"
 }
 
-func contentToSlice(c []mcp.Content) []map[string]any {
+func contentToSlice(c []sdkmcp.Content) []map[string]any {
 	s := make([]map[string]any, 0, len(c))
 	for _, item := range c {
 		switch t := item.(type) {
-		case *mcp.TextContent:
+		case *sdkmcp.TextContent:
 			s = append(s, map[string]any{
 				"type": "text",
 				"text": t.Text,
 			})
-		case *mcp.ImageContent:
+		case *sdkmcp.ImageContent:
 			s = append(s, map[string]any{
 				"type":     "image",
 				"data":     base64.StdEncoding.EncodeToString(t.Data),
 				"mimeType": t.MIMEType,
 			})
-		case *mcp.AudioContent:
+		case *sdkmcp.AudioContent:
 			s = append(s, map[string]any{
 				"type":     "audio",
 				"data":     base64.StdEncoding.EncodeToString(t.Data),
 				"mimeType": t.MIMEType,
 			})
-		case *mcp.EmbeddedResource:
+		case *sdkmcp.EmbeddedResource:
 			m := map[string]any{"type": "resource"}
 			if t.Resource != nil {
 				m["uri"] = t.Resource.URI
@@ -108,7 +108,7 @@ func contentToSlice(c []mcp.Content) []map[string]any {
 				}
 			}
 			s = append(s, m)
-		case *mcp.ResourceLink:
+		case *sdkmcp.ResourceLink:
 			m := map[string]any{
 				"type": "resource_link",
 				"uri":  t.URI,

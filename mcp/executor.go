@@ -21,16 +21,25 @@
 // SOFTWARE.
 //
 
-package admin
+package mcp
 
-import (
-	"testing"
+import "context"
 
-	"github.com/stretchr/testify/require"
-)
+// ToolExecutor executes MCP tool invocations over a specific transport (stdio, HTTP).
+//
+// Implementations are provided by the egress layer. Execute must respect the
+// invocation's context for cancellation and timeout. Close releases transport
+// resources and is safe to call multiple times.
+type ToolExecutor interface {
+	Execute(ctx context.Context, inv *Invocation) (*ExecutionResult, error)
+	Close() error
+}
 
-// TestPackageCompiles verifies that the admin ingress package compiles and can be used.
-// Phase 0 placeholder; real admin handlers and tests will be added in Phase 12.
-func TestPackageCompiles(t *testing.T) {
-	require.True(t, true, "testify should be available for assertions")
+// ExecutorFactory creates ToolExecutor instances for a given tool.
+//
+// The factory is invoked when a session is created. The returned executor
+// is bound to that session's lifecycle. When nil is returned, the session
+// uses stub execution (returns success with empty output).
+type ExecutorFactory interface {
+	Create(ctx context.Context, tool Tool, credentials map[string]string) (ToolExecutor, error)
 }

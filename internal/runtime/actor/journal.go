@@ -29,6 +29,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // journaler is the Journal Actor.
@@ -63,7 +64,7 @@ func newJournaler(sink audit.Sink) *journaler {
 // PreStart initializes Journaler before message processing begins.
 func (x *journaler) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
-	x.logger.Infof("actor=%s starting", runtime.ActorNameJournal)
+	x.logger.Infof("actor=%s starting", mcp.ActorNameJournal)
 	return nil
 }
 
@@ -71,7 +72,7 @@ func (x *journaler) PreStart(ctx *goaktactor.Context) error {
 func (x *journaler) Receive(ctx *goaktactor.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goaktactor.PostStart:
-		x.logger.Infof("actor=%s started", runtime.ActorNameJournal)
+		x.logger.Infof("actor=%s started", mcp.ActorNameJournal)
 	case *runtime.RecordAuditEvent:
 		x.handleRecordAuditEvent(msg)
 	default:
@@ -84,7 +85,7 @@ func (x *journaler) PostStop(ctx *goaktactor.Context) error {
 	if x.sink != nil {
 		_ = x.sink.Close()
 	}
-	x.logger.Infof("actor=%s stopped", runtime.ActorNameJournal)
+	x.logger.Infof("actor=%s stopped", mcp.ActorNameJournal)
 	return nil
 }
 
@@ -96,6 +97,6 @@ func (x *journaler) handleRecordAuditEvent(msg *runtime.RecordAuditEvent) {
 		return
 	}
 	if err := x.sink.Write(msg.Event); err != nil {
-		x.logger.Warnf("actor=%s audit write failed: %v", runtime.ActorNameJournal, err)
+		x.logger.Warnf("actor=%s audit write failed: %v", mcp.ActorNameJournal, err)
 	}
 }

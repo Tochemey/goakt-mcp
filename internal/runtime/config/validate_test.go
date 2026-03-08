@@ -29,19 +29,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestValidate(t *testing.T) {
-	validStdioTool := ToolConfig{
+	validStdioTool := mcp.Tool{
 		ID:        "fs",
-		Transport: runtime.TransportStdio,
-		Command:   "echo",
+		Transport: mcp.TransportStdio,
+		Stdio:     &mcp.StdioTransportConfig{Command: "echo"},
+		State:     mcp.ToolStateEnabled,
 	}
-	validHTTPTool := ToolConfig{
+	validHTTPTool := mcp.Tool{
 		ID:        "remote",
-		Transport: runtime.TransportHTTP,
-		URL:       "https://example.com",
+		Transport: mcp.TransportHTTP,
+		HTTP:      &mcp.HTTPTransportConfig{URL: "https://example.com"},
+		State:     mcp.ToolStateEnabled,
 	}
 
 	tests := []struct {
@@ -52,38 +54,16 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid minimal config",
 			cfg: Config{
-				HTTP:    HTTPConfig{ListenAddress: ":8080"},
-				Tools:   []ToolConfig{validStdioTool},
+				Tools:   []mcp.Tool{validStdioTool},
 				Tenants: []TenantConfig{},
 			},
 		},
 		{
 			name: "valid config with tenants and tools",
 			cfg: Config{
-				HTTP:    HTTPConfig{ListenAddress: ":8080"},
 				Tenants: []TenantConfig{{ID: "t1"}},
-				Tools:   []ToolConfig{validStdioTool, validHTTPTool},
+				Tools:   []mcp.Tool{validStdioTool, validHTTPTool},
 			},
-		},
-		{
-			name: "ingress TLS missing cert_file",
-			cfg: Config{
-				HTTP: HTTPConfig{
-					ListenAddress: ":8443",
-					TLS:           &IngressTLSConfig{KeyFile: "/key.pem"},
-				},
-			},
-			wantErr: "http.tls: cert_file and key_file are required",
-		},
-		{
-			name: "ingress TLS missing key_file",
-			cfg: Config{
-				HTTP: HTTPConfig{
-					ListenAddress: ":8443",
-					TLS:           &IngressTLSConfig{CertFile: "/cert.pem"},
-				},
-			},
-			wantErr: "http.tls: cert_file and key_file are required",
 		},
 		{
 			name: "cluster enabled without discovery",
@@ -109,16 +89,16 @@ func TestValidate(t *testing.T) {
 		{
 			name: "tool with empty id",
 			cfg: Config{
-				Tools: []ToolConfig{{Transport: runtime.TransportStdio, Command: "echo"}},
+				Tools: []mcp.Tool{{Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "echo"}}},
 			},
 			wantErr: "tools[0]: id is required",
 		},
 		{
 			name: "duplicate tool ids",
 			cfg: Config{
-				Tools: []ToolConfig{
-					{ID: "dup", Transport: runtime.TransportStdio, Command: "echo"},
-					{ID: "dup", Transport: runtime.TransportStdio, Command: "cat"},
+				Tools: []mcp.Tool{
+					{ID: "dup", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "echo"}, State: mcp.ToolStateEnabled},
+					{ID: "dup", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "cat"}, State: mcp.ToolStateEnabled},
 				},
 			},
 			wantErr: "duplicate tool id",
@@ -126,54 +106,16 @@ func TestValidate(t *testing.T) {
 		{
 			name: "stdio tool missing command",
 			cfg: Config{
-				Tools: []ToolConfig{{ID: "bad", Transport: runtime.TransportStdio}},
+				Tools: []mcp.Tool{{ID: "bad", Transport: mcp.TransportStdio}},
 			},
-			wantErr: "command is required for stdio",
+			wantErr: "stdio tool must have non-empty command",
 		},
 		{
 			name: "http tool missing url",
 			cfg: Config{
-				Tools: []ToolConfig{{ID: "bad", Transport: runtime.TransportHTTP}},
+				Tools: []mcp.Tool{{ID: "bad", Transport: mcp.TransportHTTP}},
 			},
-			wantErr: "url is required for http",
-		},
-		{
-			name: "egress TLS cert without key",
-			cfg: Config{
-				Tools: []ToolConfig{{
-					ID:        "bad",
-					Transport: runtime.TransportHTTP,
-					URL:       "https://example.com",
-					HTTPTLS:   &runtime.EgressTLSConfig{ClientCertFile: "/cert.pem"},
-				}},
-			},
-			wantErr: "client_cert_file and client_key_file must both be set",
-		},
-		{
-			name: "egress TLS key without cert",
-			cfg: Config{
-				Tools: []ToolConfig{{
-					ID:        "bad",
-					Transport: runtime.TransportHTTP,
-					URL:       "https://example.com",
-					HTTPTLS:   &runtime.EgressTLSConfig{ClientKeyFile: "/key.pem"},
-				}},
-			},
-			wantErr: "client_cert_file and client_key_file must both be set",
-		},
-		{
-			name: "egress TLS with both cert and key is valid",
-			cfg: Config{
-				Tools: []ToolConfig{{
-					ID:        "ok",
-					Transport: runtime.TransportHTTP,
-					URL:       "https://example.com",
-					HTTPTLS: &runtime.EgressTLSConfig{
-						ClientCertFile: "/cert.pem",
-						ClientKeyFile:  "/key.pem",
-					},
-				}},
-			},
+			wantErr: "http tool must have non-empty URL",
 		},
 	}
 

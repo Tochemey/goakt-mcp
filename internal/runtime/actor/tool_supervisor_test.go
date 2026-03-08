@@ -34,6 +34,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestToolSupervisorActor(t *testing.T) {
@@ -45,7 +46,7 @@ func TestToolSupervisorActor(t *testing.T) {
 
 		tool := validStdioTool("supervisor-tool")
 		dep := actorextension.NewToolDependency(tool)
-		name := runtime.ToolSupervisorName(tool.ID)
+		name := mcp.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor(), goaktactor.WithDependencies(dep))
 		require.NoError(t, err)
 		require.NotNil(t, pid)
@@ -65,12 +66,12 @@ func TestToolSupervisorActor(t *testing.T) {
 
 		tool := validStdioTool("circuit-tool")
 		dep := actorextension.NewToolDependency(tool)
-		name := runtime.ToolSupervisorName(tool.ID)
+		name := mcp.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor(), goaktactor.WithDependencies(dep))
 		require.NoError(t, err)
 		waitForActors()
 
-		for i := 0; i < runtime.DefaultCircuitFailureThreshold; i++ {
+		for i := 0; i < mcp.DefaultCircuitFailureThreshold; i++ {
 			err = goaktactor.Tell(ctx, pid, &runtime.ReportFailure{ToolID: tool.ID})
 			require.NoError(t, err)
 		}
@@ -90,7 +91,7 @@ func TestToolSupervisorActor(t *testing.T) {
 
 		tool := validStdioTool("mismatch-tool")
 		dep := actorextension.NewToolDependency(tool)
-		name := runtime.ToolSupervisorName(tool.ID)
+		name := mcp.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor(), goaktactor.WithDependencies(dep))
 		require.NoError(t, err)
 		waitForActors()
@@ -106,20 +107,20 @@ func TestToolSupervisorActor(t *testing.T) {
 		kit, ctx := newTestKit(t)
 
 		tool := validStdioTool("halfopen-tool")
-		circuitCfg := runtime.CircuitConfig{
-			FailureThreshold:    runtime.DefaultCircuitFailureThreshold,
+		circuitCfg := mcp.CircuitConfig{
+			FailureThreshold:    mcp.DefaultCircuitFailureThreshold,
 			OpenDuration:        100 * time.Millisecond,
-			HalfOpenMaxRequests: runtime.DefaultCircuitHalfOpenMaxRequests,
+			HalfOpenMaxRequests: mcp.DefaultCircuitHalfOpenMaxRequests,
 		}
 		dep := actorextension.NewToolDependency(tool)
 		cfgDep := actorextension.NewCircuitConfigDependency(circuitCfg)
-		name := runtime.ToolSupervisorName(tool.ID)
+		name := mcp.ToolSupervisorName(tool.ID)
 		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor(),
 			goaktactor.WithDependencies(dep, cfgDep))
 		waitForActors()
 
 		probe := kit.NewProbe(ctx)
-		for i := 0; i < runtime.DefaultCircuitFailureThreshold; i++ {
+		for i := 0; i < mcp.DefaultCircuitFailureThreshold; i++ {
 			probe.Send(name, &runtime.ReportFailure{ToolID: tool.ID})
 		}
 		waitForActors()
@@ -147,14 +148,14 @@ func TestToolSupervisorActor(t *testing.T) {
 		kit, ctx := newTestKit(t)
 
 		tool := validStdioTool("reopen-tool")
-		circuitCfg := runtime.CircuitConfig{
-			FailureThreshold:    runtime.DefaultCircuitFailureThreshold,
+		circuitCfg := mcp.CircuitConfig{
+			FailureThreshold:    mcp.DefaultCircuitFailureThreshold,
 			OpenDuration:        100 * time.Millisecond,
-			HalfOpenMaxRequests: runtime.DefaultCircuitHalfOpenMaxRequests,
+			HalfOpenMaxRequests: mcp.DefaultCircuitHalfOpenMaxRequests,
 		}
 		dep := actorextension.NewToolDependency(tool)
 		cfgDep := actorextension.NewCircuitConfigDependency(circuitCfg)
-		name := runtime.ToolSupervisorName(tool.ID)
+		name := mcp.ToolSupervisorName(tool.ID)
 		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor(),
 			goaktactor.WithDependencies(dep, cfgDep))
 		waitForActors()
@@ -162,7 +163,7 @@ func TestToolSupervisorActor(t *testing.T) {
 		pid, err := kit.ActorSystem().ActorOf(ctx, name)
 		require.NoError(t, err)
 
-		for i := 0; i < runtime.DefaultCircuitFailureThreshold; i++ {
+		for i := 0; i < mcp.DefaultCircuitFailureThreshold; i++ {
 			require.NoError(t, pid.Tell(ctx, pid, &runtime.ReportFailure{ToolID: tool.ID}))
 		}
 		waitForActors()
@@ -189,7 +190,7 @@ func TestToolSupervisorActor(t *testing.T) {
 
 		tool := validStdioTool("success-mismatch")
 		dep := actorextension.NewToolDependency(tool)
-		name := runtime.ToolSupervisorName(tool.ID)
+		name := mcp.ToolSupervisorName(tool.ID)
 		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor(), goaktactor.WithDependencies(dep))
 		waitForActors()
 

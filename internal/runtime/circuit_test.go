@@ -27,22 +27,24 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestCircuitState(t *testing.T) {
 	t.Run("CanAccept", func(t *testing.T) {
-		assert.True(t, CircuitClosed.CanAccept())
-		assert.True(t, CircuitHalfOpen.CanAccept())
-		assert.False(t, CircuitOpen.CanAccept())
+		assert.True(t, mcp.CircuitClosed.CanAccept())
+		assert.True(t, mcp.CircuitHalfOpen.CanAccept())
+		assert.False(t, mcp.CircuitOpen.CanAccept())
 	})
 	t.Run("IsOpen", func(t *testing.T) {
-		assert.False(t, CircuitClosed.IsOpen())
-		assert.False(t, CircuitHalfOpen.IsOpen())
-		assert.True(t, CircuitOpen.IsOpen())
+		assert.False(t, mcp.CircuitClosed.IsOpen())
+		assert.False(t, mcp.CircuitHalfOpen.IsOpen())
+		assert.True(t, mcp.CircuitOpen.IsOpen())
 	})
 }
 
 func TestCircuitConfigDefaults(t *testing.T) {
-	assert.Equal(t, 5, DefaultCircuitFailureThreshold)
-	assert.Equal(t, 1, DefaultCircuitHalfOpenMaxRequests)
+	assert.Equal(t, 5, mcp.DefaultCircuitFailureThreshold)
+	assert.Equal(t, 1, mcp.DefaultCircuitHalfOpenMaxRequests)
 }

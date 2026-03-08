@@ -23,6 +23,8 @@
 
 package runtime
 
+import "github.com/tochemey/goakt-mcp/mcp"
+
 // Supervisor command and response types for ToolSupervisorActor.
 //
 // These messages define the contract between the supervisor and its callers
@@ -34,7 +36,7 @@ package runtime
 // The supervisor considers circuit state, tool availability, and administrative
 // disable status. Must be used with Ask. Response is CanAcceptWorkResult.
 type CanAcceptWork struct {
-	ToolID ToolID
+	ToolID mcp.ToolID
 }
 
 // CanAcceptWorkResult is the response to CanAcceptWork.
@@ -48,7 +50,7 @@ type CanAcceptWorkResult struct {
 // The supervisor increments its failure count and may open the circuit.
 // Typically sent via Tell from sessions or transport adapters.
 type ReportFailure struct {
-	ToolID ToolID
+	ToolID mcp.ToolID
 }
 
 // ReportSuccess notifies the supervisor that an invocation succeeded.
@@ -56,5 +58,5 @@ type ReportFailure struct {
 // In closed state, this resets the failure counter. In half-open state,
 // this closes the circuit. Typically sent via Tell.
 type ReportSuccess struct {
-	ToolID ToolID
+	ToolID mcp.ToolID
 }

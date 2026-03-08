@@ -34,8 +34,8 @@ import (
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestCredentialBrokerActor(t *testing.T) {
@@ -49,7 +49,7 @@ func TestCredentialBrokerActor(t *testing.T) {
 		defer stop()
 
 		providers := []credentials.Provider{credentials.NewEnvProvider()}
-		pid, err := system.Spawn(ctx, runtime.ActorNameCredentialBroker, newCredentialBroker(providers, credentials.DefaultCredentialTTL))
+		pid, err := system.Spawn(ctx, mcp.ActorNameCredentialBroker, newCredentialBroker(providers, credentials.DefaultCredentialTTL))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -69,7 +69,7 @@ func TestCredentialBrokerActor(t *testing.T) {
 		defer stop()
 
 		providers := []credentials.Provider{credentials.NewEnvProvider()}
-		pid, err := system.Spawn(ctx, runtime.ActorNameCredentialBroker, newCredentialBroker(providers, credentials.DefaultCredentialTTL))
+		pid, err := system.Spawn(ctx, mcp.ActorNameCredentialBroker, newCredentialBroker(providers, credentials.DefaultCredentialTTL))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -82,9 +82,9 @@ func TestCredentialBrokerActor(t *testing.T) {
 		require.True(t, ok)
 		assert.False(t, result.Resolved())
 		require.Error(t, result.Err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.True(t, assert.ErrorAs(t, result.Err, &rErr))
-		assert.Equal(t, runtime.ErrCodeCredentialUnavailable, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeCredentialUnavailable, rErr.Code)
 	})
 
 	t.Run("resolves from provider and caches", func(t *testing.T) {
@@ -135,7 +135,7 @@ func TestCredentialBrokerActor(t *testing.T) {
 		result, ok := resp.(*credentials.ResolveResult)
 		require.True(t, ok)
 		require.Error(t, result.Err)
-		assert.Equal(t, runtime.ErrCodeCredentialUnavailable, result.Err.(*runtime.RuntimeError).Code)
+		assert.Equal(t, mcp.ErrCodeCredentialUnavailable, result.Err.(*mcp.RuntimeError).Code)
 		probe.Stop()
 	})
 

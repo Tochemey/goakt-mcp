@@ -33,6 +33,7 @@ import (
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestRegistryActor(t *testing.T) {
@@ -42,10 +43,10 @@ func TestRegistryActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
-		assert.Equal(t, runtime.ActorNameRegistrar, pid.Name())
+		assert.Equal(t, mcp.ActorNameRegistrar, pid.Name())
 
 		waitForActors()
 	})
@@ -54,7 +55,7 @@ func TestRegistryActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -72,15 +73,15 @@ func TestRegistryActor(t *testing.T) {
 		require.True(t, qResult.Found)
 		require.NoError(t, qResult.Err)
 		require.NotNil(t, qResult.Tool)
-		assert.Equal(t, runtime.ToolID("my-tool"), qResult.Tool.ID)
-		assert.Equal(t, runtime.ToolStateEnabled, qResult.Tool.State)
+		assert.Equal(t, mcp.ToolID("my-tool"), qResult.Tool.ID)
+		assert.Equal(t, mcp.ToolStateEnabled, qResult.Tool.State)
 	})
 
 	t.Run("query non-existent tool returns ErrToolNotFound", func(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -90,21 +91,21 @@ func TestRegistryActor(t *testing.T) {
 		require.True(t, ok)
 		assert.False(t, qResult.Found)
 		require.Error(t, qResult.Err)
-		assert.ErrorIs(t, qResult.Err, runtime.ErrToolNotFound)
+		assert.ErrorIs(t, qResult.Err, mcp.ErrToolNotFound)
 	})
 
 	t.Run("register invalid tool returns validation error", func(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
-		invalidTool := runtime.Tool{
-			ID:        runtime.ToolID("bad"),
-			Transport: runtime.TransportStdio,
-			Stdio:     &runtime.StdioTransportConfig{Command: ""},
+		invalidTool := mcp.Tool{
+			ID:        mcp.ToolID("bad"),
+			Transport: mcp.TransportStdio,
+			Stdio:     &mcp.StdioTransportConfig{Command: ""},
 		}
 		resp, err := goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: invalidTool}, askTimeout)
 		require.NoError(t, err)
@@ -117,7 +118,7 @@ func TestRegistryActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -135,7 +136,7 @@ func TestRegistryActor(t *testing.T) {
 		require.NoError(t, err)
 		qResult := resp.(*runtime.QueryToolResult)
 		require.True(t, qResult.Found)
-		assert.Equal(t, runtime.ToolStateDisabled, qResult.Tool.State)
+		assert.Equal(t, mcp.ToolStateDisabled, qResult.Tool.State)
 
 		resp, err = goaktactor.Ask(ctx, pid, &runtime.RemoveTool{ToolID: "to-disable"}, askTimeout)
 		require.NoError(t, err)
@@ -153,7 +154,7 @@ func TestRegistryActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -163,7 +164,7 @@ func TestRegistryActor(t *testing.T) {
 
 		resp, err := goaktactor.Ask(ctx, pid, &runtime.UpdateToolHealth{
 			ToolID: "health-tool",
-			State:  runtime.ToolStateDegraded,
+			State:  mcp.ToolStateDegraded,
 		}, askTimeout)
 		require.NoError(t, err)
 		healthResult, ok := resp.(*runtime.UpdateToolHealthResult)
@@ -174,14 +175,14 @@ func TestRegistryActor(t *testing.T) {
 		require.NoError(t, err)
 		qResult := resp.(*runtime.QueryToolResult)
 		require.True(t, qResult.Found)
-		assert.Equal(t, runtime.ToolStateDegraded, qResult.Tool.State)
+		assert.Equal(t, mcp.ToolStateDegraded, qResult.Tool.State)
 	})
 
 	t.Run("update tool", func(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -192,7 +193,7 @@ func TestRegistryActor(t *testing.T) {
 
 		updated := tool
 		updated.RequestTimeout = 60 * time.Second
-		updated.Routing = runtime.RoutingLeastLoaded
+		updated.Routing = mcp.RoutingLeastLoaded
 		resp, err := goaktactor.Ask(ctx, pid, &runtime.UpdateTool{Tool: updated}, askTimeout)
 		require.NoError(t, err)
 		updateResult, ok := resp.(*runtime.UpdateToolResult)
@@ -204,14 +205,14 @@ func TestRegistryActor(t *testing.T) {
 		qResult := resp.(*runtime.QueryToolResult)
 		require.True(t, qResult.Found)
 		assert.Equal(t, 60*time.Second, qResult.Tool.RequestTimeout)
-		assert.Equal(t, runtime.RoutingLeastLoaded, qResult.Tool.Routing)
+		assert.Equal(t, mcp.RoutingLeastLoaded, qResult.Tool.Routing)
 	})
 
 	t.Run("get supervisor returns PID when tool has supervisor", func(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -235,11 +236,11 @@ func TestRegistryActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
-		tools := []runtime.Tool{
+		tools := []mcp.Tool{
 			validStdioTool("bootstrap-1"),
 			validHTTPTool("bootstrap-2"),
 		}
@@ -251,13 +252,13 @@ func TestRegistryActor(t *testing.T) {
 		require.NoError(t, err)
 		qResult := resp.(*runtime.QueryToolResult)
 		require.True(t, qResult.Found)
-		assert.Equal(t, runtime.TransportStdio, qResult.Tool.Transport)
+		assert.Equal(t, mcp.TransportStdio, qResult.Tool.Transport)
 
 		resp, err = goaktactor.Ask(ctx, pid, &runtime.QueryTool{ToolID: "bootstrap-2"}, askTimeout)
 		require.NoError(t, err)
 		qResult = resp.(*runtime.QueryToolResult)
 		require.True(t, qResult.Found)
-		assert.Equal(t, runtime.TransportHTTP, qResult.Tool.Transport)
+		assert.Equal(t, mcp.TransportHTTP, qResult.Tool.Transport)
 	})
 
 	t.Run("update tool not found returns ErrToolNotFound", func(t *testing.T) {
@@ -273,7 +274,7 @@ func TestRegistryActor(t *testing.T) {
 		result, ok := resp.(*runtime.UpdateToolResult)
 		require.True(t, ok)
 		require.Error(t, result.Err)
-		assert.ErrorIs(t, result.Err, runtime.ErrToolNotFound)
+		assert.ErrorIs(t, result.Err, mcp.ErrToolNotFound)
 		probe.Stop()
 	})
 
@@ -289,7 +290,7 @@ func TestRegistryActor(t *testing.T) {
 		result, ok := resp.(*runtime.DisableToolResult)
 		require.True(t, ok)
 		require.Error(t, result.Err)
-		assert.ErrorIs(t, result.Err, runtime.ErrToolNotFound)
+		assert.ErrorIs(t, result.Err, mcp.ErrToolNotFound)
 		probe.Stop()
 	})
 
@@ -305,7 +306,7 @@ func TestRegistryActor(t *testing.T) {
 		result, ok := resp.(*runtime.RemoveToolResult)
 		require.True(t, ok)
 		require.Error(t, result.Err)
-		assert.ErrorIs(t, result.Err, runtime.ErrToolNotFound)
+		assert.ErrorIs(t, result.Err, mcp.ErrToolNotFound)
 		probe.Stop()
 	})
 
@@ -318,13 +319,13 @@ func TestRegistryActor(t *testing.T) {
 		probe := kit.NewProbe(ctx)
 		probe.SendSync("registry-health-nf", &runtime.UpdateToolHealth{
 			ToolID: "nonexistent",
-			State:  runtime.ToolStateDegraded,
+			State:  mcp.ToolStateDegraded,
 		}, askTimeout)
 		resp := probe.ExpectAnyMessage()
 		result, ok := resp.(*runtime.UpdateToolHealthResult)
 		require.True(t, ok)
 		require.Error(t, result.Err)
-		assert.ErrorIs(t, result.Err, runtime.ErrToolNotFound)
+		assert.ErrorIs(t, result.Err, mcp.ErrToolNotFound)
 		probe.Stop()
 	})
 
@@ -341,7 +342,7 @@ func TestRegistryActor(t *testing.T) {
 		require.True(t, ok)
 		assert.False(t, result.Found)
 		require.Error(t, result.Err)
-		assert.ErrorIs(t, result.Err, runtime.ErrToolNotFound)
+		assert.ErrorIs(t, result.Err, mcp.ErrToolNotFound)
 		probe.Stop()
 	})
 }

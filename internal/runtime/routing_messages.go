@@ -23,6 +23,8 @@
 
 package runtime
 
+import "github.com/tochemey/goakt-mcp/mcp"
+
 // Routing command and response types for RouterActor.
 //
 // The router is the runtime entry point for tool invocations. It performs
@@ -35,7 +37,7 @@ package runtime
 // creates a session, and forwards the invocation. The response is RouteResult.
 // Must be used with Ask.
 type RouteInvocation struct {
-	Invocation *Invocation
+	Invocation *mcp.Invocation
 }
 
 // RouteResult is the response to RouteInvocation.
@@ -43,6 +45,6 @@ type RouteInvocation struct {
 // On success, Result holds the execution outcome. On failure, Err describes
 // the routing or execution failure (tool not found, circuit open, etc.).
 type RouteResult struct {
-	Result *ExecutionResult
+	Result *mcp.ExecutionResult
 	Err    error
 }

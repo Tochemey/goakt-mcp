@@ -23,6 +23,8 @@
 
 package runtime
 
+import "github.com/tochemey/goakt-mcp/mcp"
+
 // Registry command and response types.
 //
 // These messages define the contract between RegistryActor and its callers.
@@ -40,7 +42,7 @@ package runtime
 // registered in ToolStateEnabled unless it was previously disabled.
 // Use with Tell for fire-and-forget or Ask for RegisterToolResult.
 type RegisterTool struct {
-	Tool Tool
+	Tool mcp.Tool
 }
 
 // RegisterToolResult is the response to an Ask-wrapped RegisterTool.
@@ -54,7 +56,7 @@ type RegisterToolResult struct {
 // transport config) are applied; the tool ID cannot be changed. Use with Tell or
 // Ask for UpdateToolResult.
 type UpdateTool struct {
-	Tool Tool
+	Tool mcp.Tool
 }
 
 // UpdateToolResult is the response to an Ask-wrapped UpdateTool.
@@ -68,7 +70,7 @@ type UpdateToolResult struct {
 // Requests to disabled tools are rejected without attempting execution.
 // Use with Tell or Ask for DisableToolResult.
 type DisableTool struct {
-	ToolID ToolID
+	ToolID mcp.ToolID
 }
 
 // DisableToolResult is the response to an Ask-wrapped DisableTool.
@@ -81,7 +83,7 @@ type DisableToolResult struct {
 // The tool is fully removed. Any supervisor for this tool will be orphaned
 // and should be stopped by the runtime. Use with Tell or Ask for RemoveToolResult.
 type RemoveTool struct {
-	ToolID ToolID
+	ToolID mcp.ToolID
 }
 
 // RemoveToolResult is the response to an Ask-wrapped RemoveTool.
@@ -93,7 +95,7 @@ type RemoveToolResult struct {
 //
 // Must be used with Ask. The response is QueryToolResult.
 type QueryTool struct {
-	ToolID ToolID
+	ToolID mcp.ToolID
 }
 
 // QueryToolResult is the response to QueryTool.
@@ -101,7 +103,7 @@ type QueryTool struct {
 // When Found is true, Tool holds the authoritative tool definition and Err is nil.
 // When Found is false, Tool is nil and Err is ErrToolNotFound.
 type QueryToolResult struct {
-	Tool  *Tool
+	Tool  *mcp.Tool
 	Found bool
 	Err   error
 }
@@ -112,8 +114,8 @@ type QueryToolResult struct {
 // (e.g., degraded, unavailable). The tool must exist. Typically sent via Tell.
 // Use with Ask for UpdateToolHealthResult when confirmation is needed.
 type UpdateToolHealth struct {
-	ToolID ToolID
-	State  ToolState
+	ToolID mcp.ToolID
+	State  mcp.ToolState
 }
 
 // UpdateToolHealthResult is the response to an Ask-wrapped UpdateToolHealth.
@@ -127,7 +129,7 @@ type UpdateToolHealthResult struct {
 // Duplicate IDs replace existing entries. Invalid tools are logged and skipped.
 // Typically sent via Tell; no response is expected.
 type BootstrapTools struct {
-	Tools []Tool
+	Tools []mcp.Tool
 }
 
 // GetSupervisor is a command to look up the supervisor PID for a tool.
@@ -136,7 +138,7 @@ type BootstrapTools struct {
 // Must be used with Ask. Response is GetSupervisorResult. Supervisor is the
 // actor PID when Found is true; callers should type-assert to *actor.PID.
 type GetSupervisor struct {
-	ToolID ToolID
+	ToolID mcp.ToolID
 }
 
 // GetSupervisorResult is the response to GetSupervisor.
@@ -157,5 +159,5 @@ type ListTools struct{}
 
 // ListToolsResult is the response to ListTools.
 type ListToolsResult struct {
-	Tools []Tool
+	Tools []mcp.Tool
 }

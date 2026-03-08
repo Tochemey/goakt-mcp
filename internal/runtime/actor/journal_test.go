@@ -33,6 +33,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestJournalActor(t *testing.T) {
@@ -43,10 +44,10 @@ func TestJournalActor(t *testing.T) {
 		defer stop()
 
 		sink := audit.NewMemorySink()
-		pid, err := system.Spawn(ctx, runtime.ActorNameJournal, newJournaler(sink))
+		pid, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(sink))
 		require.NoError(t, err)
 		require.NotNil(t, pid)
-		assert.Equal(t, runtime.ActorNameJournal, pid.Name())
+		assert.Equal(t, mcp.ActorNameJournal, pid.Name())
 
 		waitForActors()
 	})
@@ -56,7 +57,7 @@ func TestJournalActor(t *testing.T) {
 		defer stop()
 
 		sink := audit.NewMemorySink()
-		pid, err := system.Spawn(ctx, runtime.ActorNameJournal, newJournaler(sink))
+		pid, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(sink))
 		require.NoError(t, err)
 		waitForActors()
 

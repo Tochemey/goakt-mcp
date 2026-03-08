@@ -19,17 +19,15 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
+//
 
-package main
-
-import (
-	"testing"
-
-	"github.com/stretchr/testify/require"
-)
-
-// TestMainPackageCompiles verifies that the CLI entrypoint package compiles.
-// Phase 0 placeholder; real CLI logic and tests will be added in the coming implementation phases.
-func TestMainPackageCompiles(t *testing.T) {
-	require.True(t, true, "testify should be available for assertions")
-}
+// Package mcp provides the public domain types for the goakt-mcp gateway library.
+//
+// This package contains all the types that users interact with when building
+// applications on top of goakt-mcp: tool definitions, invocations, execution
+// results, configuration, identity types, error codes, and circuit breaker state.
+//
+// Users typically import the root package (goaktmcp) which re-exports everything
+// from this package via type aliases, so direct imports of this package are
+// rarely needed.
+package mcp

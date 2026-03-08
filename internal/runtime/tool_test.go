@@ -28,42 +28,44 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestTransportTypeConstants(t *testing.T) {
-	assert.Equal(t, TransportType("stdio"), TransportStdio)
-	assert.Equal(t, TransportType("http"), TransportHTTP)
+	assert.Equal(t, mcp.TransportType("stdio"), mcp.TransportStdio)
+	assert.Equal(t, mcp.TransportType("http"), mcp.TransportHTTP)
 }
 
 func TestRoutingModeConstants(t *testing.T) {
-	assert.Equal(t, RoutingMode("sticky"), RoutingSticky)
-	assert.Equal(t, RoutingMode("least_loaded"), RoutingLeastLoaded)
+	assert.Equal(t, mcp.RoutingMode("sticky"), mcp.RoutingSticky)
+	assert.Equal(t, mcp.RoutingMode("least_loaded"), mcp.RoutingLeastLoaded)
 }
 
 func TestToolStateConstants(t *testing.T) {
-	assert.Equal(t, ToolState("enabled"), ToolStateEnabled)
-	assert.Equal(t, ToolState("disabled"), ToolStateDisabled)
-	assert.Equal(t, ToolState("degraded"), ToolStateDegraded)
-	assert.Equal(t, ToolState("unavailable"), ToolStateUnavailable)
+	assert.Equal(t, mcp.ToolState("enabled"), mcp.ToolStateEnabled)
+	assert.Equal(t, mcp.ToolState("disabled"), mcp.ToolStateDisabled)
+	assert.Equal(t, mcp.ToolState("degraded"), mcp.ToolStateDegraded)
+	assert.Equal(t, mcp.ToolState("unavailable"), mcp.ToolStateUnavailable)
 }
 
 func TestCredentialPolicyConstants(t *testing.T) {
-	assert.Equal(t, CredentialPolicy("optional"), CredentialPolicyOptional)
-	assert.Equal(t, CredentialPolicy("required"), CredentialPolicyRequired)
+	assert.Equal(t, mcp.CredentialPolicy("optional"), mcp.CredentialPolicyOptional)
+	assert.Equal(t, mcp.CredentialPolicy("required"), mcp.CredentialPolicyRequired)
 }
 
 func TestAuthorizationPolicyConstants(t *testing.T) {
-	assert.Equal(t, AuthorizationPolicy("tenant_allowlist"), AuthorizationPolicyTenantAllowlist)
+	assert.Equal(t, mcp.AuthorizationPolicy("tenant_allowlist"), mcp.AuthorizationPolicyTenantAllowlist)
 }
 
 func TestToolIsStdio(t *testing.T) {
 	t.Run("returns true for stdio transport", func(t *testing.T) {
-		tool := Tool{Transport: TransportStdio}
+		tool := mcp.Tool{Transport: mcp.TransportStdio}
 		assert.True(t, tool.IsStdio())
 		assert.False(t, tool.IsHTTP())
 	})
 	t.Run("returns false for http transport", func(t *testing.T) {
-		tool := Tool{Transport: TransportHTTP}
+		tool := mcp.Tool{Transport: mcp.TransportHTTP}
 		assert.False(t, tool.IsStdio())
 		assert.True(t, tool.IsHTTP())
 	})
@@ -71,27 +73,27 @@ func TestToolIsStdio(t *testing.T) {
 
 func TestToolIsAvailable(t *testing.T) {
 	tests := []struct {
-		state     ToolState
+		state     mcp.ToolState
 		available bool
 	}{
-		{ToolStateEnabled, true},
-		{ToolStateDegraded, true},
-		{ToolStateDisabled, false},
-		{ToolStateUnavailable, false},
+		{mcp.ToolStateEnabled, true},
+		{mcp.ToolStateDegraded, true},
+		{mcp.ToolStateDisabled, false},
+		{mcp.ToolStateUnavailable, false},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.state), func(t *testing.T) {
-			tool := Tool{State: tt.state}
+			tool := mcp.Tool{State: tt.state}
 			assert.Equal(t, tt.available, tool.IsAvailable())
 		})
 	}
 }
 
 func TestStdioToolConstruction(t *testing.T) {
-	tool := Tool{
-		ID:        ToolID("filesystem"),
-		Transport: TransportStdio,
-		Stdio: &StdioTransportConfig{
+	tool := mcp.Tool{
+		ID:        mcp.ToolID("filesystem"),
+		Transport: mcp.TransportStdio,
+		Stdio: &mcp.StdioTransportConfig{
 			Command:          "npx",
 			Args:             []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"},
 			Env:              map[string]string{"NODE_ENV": "production"},
@@ -100,42 +102,42 @@ func TestStdioToolConstruction(t *testing.T) {
 		StartupTimeout:      10 * time.Second,
 		RequestTimeout:      30 * time.Second,
 		IdleTimeout:         5 * time.Minute,
-		Routing:             RoutingSticky,
-		CredentialPolicy:    CredentialPolicyOptional,
-		AuthorizationPolicy: AuthorizationPolicyTenantAllowlist,
-		State:               ToolStateEnabled,
+		Routing:             mcp.RoutingSticky,
+		CredentialPolicy:    mcp.CredentialPolicyOptional,
+		AuthorizationPolicy: mcp.AuthorizationPolicyTenantAllowlist,
+		State:               mcp.ToolStateEnabled,
 	}
 
-	assert.Equal(t, ToolID("filesystem"), tool.ID)
+	assert.Equal(t, mcp.ToolID("filesystem"), tool.ID)
 	assert.True(t, tool.IsStdio())
 	assert.False(t, tool.IsHTTP())
 	assert.NotNil(t, tool.Stdio)
 	assert.Nil(t, tool.HTTP)
 	assert.Equal(t, "npx", tool.Stdio.Command)
-	assert.Equal(t, RoutingSticky, tool.Routing)
+	assert.Equal(t, mcp.RoutingSticky, tool.Routing)
 	assert.True(t, tool.IsAvailable())
 }
 
 func TestHTTPToolConstruction(t *testing.T) {
-	tool := Tool{
-		ID:        ToolID("docs-search"),
-		Transport: TransportHTTP,
-		HTTP: &HTTPTransportConfig{
+	tool := mcp.Tool{
+		ID:        mcp.ToolID("docs-search"),
+		Transport: mcp.TransportHTTP,
+		HTTP: &mcp.HTTPTransportConfig{
 			URL: "https://mcp.internal.example.com",
 		},
 		RequestTimeout:      15 * time.Second,
 		IdleTimeout:         2 * time.Minute,
-		Routing:             RoutingLeastLoaded,
-		CredentialPolicy:    CredentialPolicyRequired,
-		AuthorizationPolicy: AuthorizationPolicyTenantAllowlist,
-		State:               ToolStateEnabled,
+		Routing:             mcp.RoutingLeastLoaded,
+		CredentialPolicy:    mcp.CredentialPolicyRequired,
+		AuthorizationPolicy: mcp.AuthorizationPolicyTenantAllowlist,
+		State:               mcp.ToolStateEnabled,
 	}
 
-	assert.Equal(t, ToolID("docs-search"), tool.ID)
+	assert.Equal(t, mcp.ToolID("docs-search"), tool.ID)
 	assert.False(t, tool.IsStdio())
 	assert.True(t, tool.IsHTTP())
 	assert.Nil(t, tool.Stdio)
 	assert.NotNil(t, tool.HTTP)
 	assert.Equal(t, "https://mcp.internal.example.com", tool.HTTP.URL)
-	assert.Equal(t, RoutingLeastLoaded, tool.Routing)
+	assert.Equal(t, mcp.RoutingLeastLoaded, tool.Routing)
 }

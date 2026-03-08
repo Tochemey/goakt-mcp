@@ -29,7 +29,7 @@ import (
 
 	goaktextension "github.com/tochemey/goakt/v4/extension"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // SessionDependencyID is the fixed identifier for the session dependency.
@@ -39,11 +39,11 @@ const SessionDependencyID = "session"
 // for injection into SessionActor. When Executor is non-nil, the session uses
 // it for real MCP execution; otherwise it returns stub results.
 type SessionDependency struct {
-	tenantID runtime.TenantID
-	clientID runtime.ClientID
-	toolID   runtime.ToolID
-	tool     runtime.Tool
-	executor runtime.ToolExecutor
+	tenantID mcp.TenantID
+	clientID mcp.ClientID
+	toolID   mcp.ToolID
+	tool     mcp.Tool
+	executor mcp.ToolExecutor
 }
 
 var _ goaktextension.Dependency = (*SessionDependency)(nil)
@@ -53,12 +53,12 @@ type sessionDependencyPayload struct {
 	TenantID string
 	ClientID string
 	ToolID   string
-	Tool     runtime.Tool
+	Tool     mcp.Tool
 }
 
 // NewSessionDependency creates a dependency for the given session identity and
 // tool. Pass nil for executor to use stub execution.
-func NewSessionDependency(tenantID runtime.TenantID, clientID runtime.ClientID, toolID runtime.ToolID, tool runtime.Tool, executor runtime.ToolExecutor) *SessionDependency {
+func NewSessionDependency(tenantID mcp.TenantID, clientID mcp.ClientID, toolID mcp.ToolID, tool mcp.Tool, executor mcp.ToolExecutor) *SessionDependency {
 	return &SessionDependency{
 		tenantID: tenantID,
 		clientID: clientID,
@@ -96,25 +96,25 @@ func (s *SessionDependency) UnmarshalBinary(data []byte) error {
 	if err := dec.Decode(&payload); err != nil {
 		return err
 	}
-	s.tenantID = runtime.TenantID(payload.TenantID)
-	s.clientID = runtime.ClientID(payload.ClientID)
-	s.toolID = runtime.ToolID(payload.ToolID)
+	s.tenantID = mcp.TenantID(payload.TenantID)
+	s.clientID = mcp.ClientID(payload.ClientID)
+	s.toolID = mcp.ToolID(payload.ToolID)
 	s.tool = payload.Tool
 	return nil
 }
 
 // TenantID returns the tenant identifier.
-func (s *SessionDependency) TenantID() runtime.TenantID { return s.tenantID }
+func (s *SessionDependency) TenantID() mcp.TenantID { return s.tenantID }
 
 // ClientID returns the client identifier.
-func (s *SessionDependency) ClientID() runtime.ClientID { return s.clientID }
+func (s *SessionDependency) ClientID() mcp.ClientID { return s.clientID }
 
 // ToolID returns the tool identifier.
-func (s *SessionDependency) ToolID() runtime.ToolID { return s.toolID }
+func (s *SessionDependency) ToolID() mcp.ToolID { return s.toolID }
 
 // Tool returns the tool definition (for idle timeout and transport config).
-func (s *SessionDependency) Tool() runtime.Tool { return s.tool }
+func (s *SessionDependency) Tool() mcp.Tool { return s.tool }
 
 // Executor returns the optional tool executor for real MCP execution.
 // Nil means stub mode.
-func (s *SessionDependency) Executor() runtime.ToolExecutor { return s.executor }
+func (s *SessionDependency) Executor() mcp.ToolExecutor { return s.executor }

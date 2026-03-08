@@ -21,16 +21,31 @@
 // SOFTWARE.
 //
 
-package ingress
+package mcp
 
-import (
-	"testing"
+// ValidateTool checks that a tool definition is valid before registration.
+//
+// Validation rules:
+//   - Tool.ID must not be zero (empty)
+//   - Transport must be TransportStdio or TransportHTTP
+//   - For stdio: Command must be non-empty
+//   - For http: URL must be non-empty
+func ValidateTool(tool Tool) error {
+	if tool.ID.IsZero() {
+		return NewRuntimeError(ErrCodeInvalidRequest, "tool ID is required")
+	}
 
-	"github.com/stretchr/testify/require"
-)
-
-// TestPackageCompiles verifies that the ingress package compiles and can be used.
-// Phase 0 placeholder; real ingress logic and tests will be added in the coming phases.
-func TestPackageCompiles(t *testing.T) {
-	require.True(t, true, "testify should be available for assertions")
+	switch tool.Transport {
+	case TransportStdio:
+		if tool.Stdio == nil || tool.Stdio.Command == "" {
+			return NewRuntimeError(ErrCodeInvalidRequest, "stdio tool must have non-empty command")
+		}
+	case TransportHTTP:
+		if tool.HTTP == nil || tool.HTTP.URL == "" {
+			return NewRuntimeError(ErrCodeInvalidRequest, "http tool must have non-empty URL")
+		}
+	default:
+		return NewRuntimeError(ErrCodeInvalidRequest, "transport must be stdio or http")
+	}
+	return nil
 }

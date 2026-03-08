@@ -28,8 +28,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // HTTPExecutorFactory creates ToolExecutor instances for HTTP tools.
@@ -49,7 +49,7 @@ func NewHTTPExecutorFactory(httpClient *http.Client, startupTimeout time.Duratio
 
 // Create returns an HTTPExecutor for the tool when it uses HTTP transport,
 // or nil when the tool uses a different transport.
-func (f *HTTPExecutorFactory) Create(ctx context.Context, tool runtime.Tool, _ map[string]string) (runtime.ToolExecutor, error) {
+func (f *HTTPExecutorFactory) Create(ctx context.Context, tool mcp.Tool, _ map[string]string) (mcp.ToolExecutor, error) {
 	if !tool.IsHTTP() || tool.HTTP == nil {
 		return nil, nil
 	}

@@ -29,19 +29,21 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestCorrelationMetaIsZero(t *testing.T) {
 	t.Run("zero value returns true", func(t *testing.T) {
-		var m CorrelationMeta
+		var m mcp.CorrelationMeta
 		assert.True(t, m.IsZero())
 	})
 	t.Run("partially filled returns false", func(t *testing.T) {
-		m := CorrelationMeta{TenantID: "acme"}
+		m := mcp.CorrelationMeta{TenantID: "acme"}
 		assert.False(t, m.IsZero())
 	})
 	t.Run("fully filled returns false", func(t *testing.T) {
-		m := CorrelationMeta{
+		m := mcp.CorrelationMeta{
 			TenantID:  "acme",
 			ClientID:  "user-1",
 			RequestID: "req-001",
@@ -52,32 +54,32 @@ func TestCorrelationMetaIsZero(t *testing.T) {
 }
 
 func TestExecutionStatusConstants(t *testing.T) {
-	assert.Equal(t, ExecutionStatus("success"), ExecutionStatusSuccess)
-	assert.Equal(t, ExecutionStatus("failure"), ExecutionStatusFailure)
-	assert.Equal(t, ExecutionStatus("timeout"), ExecutionStatusTimeout)
-	assert.Equal(t, ExecutionStatus("denied"), ExecutionStatusDenied)
-	assert.Equal(t, ExecutionStatus("throttled"), ExecutionStatusThrottled)
+	assert.Equal(t, mcp.ExecutionStatus("success"), mcp.ExecutionStatusSuccess)
+	assert.Equal(t, mcp.ExecutionStatus("failure"), mcp.ExecutionStatusFailure)
+	assert.Equal(t, mcp.ExecutionStatus("timeout"), mcp.ExecutionStatusTimeout)
+	assert.Equal(t, mcp.ExecutionStatus("denied"), mcp.ExecutionStatusDenied)
+	assert.Equal(t, mcp.ExecutionStatus("throttled"), mcp.ExecutionStatusThrottled)
 }
 
 func TestExecutionResultStatusHelpers(t *testing.T) {
 	tests := []struct {
-		status    ExecutionStatus
+		status    mcp.ExecutionStatus
 		succeeded bool
 		failed    bool
 		timedOut  bool
 		denied    bool
 		throttled bool
 	}{
-		{ExecutionStatusSuccess, true, false, false, false, false},
-		{ExecutionStatusFailure, false, true, false, false, false},
-		{ExecutionStatusTimeout, false, false, true, false, false},
-		{ExecutionStatusDenied, false, false, false, true, false},
-		{ExecutionStatusThrottled, false, false, false, false, true},
+		{mcp.ExecutionStatusSuccess, true, false, false, false, false},
+		{mcp.ExecutionStatusFailure, false, true, false, false, false},
+		{mcp.ExecutionStatusTimeout, false, false, true, false, false},
+		{mcp.ExecutionStatusDenied, false, false, false, true, false},
+		{mcp.ExecutionStatusThrottled, false, false, false, false, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(string(tt.status), func(t *testing.T) {
-			r := ExecutionResult{Status: tt.status}
+			r := mcp.ExecutionResult{Status: tt.status}
 			assert.Equal(t, tt.succeeded, r.Succeeded())
 			assert.Equal(t, tt.failed, r.Failed())
 			assert.Equal(t, tt.timedOut, r.TimedOut())
@@ -89,14 +91,14 @@ func TestExecutionResultStatusHelpers(t *testing.T) {
 
 func TestInvocationConstruction(t *testing.T) {
 	now := time.Now()
-	corr := CorrelationMeta{
+	corr := mcp.CorrelationMeta{
 		TenantID:  "acme-dev",
 		ClientID:  "client-app-1",
 		RequestID: "req-01JXYZ",
 		TraceID:   "trace-01JXYZ",
 	}
 
-	inv := Invocation{
+	inv := mcp.Invocation{
 		Correlation: corr,
 		ToolID:      "filesystem",
 		SessionID:   "sess-abc",
@@ -110,8 +112,8 @@ func TestInvocationConstruction(t *testing.T) {
 	}
 
 	require.Equal(t, corr, inv.Correlation)
-	assert.Equal(t, ToolID("filesystem"), inv.ToolID)
-	assert.Equal(t, SessionID("sess-abc"), inv.SessionID)
+	assert.Equal(t, mcp.ToolID("filesystem"), inv.ToolID)
+	assert.Equal(t, mcp.SessionID("sess-abc"), inv.SessionID)
 	assert.Equal(t, "tools/call", inv.Method)
 	assert.NotEmpty(t, inv.Params)
 	assert.Equal(t, "gateway-client", inv.Metadata["source"])
@@ -119,7 +121,7 @@ func TestInvocationConstruction(t *testing.T) {
 }
 
 func TestExecutionResultConstruction(t *testing.T) {
-	corr := CorrelationMeta{
+	corr := mcp.CorrelationMeta{
 		TenantID:  "acme-dev",
 		ClientID:  "client-app-1",
 		RequestID: "req-01JXYZ",
@@ -127,8 +129,8 @@ func TestExecutionResultConstruction(t *testing.T) {
 	}
 
 	t.Run("successful result", func(t *testing.T) {
-		result := ExecutionResult{
-			Status:      ExecutionStatusSuccess,
+		result := mcp.ExecutionResult{
+			Status:      mcp.ExecutionStatusSuccess,
 			Output:      map[string]any{"content": "hello"},
 			Duration:    50 * time.Millisecond,
 			Correlation: corr,
@@ -139,15 +141,15 @@ func TestExecutionResultConstruction(t *testing.T) {
 	})
 
 	t.Run("failed result carries error", func(t *testing.T) {
-		runtimeErr := NewRuntimeError(ErrCodeTransportFailure, "transport disconnected")
-		result := ExecutionResult{
-			Status:      ExecutionStatusFailure,
+		runtimeErr := mcp.NewRuntimeError(mcp.ErrCodeTransportFailure, "transport disconnected")
+		result := mcp.ExecutionResult{
+			Status:      mcp.ExecutionStatusFailure,
 			Err:         runtimeErr,
 			Duration:    200 * time.Millisecond,
 			Correlation: corr,
 		}
 		assert.True(t, result.Failed())
 		require.NotNil(t, result.Err)
-		assert.Equal(t, ErrCodeTransportFailure, result.Err.Code)
+		assert.Equal(t, mcp.ErrCodeTransportFailure, result.Err.Code)
 	})
 }

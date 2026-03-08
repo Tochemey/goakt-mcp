@@ -28,7 +28,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 const envProviderID = "env"
@@ -51,7 +51,7 @@ func (e *EnvProvider) ID() string {
 }
 
 // Resolve returns credentials from environment variables.
-func (e *EnvProvider) Resolve(ctx context.Context, tenantID runtime.TenantID, toolID runtime.ToolID) (map[string]string, error) {
+func (e *EnvProvider) Resolve(ctx context.Context, tenantID mcp.TenantID, toolID mcp.ToolID) (map[string]string, error) {
 	prefix := "MCP_CRED_" + strings.ToUpper(strings.ReplaceAll(string(toolID), "-", "_")) + "_"
 	creds := make(map[string]string)
 	for _, env := range os.Environ() {

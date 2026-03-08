@@ -30,6 +30,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // registrar is the Registry actor.
@@ -48,8 +49,8 @@ import (
 //     when cluster.IsClusterConfigured(cfg) is true. NewRegistrar() is registered
 //     as a cluster kind in cluster.BuildOptions.
 type registrar struct {
-	tools       map[runtime.ToolID]runtime.Tool
-	supervisors map[runtime.ToolID]*goaktactor.PID
+	tools       map[mcp.ToolID]mcp.Tool
+	supervisors map[mcp.ToolID]*goaktactor.PID
 	logger      goaktlog.Logger
 }
 
@@ -68,9 +69,9 @@ func NewRegistrar() goaktactor.Actor { return newRegistrar() }
 // PreStart initializes Registrar before message processing begins.
 func (x *registrar) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
-	x.tools = make(map[runtime.ToolID]runtime.Tool)
-	x.supervisors = make(map[runtime.ToolID]*goaktactor.PID)
-	ctx.Logger().Infof("actor=%s starting", runtime.ActorNameRegistrar)
+	x.tools = make(map[mcp.ToolID]mcp.Tool)
+	x.supervisors = make(map[mcp.ToolID]*goaktactor.PID)
+	ctx.Logger().Infof("actor=%s starting", mcp.ActorNameRegistrar)
 	return nil
 }
 
@@ -78,7 +79,7 @@ func (x *registrar) PreStart(ctx *goaktactor.Context) error {
 func (x *registrar) Receive(ctx *goaktactor.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goaktactor.PostStart:
-		x.logger.Infof("actor=%s started", runtime.ActorNameRegistrar)
+		x.logger.Infof("actor=%s started", mcp.ActorNameRegistrar)
 	case *runtime.RegisterTool:
 		x.handleRegisterTool(ctx, msg)
 	case *runtime.UpdateTool:
@@ -104,7 +105,7 @@ func (x *registrar) Receive(ctx *goaktactor.ReceiveContext) {
 
 // PostStop performs cleanup after Registrar has stopped.
 func (x *registrar) PostStop(ctx *goaktactor.Context) error {
-	x.logger.Infof("actor=%s stopped", runtime.ActorNameRegistrar)
+	x.logger.Infof("actor=%s stopped", mcp.ActorNameRegistrar)
 	return nil
 }
 
@@ -112,14 +113,14 @@ func (x *registrar) PostStop(ctx *goaktactor.Context) error {
 // was previously disabled, the disabled state is preserved. The previous supervisor
 // (if any) is stopped and a new one is spawned for the registered tool.
 func (x *registrar) handleRegisterTool(ctx *goaktactor.ReceiveContext, msg *runtime.RegisterTool) {
-	if err := runtime.ValidateTool(msg.Tool); err != nil {
+	if err := mcp.ValidateTool(msg.Tool); err != nil {
 		x.respondIfAsk(ctx, &runtime.RegisterToolResult{Err: err})
 		return
 	}
 
 	tool := msg.Tool
-	if existing, ok := x.tools[tool.ID]; ok && existing.State == runtime.ToolStateDisabled {
-		tool.State = runtime.ToolStateDisabled
+	if existing, ok := x.tools[tool.ID]; ok && existing.State == mcp.ToolStateDisabled {
+		tool.State = mcp.ToolStateDisabled
 	}
 
 	x.stopSupervisorIfExists(ctx, tool.ID)
@@ -129,7 +130,7 @@ func (x *registrar) handleRegisterTool(ctx *goaktactor.ReceiveContext, msg *runt
 		x.supervisors[tool.ID] = pid
 	}
 
-	x.logger.Infof("actor=%s registered tool=%s", runtime.ActorNameRegistrar, tool.ID)
+	x.logger.Infof("actor=%s registered tool=%s", mcp.ActorNameRegistrar, tool.ID)
 	x.respondIfAsk(ctx, &runtime.RegisterToolResult{})
 }
 
@@ -139,7 +140,7 @@ func (x *registrar) handleRegisterTool(ctx *goaktactor.ReceiveContext, msg *runt
 func (x *registrar) handleUpdateTool(ctx *goaktactor.ReceiveContext, msg *runtime.UpdateTool) {
 	existing, ok := x.tools[msg.Tool.ID]
 	if !ok {
-		x.respondIfAsk(ctx, &runtime.UpdateToolResult{Err: runtime.ErrToolNotFound})
+		x.respondIfAsk(ctx, &runtime.UpdateToolResult{Err: mcp.ErrToolNotFound})
 		return
 	}
 
@@ -149,14 +150,14 @@ func (x *registrar) handleUpdateTool(ctx *goaktactor.ReceiveContext, msg *runtim
 	updated.Stdio = existing.Stdio
 	updated.HTTP = existing.HTTP
 
-	if err := runtime.ValidateTool(updated); err != nil {
+	if err := mcp.ValidateTool(updated); err != nil {
 		x.respondIfAsk(ctx, &runtime.UpdateToolResult{Err: err})
 		return
 	}
 
 	updated.State = existing.State
 	x.tools[updated.ID] = updated
-	x.logger.Infof("actor=%s updated tool=%s", runtime.ActorNameRegistrar, updated.ID)
+	x.logger.Infof("actor=%s updated tool=%s", mcp.ActorNameRegistrar, updated.ID)
 	x.respondIfAsk(ctx, &runtime.UpdateToolResult{})
 }
 
@@ -166,13 +167,13 @@ func (x *registrar) handleUpdateTool(ctx *goaktactor.ReceiveContext, msg *runtim
 func (x *registrar) handleDisableTool(ctx *goaktactor.ReceiveContext, msg *runtime.DisableTool) {
 	existing, ok := x.tools[msg.ToolID]
 	if !ok {
-		x.respondIfAsk(ctx, &runtime.DisableToolResult{Err: runtime.ErrToolNotFound})
+		x.respondIfAsk(ctx, &runtime.DisableToolResult{Err: mcp.ErrToolNotFound})
 		return
 	}
 
-	existing.State = runtime.ToolStateDisabled
+	existing.State = mcp.ToolStateDisabled
 	x.tools[msg.ToolID] = existing
-	x.logger.Infof("actor=%s disabled tool=%s", runtime.ActorNameRegistrar, msg.ToolID)
+	x.logger.Infof("actor=%s disabled tool=%s", mcp.ActorNameRegistrar, msg.ToolID)
 	x.respondIfAsk(ctx, &runtime.DisableToolResult{})
 }
 
@@ -180,14 +181,14 @@ func (x *registrar) handleDisableTool(ctx *goaktactor.ReceiveContext, msg *runti
 // Returns ErrToolNotFound when the tool does not exist.
 func (x *registrar) handleRemoveTool(ctx *goaktactor.ReceiveContext, msg *runtime.RemoveTool) {
 	if _, ok := x.tools[msg.ToolID]; !ok {
-		x.respondIfAsk(ctx, &runtime.RemoveToolResult{Err: runtime.ErrToolNotFound})
+		x.respondIfAsk(ctx, &runtime.RemoveToolResult{Err: mcp.ErrToolNotFound})
 		return
 	}
 
 	x.stopSupervisorIfExists(ctx, msg.ToolID)
 	delete(x.tools, msg.ToolID)
 	delete(x.supervisors, msg.ToolID)
-	x.logger.Infof("actor=%s removed tool=%s", runtime.ActorNameRegistrar, msg.ToolID)
+	x.logger.Infof("actor=%s removed tool=%s", mcp.ActorNameRegistrar, msg.ToolID)
 	x.respondIfAsk(ctx, &runtime.RemoveToolResult{})
 }
 
@@ -196,7 +197,7 @@ func (x *registrar) handleRemoveTool(ctx *goaktactor.ReceiveContext, msg *runtim
 func (x *registrar) handleQueryTool(ctx *goaktactor.ReceiveContext, msg *runtime.QueryTool) {
 	tool, ok := x.tools[msg.ToolID]
 	if !ok {
-		x.respondIfAsk(ctx, &runtime.QueryToolResult{Found: false, Err: runtime.ErrToolNotFound})
+		x.respondIfAsk(ctx, &runtime.QueryToolResult{Found: false, Err: mcp.ErrToolNotFound})
 		return
 	}
 	x.respondIfAsk(ctx, &runtime.QueryToolResult{Tool: &tool, Found: true})
@@ -208,12 +209,12 @@ func (x *registrar) handleQueryTool(ctx *goaktactor.ReceiveContext, msg *runtime
 func (x *registrar) handleUpdateToolHealth(ctx *goaktactor.ReceiveContext, msg *runtime.UpdateToolHealth) {
 	existing, ok := x.tools[msg.ToolID]
 	if !ok {
-		x.respondIfAsk(ctx, &runtime.UpdateToolHealthResult{Err: runtime.ErrToolNotFound})
+		x.respondIfAsk(ctx, &runtime.UpdateToolHealthResult{Err: mcp.ErrToolNotFound})
 		return
 	}
 	existing.State = msg.State
 	x.tools[msg.ToolID] = existing
-	x.logger.Debugf("actor=%s updated health tool=%s state=%s", runtime.ActorNameRegistrar, msg.ToolID, msg.State)
+	x.logger.Debugf("actor=%s updated health tool=%s state=%s", mcp.ActorNameRegistrar, msg.ToolID, msg.State)
 	x.respondIfAsk(ctx, &runtime.UpdateToolHealthResult{})
 }
 
@@ -222,8 +223,8 @@ func (x *registrar) handleUpdateToolHealth(ctx *goaktactor.ReceiveContext, msg *
 // supervisor spawned as a child of the registry.
 func (x *registrar) handleBootstrapTools(ctx *goaktactor.ReceiveContext, msg *runtime.BootstrapTools) {
 	for _, tool := range msg.Tools {
-		if err := runtime.ValidateTool(tool); err != nil {
-			x.logger.Warnf("actor=%s bootstrap skip tool=%s: %v", runtime.ActorNameRegistrar, tool.ID, err)
+		if err := mcp.ValidateTool(tool); err != nil {
+			x.logger.Warnf("actor=%s bootstrap skip tool=%s: %v", mcp.ActorNameRegistrar, tool.ID, err)
 			continue
 		}
 		x.stopSupervisorIfExists(ctx, tool.ID)
@@ -231,7 +232,7 @@ func (x *registrar) handleBootstrapTools(ctx *goaktactor.ReceiveContext, msg *ru
 		if pid := x.spawnSupervisor(ctx, tool); pid != nil {
 			x.supervisors[tool.ID] = pid
 		}
-		x.logger.Infof("actor=%s bootstrap registered tool=%s", runtime.ActorNameRegistrar, tool.ID)
+		x.logger.Infof("actor=%s bootstrap registered tool=%s", mcp.ActorNameRegistrar, tool.ID)
 	}
 }
 
@@ -240,7 +241,7 @@ func (x *registrar) handleBootstrapTools(ctx *goaktactor.ReceiveContext, msg *ru
 func (x *registrar) handleGetSupervisor(ctx *goaktactor.ReceiveContext, msg *runtime.GetSupervisor) {
 	pid, ok := x.supervisors[msg.ToolID]
 	if !ok {
-		x.respondIfAsk(ctx, &runtime.GetSupervisorResult{Found: false, Err: runtime.ErrToolNotFound})
+		x.respondIfAsk(ctx, &runtime.GetSupervisorResult{Found: false, Err: mcp.ErrToolNotFound})
 		return
 	}
 	x.respondIfAsk(ctx, &runtime.GetSupervisorResult{Supervisor: pid, Found: true})
@@ -248,7 +249,7 @@ func (x *registrar) handleGetSupervisor(ctx *goaktactor.ReceiveContext, msg *run
 
 // handleListTools returns all registered tools. Used by HealthActor for probing.
 func (x *registrar) handleListTools(ctx *goaktactor.ReceiveContext) {
-	tools := make([]runtime.Tool, 0, len(x.tools))
+	tools := make([]mcp.Tool, 0, len(x.tools))
 	for _, t := range x.tools {
 		tools = append(tools, t)
 	}
@@ -259,8 +260,8 @@ func (x *registrar) handleListTools(ctx *goaktactor.ReceiveContext) {
 // the given tool. The tool is injected via WithDependencies. Returns nil on error.
 // Uses a supervisor strategy that resumes (does not suspend) when child sessions fail,
 // so the tool supervisor remains available for subsequent GetOrCreateSession requests.
-func (x *registrar) spawnSupervisor(ctx *goaktactor.ReceiveContext, tool runtime.Tool) *goaktactor.PID {
-	name := runtime.ToolSupervisorName(tool.ID)
+func (x *registrar) spawnSupervisor(ctx *goaktactor.ReceiveContext, tool mcp.Tool) *goaktactor.PID {
+	name := mcp.ToolSupervisorName(tool.ID)
 	dep := actorextension.NewToolDependency(tool)
 	toolSupervisor := supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective))
 
@@ -272,7 +273,7 @@ func (x *registrar) spawnSupervisor(ctx *goaktactor.ReceiveContext, tool runtime
 
 // stopSupervisorIfExists stops and removes the supervisor for the given tool
 // if one is currently tracked. No-op when no supervisor exists.
-func (x *registrar) stopSupervisorIfExists(ctx *goaktactor.ReceiveContext, toolID runtime.ToolID) {
+func (x *registrar) stopSupervisorIfExists(ctx *goaktactor.ReceiveContext, toolID mcp.ToolID) {
 	if pid, ok := x.supervisors[toolID]; ok {
 		ctx.Stop(pid)
 		delete(x.supervisors, toolID)

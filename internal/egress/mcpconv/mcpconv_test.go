@@ -26,11 +26,11 @@ package mcpconv
 import (
 	"testing"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestParamsFromInvocation(t *testing.T) {
@@ -41,14 +41,14 @@ func TestParamsFromInvocation(t *testing.T) {
 	})
 
 	t.Run("nil params returns empty", func(t *testing.T) {
-		inv := &runtime.Invocation{ToolID: "my-tool"}
+		inv := &mcp.Invocation{ToolID: "my-tool"}
 		name, args := ParamsFromInvocation(inv)
 		assert.Empty(t, name)
 		assert.Nil(t, args)
 	})
 
 	t.Run("extracts name and arguments from params", func(t *testing.T) {
-		inv := &runtime.Invocation{
+		inv := &mcp.Invocation{
 			ToolID: "my-tool",
 			Params: map[string]any{
 				"name":      "greet",
@@ -63,7 +63,7 @@ func TestParamsFromInvocation(t *testing.T) {
 	})
 
 	t.Run("falls back to ToolID when name is missing", func(t *testing.T) {
-		inv := &runtime.Invocation{
+		inv := &mcp.Invocation{
 			ToolID: "fallback-tool",
 			Params: map[string]any{
 				"arguments": map[string]any{"x": 1},
@@ -75,7 +75,7 @@ func TestParamsFromInvocation(t *testing.T) {
 	})
 
 	t.Run("falls back to ToolID when name is empty string", func(t *testing.T) {
-		inv := &runtime.Invocation{
+		inv := &mcp.Invocation{
 			ToolID: "fallback-tool",
 			Params: map[string]any{
 				"name":      "",
@@ -93,7 +93,7 @@ func TestCallResultToOutput(t *testing.T) {
 	})
 
 	t.Run("empty result returns map without content key", func(t *testing.T) {
-		res := &mcp.CallToolResult{}
+		res := &sdkmcp.CallToolResult{}
 		out := CallResultToOutput(res)
 		require.NotNil(t, out)
 		_, hasContent := out["content"]
@@ -101,9 +101,9 @@ func TestCallResultToOutput(t *testing.T) {
 	})
 
 	t.Run("text content is mapped", func(t *testing.T) {
-		res := &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: "hello"},
+		res := &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{
+				&sdkmcp.TextContent{Text: "hello"},
 			},
 		}
 		out := CallResultToOutput(res)
@@ -115,9 +115,9 @@ func TestCallResultToOutput(t *testing.T) {
 	})
 
 	t.Run("image content is mapped with base64 data", func(t *testing.T) {
-		res := &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.ImageContent{Data: []byte{0x89, 0x50}, MIMEType: "image/png"},
+		res := &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{
+				&sdkmcp.ImageContent{Data: []byte{0x89, 0x50}, MIMEType: "image/png"},
 			},
 		}
 		out := CallResultToOutput(res)
@@ -130,9 +130,9 @@ func TestCallResultToOutput(t *testing.T) {
 	})
 
 	t.Run("audio content is mapped", func(t *testing.T) {
-		res := &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.AudioContent{Data: []byte{0x00}, MIMEType: "audio/wav"},
+		res := &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{
+				&sdkmcp.AudioContent{Data: []byte{0x00}, MIMEType: "audio/wav"},
 			},
 		}
 		out := CallResultToOutput(res)
@@ -144,10 +144,10 @@ func TestCallResultToOutput(t *testing.T) {
 	})
 
 	t.Run("embedded resource is mapped", func(t *testing.T) {
-		res := &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.EmbeddedResource{
-					Resource: &mcp.ResourceContents{
+		res := &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{
+				&sdkmcp.EmbeddedResource{
+					Resource: &sdkmcp.ResourceContents{
 						URI:      "file:///test.txt",
 						MIMEType: "text/plain",
 						Text:     "file contents",
@@ -166,9 +166,9 @@ func TestCallResultToOutput(t *testing.T) {
 	})
 
 	t.Run("resource link is mapped", func(t *testing.T) {
-		res := &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.ResourceLink{
+		res := &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{
+				&sdkmcp.ResourceLink{
 					URI:      "https://example.com",
 					Name:     "example",
 					MIMEType: "text/html",
@@ -187,16 +187,16 @@ func TestCallResultToOutput(t *testing.T) {
 
 	t.Run("structured content is included", func(t *testing.T) {
 		sc := map[string]any{"key": "val"}
-		res := &mcp.CallToolResult{StructuredContent: sc}
+		res := &sdkmcp.CallToolResult{StructuredContent: sc}
 		out := CallResultToOutput(res)
 		assert.Equal(t, sc, out["structuredContent"])
 	})
 
 	t.Run("mixed content types in single result", func(t *testing.T) {
-		res := &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: "hello"},
-				&mcp.ImageContent{Data: []byte{0x01}, MIMEType: "image/jpeg"},
+		res := &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{
+				&sdkmcp.TextContent{Text: "hello"},
+				&sdkmcp.ImageContent{Data: []byte{0x01}, MIMEType: "image/jpeg"},
 			},
 		}
 		out := CallResultToOutput(res)
@@ -214,23 +214,23 @@ func TestContentErrorText(t *testing.T) {
 	})
 
 	t.Run("empty content returns default", func(t *testing.T) {
-		res := &mcp.CallToolResult{}
+		res := &sdkmcp.CallToolResult{}
 		assert.Equal(t, "tool error", ContentErrorText(res))
 	})
 
 	t.Run("text content returns text", func(t *testing.T) {
-		res := &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: "something went wrong"},
+		res := &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{
+				&sdkmcp.TextContent{Text: "something went wrong"},
 			},
 		}
 		assert.Equal(t, "something went wrong", ContentErrorText(res))
 	})
 
 	t.Run("non-text first content returns default", func(t *testing.T) {
-		res := &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.ImageContent{Data: []byte{0x01}, MIMEType: "image/png"},
+		res := &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{
+				&sdkmcp.ImageContent{Data: []byte{0x01}, MIMEType: "image/png"},
 			},
 		}
 		assert.Equal(t, "tool error", ContentErrorText(res))

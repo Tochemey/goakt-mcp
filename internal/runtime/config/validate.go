@@ -26,32 +26,21 @@ package config
 import (
 	"fmt"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // Validate checks cfg for critical errors. Returns nil when valid.
 func Validate(cfg *Config) error {
-	if err := validateHTTP(&cfg.HTTP); err != nil {
-		return err
-	}
 	if err := validateCluster(&cfg.Cluster); err != nil {
 		return err
 	}
+
 	if err := validateTenants(cfg.Tenants); err != nil {
 		return err
 	}
+
 	if err := validateTools(cfg.Tools); err != nil {
 		return err
-	}
-	return nil
-}
-
-// validateHTTP checks that ingress TLS configuration is complete when enabled.
-func validateHTTP(h *HTTPConfig) error {
-	if h.TLS != nil {
-		if h.TLS.CertFile == "" || h.TLS.KeyFile == "" {
-			return fmt.Errorf("http.tls: cert_file and key_file are required when tls is enabled")
-		}
 	}
 	return nil
 }
@@ -66,7 +55,7 @@ func validateCluster(c *ClusterConfig) error {
 
 // validateTenants verifies that every tenant has a non-empty, unique ID.
 func validateTenants(tenants []TenantConfig) error {
-	seen := make(map[runtime.TenantID]bool, len(tenants))
+	seen := make(map[mcp.TenantID]bool, len(tenants))
 	for i, t := range tenants {
 		if t.ID == "" {
 			return fmt.Errorf("tenants[%d]: id is required", i)
@@ -81,8 +70,8 @@ func validateTenants(tenants []TenantConfig) error {
 
 // validateTools verifies that every tool has a non-empty, unique ID and passes
 // transport-specific validation.
-func validateTools(tools []ToolConfig) error {
-	seen := make(map[runtime.ToolID]bool, len(tools))
+func validateTools(tools []mcp.Tool) error {
+	seen := make(map[mcp.ToolID]bool, len(tools))
 	for i, t := range tools {
 		if t.ID == "" {
 			return fmt.Errorf("tools[%d]: id is required", i)
@@ -91,41 +80,9 @@ func validateTools(tools []ToolConfig) error {
 			return fmt.Errorf("tools: duplicate tool id %q", t.ID)
 		}
 		seen[t.ID] = true
-		if err := validateTool(&t); err != nil {
+		if err := mcp.ValidateTool(t); err != nil {
 			return fmt.Errorf("tools[%d] %q: %w", i, t.ID, err)
 		}
-	}
-	return nil
-}
-
-// validateTool checks transport-specific required fields and egress TLS
-// pairing for a single tool configuration.
-func validateTool(t *ToolConfig) error {
-	switch t.Transport {
-	case runtime.TransportStdio:
-		if t.Command == "" {
-			return fmt.Errorf("command is required for stdio transport")
-		}
-	case runtime.TransportHTTP:
-		if t.URL == "" {
-			return fmt.Errorf("url is required for http transport")
-		}
-	}
-	if t.HTTPTLS != nil {
-		if err := validateEgressTLS(t.HTTPTLS); err != nil {
-			return fmt.Errorf("http_tls: %w", err)
-		}
-	}
-	return nil
-}
-
-// validateEgressTLS ensures that client_cert_file and client_key_file are
-// either both set or both empty for mutual TLS.
-func validateEgressTLS(tls *runtime.EgressTLSConfig) error {
-	hasCert := tls.ClientCertFile != ""
-	hasKey := tls.ClientKeyFile != ""
-	if hasCert != hasKey {
-		return fmt.Errorf("client_cert_file and client_key_file must both be set or both be empty")
 	}
 	return nil
 }

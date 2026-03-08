@@ -110,7 +110,7 @@ func TestBuildOptions(t *testing.T) {
 	t.Run("returns nil when Cluster.Enabled is false", func(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = false
-		opts := BuildOptions(cfg)
+		opts := BuildOptions(cfg, nil)
 		assert.Nil(t, opts)
 	})
 
@@ -119,7 +119,7 @@ func TestBuildOptions(t *testing.T) {
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Discovery = "kubernetes"
 		cfg.Cluster.Kubernetes = nil
-		opts := BuildOptions(cfg)
+		opts := BuildOptions(cfg, nil)
 		require.NotNil(t, opts)
 		// Should have WithRemote but not WithCluster (cluster requires valid discovery)
 		assert.GreaterOrEqual(t, len(opts), 1)
@@ -136,7 +136,7 @@ func TestBuildOptions(t *testing.T) {
 			PeersPortName:     "cluster",
 			PodLabels:         map[string]string{"app": "goakt-mcp"},
 		}
-		opts := BuildOptions(cfg)
+		opts := BuildOptions(cfg, nil)
 		require.NotNil(t, opts)
 		assert.GreaterOrEqual(t, len(opts), 2, "expect WithRemote and WithCluster")
 	})
@@ -146,7 +146,7 @@ func TestBuildOptions(t *testing.T) {
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Discovery = "dnssd"
 		cfg.Cluster.DNSSD = &config.DNSSDDiscoveryConfig{DomainName: "goakt-mcp.local"}
-		opts := BuildOptions(cfg)
+		opts := BuildOptions(cfg, nil)
 		require.NotNil(t, opts)
 		assert.GreaterOrEqual(t, len(opts), 2, "expect WithRemote and WithCluster")
 	})

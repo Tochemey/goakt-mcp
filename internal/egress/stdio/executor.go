@@ -30,10 +30,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/tochemey/goakt-mcp/internal/egress/mcpconv"
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // StdioExecutor executes MCP tool invocations over a stdio child process.
@@ -42,50 +42,50 @@ import (
 // communicate via newline-delimited JSON over stdin/stdout. The executor owns
 // the process lifecycle; Close terminates the child.
 type StdioExecutor struct {
-	client   *mcp.Client
-	sess     *mcp.ClientSession
+	client   *sdkmcp.Client
+	sess     *sdkmcp.ClientSession
 	closed   sync.Once
 	closeErr error
 }
 
 // Execute runs the MCP tools/call invocation and returns the result.
-func (e *StdioExecutor) Execute(ctx context.Context, inv *runtime.Invocation) (*runtime.ExecutionResult, error) {
+func (e *StdioExecutor) Execute(ctx context.Context, inv *mcp.Invocation) (*mcp.ExecutionResult, error) {
 	if e.sess == nil {
-		return &runtime.ExecutionResult{
-			Status:      runtime.ExecutionStatusFailure,
-			Err:         runtime.NewRuntimeError(runtime.ErrCodeTransportFailure, "session not connected"),
+		return &mcp.ExecutionResult{
+			Status:      mcp.ExecutionStatusFailure,
+			Err:         mcp.NewRuntimeError(mcp.ErrCodeTransportFailure, "session not connected"),
 			Correlation: inv.Correlation,
 		}, nil
 	}
 
 	name, args := mcpconv.ParamsFromInvocation(inv)
-	params := &mcp.CallToolParams{Name: name, Arguments: args}
+	params := &sdkmcp.CallToolParams{Name: name, Arguments: args}
 
 	res, err := e.sess.CallTool(ctx, params)
 	if err != nil {
 		if ctx.Err() != nil {
-			return &runtime.ExecutionResult{
-				Status:      runtime.ExecutionStatusTimeout,
-				Err:         runtime.WrapRuntimeError(runtime.ErrCodeInvocationTimeout, "invocation timed out", err),
+			return &mcp.ExecutionResult{
+				Status:      mcp.ExecutionStatusTimeout,
+				Err:         mcp.WrapRuntimeError(mcp.ErrCodeInvocationTimeout, "invocation timed out", err),
 				Correlation: inv.Correlation,
 			}, nil
 		}
-		return &runtime.ExecutionResult{
-			Status:      runtime.ExecutionStatusFailure,
-			Err:         runtime.WrapRuntimeError(runtime.ErrCodeTransportFailure, "call failed", err),
+		return &mcp.ExecutionResult{
+			Status:      mcp.ExecutionStatusFailure,
+			Err:         mcp.WrapRuntimeError(mcp.ErrCodeTransportFailure, "call failed", err),
 			Correlation: inv.Correlation,
 		}, nil
 	}
 
 	output := mcpconv.CallResultToOutput(res)
-	status := runtime.ExecutionStatusSuccess
-	var rErr *runtime.RuntimeError
+	status := mcp.ExecutionStatusSuccess
+	var rErr *mcp.RuntimeError
 	if res.IsError {
-		status = runtime.ExecutionStatusFailure
-		rErr = runtime.NewRuntimeError(runtime.ErrCodeInternal, mcpconv.ContentErrorText(res))
+		status = mcp.ExecutionStatusFailure
+		rErr = mcp.NewRuntimeError(mcp.ErrCodeInternal, mcpconv.ContentErrorText(res))
 	}
 
-	return &runtime.ExecutionResult{
+	return &mcp.ExecutionResult{
 		Status:      status,
 		Output:      output,
 		Err:         rErr,
@@ -108,9 +108,9 @@ func (e *StdioExecutor) Close() error {
 // NewStdioExecutor creates an executor by launching the configured command and
 // connecting the MCP client. Returns an error if the process fails to start or
 // connect within startupTimeout.
-func NewStdioExecutor(cfg *runtime.StdioTransportConfig, startupTimeout time.Duration) (*StdioExecutor, error) {
+func NewStdioExecutor(cfg *mcp.StdioTransportConfig, startupTimeout time.Duration) (*StdioExecutor, error) {
 	if cfg == nil || cfg.Command == "" {
-		return nil, runtime.NewRuntimeError(runtime.ErrCodeInvalidRequest, "stdio config required")
+		return nil, mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "stdio config required")
 	}
 
 	cmd := exec.Command(cfg.Command, cfg.Args...) //nolint:gosec // command and args are from admin-controlled tool configuration, not user input
@@ -119,8 +119,8 @@ func NewStdioExecutor(cfg *runtime.StdioTransportConfig, startupTimeout time.Dur
 	}
 	cmd.Env = envSlice(cfg.Env)
 
-	client := mcp.NewClient(&mcp.Implementation{Name: "goakt-mcp", Version: "v0.1.0"}, nil)
-	transport := &mcp.CommandTransport{Command: cmd}
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "goakt-mcp", Version: "v0.1.0"}, nil)
+	transport := &sdkmcp.CommandTransport{Command: cmd}
 
 	ctx := context.Background()
 	if startupTimeout > 0 {
@@ -131,7 +131,7 @@ func NewStdioExecutor(cfg *runtime.StdioTransportConfig, startupTimeout time.Dur
 
 	sess, err := client.Connect(ctx, transport, nil)
 	if err != nil {
-		return nil, runtime.WrapRuntimeError(runtime.ErrCodeTransportFailure, "stdio connect failed", err)
+		return nil, mcp.WrapRuntimeError(mcp.ErrCodeTransportFailure, "stdio connect failed", err)
 	}
 
 	return &StdioExecutor{client: client, sess: sess}, nil

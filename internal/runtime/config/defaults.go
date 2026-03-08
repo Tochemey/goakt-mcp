@@ -23,11 +23,10 @@
 
 package config
 
+import "github.com/tochemey/goakt-mcp/mcp"
+
 // ApplyDefaults fills zero values in cfg with defaults.
 func ApplyDefaults(cfg *Config) {
-	if cfg.HTTP.ListenAddress == "" {
-		cfg.HTTP.ListenAddress = DefaultHTTPListenAddress
-	}
 	if cfg.Runtime.SessionIdleTimeout == 0 {
 		cfg.Runtime.SessionIdleTimeout = DefaultSessionIdleTimeout
 	}
@@ -43,9 +42,8 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Runtime.ShutdownTimeout == 0 {
 		cfg.Runtime.ShutdownTimeout = DefaultShutdownTimeout
 	}
-	// Ensure Tools and Tenants are non-nil
 	if cfg.Tools == nil {
-		cfg.Tools = []ToolConfig{}
+		cfg.Tools = []mcp.Tool{}
 	}
 	if cfg.Tenants == nil {
 		cfg.Tenants = []TenantConfig{}

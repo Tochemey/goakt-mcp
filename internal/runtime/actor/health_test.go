@@ -30,7 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestHealthActor(t *testing.T) {
@@ -40,10 +40,10 @@ func TestHealthActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, runtime.ActorNameHealth, newHealthChecker(nil, 0))
+		pid, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(nil, 0))
 		require.NoError(t, err)
 		require.NotNil(t, pid)
-		assert.Equal(t, runtime.ActorNameHealth, pid.Name())
+		assert.Equal(t, mcp.ActorNameHealth, pid.Name())
 
 		waitForActors()
 	})
@@ -51,10 +51,10 @@ func TestHealthActor(t *testing.T) {
 	t.Run("unhandles non-PostStart messages", func(t *testing.T) {
 		kit, ctx := newTestKit(t)
 
-		kit.Spawn(ctx, runtime.ActorNameHealth, newHealthChecker(nil, 0))
+		kit.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(nil, 0))
 		waitForActors()
 
-		pid, err := kit.ActorSystem().ActorOf(ctx, runtime.ActorNameHealth)
+		pid, err := kit.ActorSystem().ActorOf(ctx, mcp.ActorNameHealth)
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 		require.NoError(t, pid.Tell(ctx, pid, "unknown-message"))

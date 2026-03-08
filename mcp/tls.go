@@ -21,7 +21,7 @@
 // SOFTWARE.
 //
 
-package runtime
+package mcp
 
 import (
 	"crypto/tls"
@@ -69,7 +69,7 @@ func BuildClientTLSConfig(cfg *EgressTLSConfig) (*tls.Config, error) {
 
 	tlsCfg := &tls.Config{
 		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: cfg.InsecureSkipVerify, //nolint:gosec // controlled by operator config, validated upstream
+		InsecureSkipVerify: cfg.InsecureSkipVerify, //nolint:gosec
 	}
 
 	if cfg.CACertFile != "" {

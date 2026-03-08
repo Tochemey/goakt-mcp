@@ -27,94 +27,96 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestTenantID(t *testing.T) {
 	t.Run("IsZero returns true for empty value", func(t *testing.T) {
-		var id TenantID
+		var id mcp.TenantID
 		assert.True(t, id.IsZero())
 	})
 	t.Run("IsZero returns false for non-empty value", func(t *testing.T) {
-		id := TenantID("acme")
+		id := mcp.TenantID("acme")
 		assert.False(t, id.IsZero())
 	})
 	t.Run("String returns the underlying string", func(t *testing.T) {
-		id := TenantID("acme-dev")
+		id := mcp.TenantID("acme-dev")
 		assert.Equal(t, "acme-dev", id.String())
 	})
 }
 
 func TestClientID(t *testing.T) {
 	t.Run("IsZero returns true for empty value", func(t *testing.T) {
-		var id ClientID
+		var id mcp.ClientID
 		assert.True(t, id.IsZero())
 	})
 	t.Run("IsZero returns false for non-empty value", func(t *testing.T) {
-		id := ClientID("client-app-1")
+		id := mcp.ClientID("client-app-1")
 		assert.False(t, id.IsZero())
 	})
 	t.Run("String returns the underlying string", func(t *testing.T) {
-		id := ClientID("client-app-1")
+		id := mcp.ClientID("client-app-1")
 		assert.Equal(t, "client-app-1", id.String())
 	})
 }
 
 func TestToolID(t *testing.T) {
 	t.Run("IsZero returns true for empty value", func(t *testing.T) {
-		var id ToolID
+		var id mcp.ToolID
 		assert.True(t, id.IsZero())
 	})
 	t.Run("IsZero returns false for non-empty value", func(t *testing.T) {
-		id := ToolID("filesystem")
+		id := mcp.ToolID("filesystem")
 		assert.False(t, id.IsZero())
 	})
 	t.Run("String returns the underlying string", func(t *testing.T) {
-		id := ToolID("filesystem")
+		id := mcp.ToolID("filesystem")
 		assert.Equal(t, "filesystem", id.String())
 	})
 }
 
 func TestSessionID(t *testing.T) {
 	t.Run("IsZero returns true for empty value", func(t *testing.T) {
-		var id SessionID
+		var id mcp.SessionID
 		assert.True(t, id.IsZero())
 	})
 	t.Run("IsZero returns false for non-empty value", func(t *testing.T) {
-		id := SessionID("sess-abc123")
+		id := mcp.SessionID("sess-abc123")
 		assert.False(t, id.IsZero())
 	})
 	t.Run("String returns the underlying string", func(t *testing.T) {
-		id := SessionID("sess-abc123")
+		id := mcp.SessionID("sess-abc123")
 		assert.Equal(t, "sess-abc123", id.String())
 	})
 }
 
 func TestRequestID(t *testing.T) {
 	t.Run("IsZero returns true for empty value", func(t *testing.T) {
-		var id RequestID
+		var id mcp.RequestID
 		assert.True(t, id.IsZero())
 	})
 	t.Run("IsZero returns false for non-empty value", func(t *testing.T) {
-		id := RequestID("req-01JXYZ")
+		id := mcp.RequestID("req-01JXYZ")
 		assert.False(t, id.IsZero())
 	})
 	t.Run("String returns the underlying string", func(t *testing.T) {
-		id := RequestID("req-01JXYZ")
+		id := mcp.RequestID("req-01JXYZ")
 		assert.Equal(t, "req-01JXYZ", id.String())
 	})
 }
 
 func TestTraceID(t *testing.T) {
 	t.Run("IsZero returns true for empty value", func(t *testing.T) {
-		var id TraceID
+		var id mcp.TraceID
 		assert.True(t, id.IsZero())
 	})
 	t.Run("IsZero returns false for non-empty value", func(t *testing.T) {
-		id := TraceID("trace-01JXYZ")
+		id := mcp.TraceID("trace-01JXYZ")
 		assert.False(t, id.IsZero())
 	})
 	t.Run("String returns the underlying string", func(t *testing.T) {
-		id := TraceID("trace-01JXYZ")
+		id := mcp.TraceID("trace-01JXYZ")
 		assert.Equal(t, "trace-01JXYZ", id.String())
 	})
 }

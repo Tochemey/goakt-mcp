@@ -24,7 +24,10 @@
 package actor
 
 import (
+	"errors"
+
 	goaktactor "github.com/tochemey/goakt/v4/actor"
+	goakterrors "github.com/tochemey/goakt/v4/errors"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
@@ -32,41 +35,40 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime/cluster"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-// gatewayManager is the GatewayManager actor.
-//
 // GatewayManager is the runtime composition root inside the GoAkt actor system.
 // It is responsible for spawning and supervising the foundational runtime actors:
 // RegistryActor, HealthActor, JournalActor, PolicyActor, CredentialBrokerActor,
 // and RouterActor. It is always the first actor spawned after the actor system
 // starts and the last to stop during shutdown.
 //
-// Spawn: Gateway.Start calls system.Spawn(ctx, ActorNameGatewayManager, newGatewayManager(cfg)).
+// Spawn: Gateway.Start calls system.Spawn(ctx, ActorNameGatewayManager, NewGatewayManager(cfg)).
 // GatewayManager is a top-level actor with no parent.
 //
 // Relocation: No. GatewayManager runs on the local node and does not relocate in cluster mode.
 //
 // All fields are unexported to enforce actor immutability rules. State is
 // initialized in PreStart or on receipt of PostStart.
-type gatewayManager struct {
-	cfg    config.Config
+type GatewayManager struct {
+	config config.Config
 	logger goaktlog.Logger
 }
 
-// enforce that gatewayManager satisfies the GoAkt Actor interface at compile time.
-var _ goaktactor.Actor = (*gatewayManager)(nil)
+// enforce that GatewayManager satisfies the GoAkt Actor interface at compile time.
+var _ goaktactor.Actor = (*GatewayManager)(nil)
 
-// newGatewayManager creates a GatewayManager actor primed with the provided configuration.
+// NewGatewayManager creates a GatewayManager actor primed with the provided configuration.
 // The logger is captured from the actor context on PostStart, not injected here.
-func newGatewayManager(cfg config.Config) *gatewayManager {
-	return &gatewayManager{cfg: cfg}
+func NewGatewayManager(config config.Config) *GatewayManager {
+	return &GatewayManager{config: config}
 }
 
 // PreStart initializes the GatewayManager before message processing begins.
 // At this stage the actor context is available but the actor system has not yet
 // delivered the PostStart signal. Heavy initialization belongs in the PostStart handler.
-func (g *gatewayManager) PreStart(ctx *goaktactor.Context) error {
+func (g *GatewayManager) PreStart(ctx *goaktactor.Context) error {
 	g.logger = ctx.Logger()
 	return nil
 }
@@ -76,7 +78,7 @@ func (g *gatewayManager) PreStart(ctx *goaktactor.Context) error {
 // On PostStart: spawns RegistryActor, HealthActor, and JournalActor as supervised
 // children. These actors are always present for the lifetime of the runtime.
 // Unknown messages are marked as unhandled so the runtime can dead-letter them.
-func (g *gatewayManager) Receive(ctx *goaktactor.ReceiveContext) {
+func (g *GatewayManager) Receive(ctx *goaktactor.ReceiveContext) {
 	switch ctx.Message().(type) {
 	case *goaktactor.PostStart:
 		g.spawnFoundationalActors(ctx)
@@ -86,8 +88,8 @@ func (g *gatewayManager) Receive(ctx *goaktactor.ReceiveContext) {
 }
 
 // PostStop performs cleanup after GatewayManager has stopped.
-func (g *gatewayManager) PostStop(ctx *goaktactor.Context) error {
-	ctx.Logger().Infof("actor=%s stopped", runtime.ActorNameGatewayManager)
+func (g *GatewayManager) PostStop(ctx *goaktactor.Context) error {
+	ctx.Logger().Infof("actor=%s stopped", mcp.ActorNameGatewayManager)
 	return nil
 }
 
@@ -101,63 +103,78 @@ func (g *gatewayManager) PostStop(ctx *goaktactor.Context) error {
 //
 // If any child cannot be spawned, the error is recorded on the ReceiveContext and
 // the GatewayManager will surface it to the supervision layer.
-func (g *gatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext) {
-	g.logger.Infof("actor=%s spawning foundational actors", runtime.ActorNameGatewayManager)
+func (g *GatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext) {
+	g.logger.Infof("actor=%s spawning foundational actors", mcp.ActorNameGatewayManager)
 
-	registryPID := g.spawnRegistry(ctx)
-	ctx.Spawn(runtime.ActorNameHealth, newHealthChecker(registryPID, g.cfg.Runtime.HealthProbeInterval))
+	// spawn the registrar
+	registrar := g.spawnRegistrar(ctx)
 
-	auditSink := createAuditSink(g.cfg.Audit)
-	journalPID := ctx.Spawn(runtime.ActorNameJournal, newJournaler(auditSink))
-	_ = journalPID
+	// spawn the health actor
+	ctx.Spawn(mcp.ActorNameHealth, newHealthChecker(registrar, g.config.Runtime.HealthProbeInterval))
 
-	policyPID := ctx.Spawn(runtime.ActorNamePolicy, newPolicyActor(g.cfg))
+	// spawn the journal actor
+	auditSink := createAuditSink(g.config.Audit)
+	journaler := ctx.Spawn(mcp.ActorNameJournal, newJournaler(auditSink))
 
-	credentialBrokerPID := g.spawnCredentialBroker(ctx)
+	// spawn the policy actor
+	policyPID := ctx.Spawn(mcp.ActorNamePolicy, newPolicyActor(g.config))
 
-	if registryPID != nil {
-		ctx.Spawn(runtime.ActorNameRouter, newRouterActor(registryPID, policyPID, credentialBrokerPID, journalPID))
+	// spawn the credential broker actor
+	credentialBroker := g.spawnCredentialBroker(ctx)
+
+	// spawn the router actor
+	if registrar != nil {
+		ctx.Spawn(mcp.ActorNameRouter, newRouterActor(registrar, policyPID, credentialBroker, journaler))
 	}
 
-	if registryPID != nil && len(g.cfg.Tools) > 0 {
-		tools := make([]runtime.Tool, 0, len(g.cfg.Tools))
-		for _, tc := range g.cfg.Tools {
-			tools = append(tools, config.ToolConfigToTool(tc, g.cfg.Runtime))
-		}
-		ctx.Tell(registryPID, &runtime.BootstrapTools{Tools: tools})
+	// bootstrap the tools
+	if registrar != nil && len(g.config.Tools) > 0 {
+		ctx.Tell(registrar, &runtime.BootstrapTools{Tools: g.config.Tools})
 	}
 
-	g.logger.Infof("actor=%s foundational actors spawned", runtime.ActorNameGatewayManager)
+	g.logger.Infof("actor=%s foundational actors spawned", mcp.ActorNameGatewayManager)
 }
 
 // spawnCredentialBroker spawns CredentialBrokerActor when providers are configured.
 // Returns nil when no providers are configured.
-func (g *gatewayManager) spawnCredentialBroker(ctx *goaktactor.ReceiveContext) *goaktactor.PID {
-	providers := buildCredentialProviders(g.cfg.Credentials.Providers)
+func (g *GatewayManager) spawnCredentialBroker(ctx *goaktactor.ReceiveContext) *goaktactor.PID {
+	providers := buildCredentialProviders(g.config.Credentials.Providers)
 	if len(providers) == 0 {
 		return nil
 	}
-	return ctx.Spawn(runtime.ActorNameCredentialBroker, newCredentialBroker(providers, credentials.DefaultCredentialTTL))
+	return ctx.Spawn(mcp.ActorNameCredentialBroker, newCredentialBroker(providers, credentials.DefaultCredentialTTL))
 }
 
-// spawnRegistry spawns the RegistryActor. When cluster is configured (enabled with
+// spawnRegistrar spawns the RegistryActor. When cluster is configured (enabled with
 // valid kubernetes or dnssd discovery), uses SpawnSingleton so the registry is a cluster singleton.
-// Otherwise spawns locally.
-func (g *gatewayManager) spawnRegistry(ctx *goaktactor.ReceiveContext) *goaktactor.PID {
-	if cluster.IsClusterConfigured(g.cfg) {
+func (g *GatewayManager) spawnRegistrar(ctx *goaktactor.ReceiveContext) *goaktactor.PID {
+	if cluster.IsClusterConfigured(g.config) {
 		sys := ctx.Self().ActorSystem()
-		opts := []goaktactor.ClusterSingletonOption{}
-		if g.cfg.Cluster.SingletonRole != "" {
-			opts = append(opts, goaktactor.WithSingletonRole(g.cfg.Cluster.SingletonRole))
+
+		var opts []goaktactor.ClusterSingletonOption
+		if g.config.Cluster.SingletonRole != "" {
+			opts = append(opts, goaktactor.WithSingletonRole(g.config.Cluster.SingletonRole))
 		}
-		pid, err := sys.SpawnSingleton(ctx.Context(), runtime.ActorNameRegistrar, newRegistrar(), opts...)
+
+		pid, err := sys.SpawnSingleton(ctx.Context(), mcp.ActorNameRegistrar, newRegistrar(), opts...)
 		if err != nil {
-			g.logger.Warnf("actor=%s spawn singleton registry failed: %v", runtime.ActorNameGatewayManager, err)
+			if errors.Is(err, goakterrors.ErrSingletonAlreadyExists) {
+				// let us fetch the existing singleton
+				pid, err := sys.ActorOf(ctx.Context(), mcp.ActorNameRegistrar)
+				if err != nil {
+					g.logger.Warnf("actor=%s failed to fetch existing singleton registry: %v", mcp.ActorNameGatewayManager, err)
+					return nil
+				}
+
+				return pid
+			}
+
+			g.logger.Warnf("actor=%s spawn singleton registry failed: %v", mcp.ActorNameGatewayManager, err)
 			return nil
 		}
 		return pid
 	}
-	return ctx.Spawn(runtime.ActorNameRegistrar, newRegistrar())
+	return ctx.Spawn(mcp.ActorNameRegistrar, newRegistrar())
 }
 
 // createAuditSink creates an audit sink from config.

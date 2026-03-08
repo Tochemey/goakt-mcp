@@ -27,8 +27,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // StdioExecutorFactory creates ToolExecutor instances for stdio tools.
@@ -47,7 +47,7 @@ func NewStdioExecutorFactory(startupTimeout time.Duration) *StdioExecutorFactory
 
 // Create returns a StdioExecutor for the tool when it uses stdio transport,
 // or nil when the tool uses a different transport.
-func (f *StdioExecutorFactory) Create(ctx context.Context, tool runtime.Tool, _ map[string]string) (runtime.ToolExecutor, error) {
+func (f *StdioExecutorFactory) Create(ctx context.Context, tool mcp.Tool, _ map[string]string) (mcp.ToolExecutor, error) {
 	if !tool.IsStdio() || tool.Stdio == nil {
 		return nil, nil
 	}

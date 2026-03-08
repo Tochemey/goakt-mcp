@@ -21,34 +21,38 @@
 // SOFTWARE.
 //
 
-package runtime
+package mcp
 
-// ValidateTool checks that a tool definition is valid before registration.
-//
-// Validation rules:
-//   - Tool.ID must not be zero (empty)
-//   - Transport must be TransportStdio or TransportHTTP
-//   - For stdio: Command must be non-empty
-//   - For http: URL must be non-empty
-//
-// Returns nil when the tool is valid, or a RuntimeError with ErrCodeInvalidRequest
-// when validation fails.
-func ValidateTool(tool Tool) error {
-	if tool.ID.IsZero() {
-		return NewRuntimeError(ErrCodeInvalidRequest, "tool ID is required")
-	}
+import "time"
 
-	switch tool.Transport {
-	case TransportStdio:
-		if tool.Stdio == nil || tool.Stdio.Command == "" {
-			return NewRuntimeError(ErrCodeInvalidRequest, "stdio tool must have non-empty command")
-		}
-	case TransportHTTP:
-		if tool.HTTP == nil || tool.HTTP.URL == "" {
-			return NewRuntimeError(ErrCodeInvalidRequest, "http tool must have non-empty URL")
-		}
-	default:
-		return NewRuntimeError(ErrCodeInvalidRequest, "transport must be stdio or http")
-	}
-	return nil
+// CircuitState represents the circuit breaker state for a tool supervisor.
+type CircuitState string
+
+const (
+	CircuitClosed   CircuitState = "closed"
+	CircuitOpen     CircuitState = "open"
+	CircuitHalfOpen CircuitState = "half_open"
+)
+
+// CircuitConfig holds the parameters for circuit breaker behavior.
+type CircuitConfig struct {
+	FailureThreshold    int
+	OpenDuration        time.Duration
+	HalfOpenMaxRequests int
+}
+
+const (
+	DefaultCircuitFailureThreshold    = 5
+	DefaultCircuitOpenDuration        = 30 * time.Second
+	DefaultCircuitHalfOpenMaxRequests = 1
+)
+
+// CanAccept returns true when the circuit allows new requests.
+func (s CircuitState) CanAccept() bool {
+	return s == CircuitClosed || s == CircuitHalfOpen
+}
+
+// IsOpen returns true when the circuit is open (fail fast).
+func (s CircuitState) IsOpen() bool {
+	return s == CircuitOpen
 }

@@ -31,8 +31,8 @@ import (
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestPolicyActor(t *testing.T) {
@@ -43,7 +43,7 @@ func TestPolicyActor(t *testing.T) {
 		defer stop()
 
 		cfg := testConfig()
-		pid, err := system.Spawn(ctx, runtime.ActorNamePolicy, newPolicyActor(cfg))
+		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyActor(cfg))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -65,12 +65,12 @@ func TestPolicyActor(t *testing.T) {
 		defer stop()
 
 		cfg := testConfigWithTenants("allowed-tenant")
-		pid, err := system.Spawn(ctx, runtime.ActorNamePolicy, newPolicyActor(cfg))
+		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyActor(cfg))
 		require.NoError(t, err)
 		waitForActors()
 
 		tool := validStdioTool("tool-1")
-		tool.AuthorizationPolicy = runtime.AuthorizationPolicyTenantAllowlist
+		tool.AuthorizationPolicy = mcp.AuthorizationPolicyTenantAllowlist
 		in := &policy.Input{
 			Invocation: sessionInvocation("tool-1", "denied-tenant", "client-1"),
 			Tool:       tool,
@@ -84,9 +84,9 @@ func TestPolicyActor(t *testing.T) {
 		assert.False(t, result.Result.Allowed())
 		assert.Equal(t, policy.DecisionDeny, result.Result.Decision)
 		require.Error(t, result.Result.Err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.True(t, assert.ErrorAs(t, result.Result.Err, &rErr))
-		assert.Equal(t, runtime.ErrCodePolicyDenied, rErr.Code)
+		assert.Equal(t, mcp.ErrCodePolicyDenied, rErr.Code)
 	})
 
 	t.Run("allows when tenant in allowlist", func(t *testing.T) {
@@ -94,12 +94,12 @@ func TestPolicyActor(t *testing.T) {
 		defer stop()
 
 		cfg := testConfigWithTenants("allowed-tenant")
-		pid, err := system.Spawn(ctx, runtime.ActorNamePolicy, newPolicyActor(cfg))
+		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyActor(cfg))
 		require.NoError(t, err)
 		waitForActors()
 
 		tool := validStdioTool("tool-1")
-		tool.AuthorizationPolicy = runtime.AuthorizationPolicyTenantAllowlist
+		tool.AuthorizationPolicy = mcp.AuthorizationPolicyTenantAllowlist
 		in := &policy.Input{
 			Invocation: sessionInvocation("tool-1", "allowed-tenant", "client-1"),
 			Tool:       tool,

@@ -30,72 +30,74 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestErrorCodeConstants(t *testing.T) {
-	assert.Equal(t, ErrorCode("TOOL_NOT_FOUND"), ErrCodeToolNotFound)
-	assert.Equal(t, ErrorCode("TOOL_UNAVAILABLE"), ErrCodeToolUnavailable)
-	assert.Equal(t, ErrorCode("TOOL_DISABLED"), ErrCodeToolDisabled)
-	assert.Equal(t, ErrorCode("SESSION_NOT_FOUND"), ErrCodeSessionNotFound)
-	assert.Equal(t, ErrorCode("SESSION_UNAVAILABLE"), ErrCodeSessionUnavailable)
-	assert.Equal(t, ErrorCode("POLICY_DENIED"), ErrCodePolicyDenied)
-	assert.Equal(t, ErrorCode("QUOTA_EXCEEDED"), ErrCodeQuotaExceeded)
-	assert.Equal(t, ErrorCode("RATE_LIMITED"), ErrCodeRateLimited)
-	assert.Equal(t, ErrorCode("CONCURRENCY_LIMIT_REACHED"), ErrCodeConcurrencyLimitReached)
-	assert.Equal(t, ErrorCode("CREDENTIAL_UNAVAILABLE"), ErrCodeCredentialUnavailable)
-	assert.Equal(t, ErrorCode("INVOCATION_TIMEOUT"), ErrCodeInvocationTimeout)
-	assert.Equal(t, ErrorCode("TRANSPORT_FAILURE"), ErrCodeTransportFailure)
-	assert.Equal(t, ErrorCode("INVALID_REQUEST"), ErrCodeInvalidRequest)
-	assert.Equal(t, ErrorCode("INTERNAL"), ErrCodeInternal)
+	assert.Equal(t, mcp.ErrorCode("TOOL_NOT_FOUND"), mcp.ErrCodeToolNotFound)
+	assert.Equal(t, mcp.ErrorCode("TOOL_UNAVAILABLE"), mcp.ErrCodeToolUnavailable)
+	assert.Equal(t, mcp.ErrorCode("TOOL_DISABLED"), mcp.ErrCodeToolDisabled)
+	assert.Equal(t, mcp.ErrorCode("SESSION_NOT_FOUND"), mcp.ErrCodeSessionNotFound)
+	assert.Equal(t, mcp.ErrorCode("SESSION_UNAVAILABLE"), mcp.ErrCodeSessionUnavailable)
+	assert.Equal(t, mcp.ErrorCode("POLICY_DENIED"), mcp.ErrCodePolicyDenied)
+	assert.Equal(t, mcp.ErrorCode("QUOTA_EXCEEDED"), mcp.ErrCodeQuotaExceeded)
+	assert.Equal(t, mcp.ErrorCode("RATE_LIMITED"), mcp.ErrCodeRateLimited)
+	assert.Equal(t, mcp.ErrorCode("CONCURRENCY_LIMIT_REACHED"), mcp.ErrCodeConcurrencyLimitReached)
+	assert.Equal(t, mcp.ErrorCode("CREDENTIAL_UNAVAILABLE"), mcp.ErrCodeCredentialUnavailable)
+	assert.Equal(t, mcp.ErrorCode("INVOCATION_TIMEOUT"), mcp.ErrCodeInvocationTimeout)
+	assert.Equal(t, mcp.ErrorCode("TRANSPORT_FAILURE"), mcp.ErrCodeTransportFailure)
+	assert.Equal(t, mcp.ErrorCode("INVALID_REQUEST"), mcp.ErrCodeInvalidRequest)
+	assert.Equal(t, mcp.ErrorCode("INTERNAL"), mcp.ErrCodeInternal)
 }
 
 func TestNewRuntimeError(t *testing.T) {
-	err := NewRuntimeError(ErrCodeToolNotFound, "tool not found")
+	err := mcp.NewRuntimeError(mcp.ErrCodeToolNotFound, "tool not found")
 	require.NotNil(t, err)
-	assert.Equal(t, ErrCodeToolNotFound, err.Code)
+	assert.Equal(t, mcp.ErrCodeToolNotFound, err.Code)
 	assert.Equal(t, "tool not found", err.Message)
 	assert.Nil(t, err.Cause)
 }
 
 func TestRuntimeErrorError(t *testing.T) {
 	t.Run("without cause", func(t *testing.T) {
-		err := NewRuntimeError(ErrCodePolicyDenied, "access denied")
+		err := mcp.NewRuntimeError(mcp.ErrCodePolicyDenied, "access denied")
 		assert.Equal(t, "[POLICY_DENIED] access denied", err.Error())
 	})
 	t.Run("with cause", func(t *testing.T) {
 		cause := fmt.Errorf("connection refused")
-		err := WrapRuntimeError(ErrCodeTransportFailure, "transport disconnected", cause)
+		err := mcp.WrapRuntimeError(mcp.ErrCodeTransportFailure, "transport disconnected", cause)
 		assert.Equal(t, "[TRANSPORT_FAILURE] transport disconnected: connection refused", err.Error())
 	})
 }
 
 func TestWrapRuntimeError(t *testing.T) {
 	cause := fmt.Errorf("underlying network error")
-	err := WrapRuntimeError(ErrCodeTransportFailure, "transport failed", cause)
+	err := mcp.WrapRuntimeError(mcp.ErrCodeTransportFailure, "transport failed", cause)
 
 	require.NotNil(t, err)
-	assert.Equal(t, ErrCodeTransportFailure, err.Code)
+	assert.Equal(t, mcp.ErrCodeTransportFailure, err.Code)
 	assert.Equal(t, "transport failed", err.Message)
 	assert.Equal(t, cause, err.Cause)
 }
 
 func TestRuntimeErrorUnwrap(t *testing.T) {
 	sentinel := fmt.Errorf("sentinel error")
-	wrapped := WrapRuntimeError(ErrCodeInternal, "something went wrong", sentinel)
+	wrapped := mcp.WrapRuntimeError(mcp.ErrCodeInternal, "something went wrong", sentinel)
 
 	assert.True(t, errors.Is(wrapped, sentinel), "errors.Is should find the sentinel through Unwrap")
 }
 
 func TestRuntimeErrorImplementsError(t *testing.T) {
-	var err error = NewRuntimeError(ErrCodeInternal, "internal error")
+	var err error = mcp.NewRuntimeError(mcp.ErrCodeInternal, "internal error")
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "INTERNAL")
 }
 
 func TestErrToolNotFound(t *testing.T) {
-	assert.Error(t, ErrToolNotFound)
-	assert.True(t, errors.Is(ErrToolNotFound, ErrToolNotFound))
-	var rErr *RuntimeError
-	require.True(t, errors.As(ErrToolNotFound, &rErr))
-	assert.Equal(t, ErrCodeToolNotFound, rErr.Code)
+	assert.Error(t, mcp.ErrToolNotFound)
+	assert.True(t, errors.Is(mcp.ErrToolNotFound, mcp.ErrToolNotFound))
+	var rErr *mcp.RuntimeError
+	require.True(t, errors.As(mcp.ErrToolNotFound, &rErr))
+	assert.Equal(t, mcp.ErrCodeToolNotFound, rErr.Code)
 }

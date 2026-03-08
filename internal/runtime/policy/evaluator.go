@@ -24,8 +24,8 @@
 package policy
 
 import (
-	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // Evaluator performs policy evaluation for tool invocations.
@@ -50,7 +50,7 @@ func (e *Evaluator) Evaluate(in *Input) Result {
 		return Result{
 			Decision: DecisionDeny,
 			Reason:   "invalid policy input",
-			Err:      runtime.NewRuntimeError(runtime.ErrCodeInvalidRequest, "invalid policy input"),
+			Err:      mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "invalid policy input"),
 		}
 	}
 
@@ -71,7 +71,7 @@ func (e *Evaluator) Evaluate(in *Input) Result {
 // tenant must be in the list. When no tenants are configured, all tenants are
 // allowed (no restriction).
 func (e *Evaluator) checkAuthorization(in *Input) Result {
-	if in.Tool.AuthorizationPolicy != runtime.AuthorizationPolicyTenantAllowlist {
+	if in.Tool.AuthorizationPolicy != mcp.AuthorizationPolicyTenantAllowlist {
 		return Result{Decision: DecisionAllow}
 	}
 
@@ -88,7 +88,7 @@ func (e *Evaluator) checkAuthorization(in *Input) Result {
 	return Result{
 		Decision: DecisionDeny,
 		Reason:   "tenant not in allowlist",
-		Err:      runtime.NewRuntimeError(runtime.ErrCodePolicyDenied, "tenant not permitted for this tool"),
+		Err:      mcp.NewRuntimeError(mcp.ErrCodePolicyDenied, "tenant not permitted for this tool"),
 	}
 }
 
@@ -104,7 +104,7 @@ func (e *Evaluator) checkQuotas(in *Input) Result {
 		return Result{
 			Decision: DecisionThrottle,
 			Reason:   "concurrent session limit reached",
-			Err:      runtime.NewRuntimeError(runtime.ErrCodeConcurrencyLimitReached, "tenant concurrent session limit reached"),
+			Err:      mcp.NewRuntimeError(mcp.ErrCodeConcurrencyLimitReached, "tenant concurrent session limit reached"),
 		}
 	}
 
@@ -112,7 +112,7 @@ func (e *Evaluator) checkQuotas(in *Input) Result {
 		return Result{
 			Decision: DecisionThrottle,
 			Reason:   "requests per minute limit exceeded",
-			Err:      runtime.NewRuntimeError(runtime.ErrCodeRateLimited, "tenant rate limit exceeded"),
+			Err:      mcp.NewRuntimeError(mcp.ErrCodeRateLimited, "tenant rate limit exceeded"),
 		}
 	}
 

@@ -35,6 +35,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestSessionActor(t *testing.T) {
@@ -48,7 +49,7 @@ func TestSessionActor(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil)
-		name := runtime.SessionName("tenant1", "client1", tool.ID)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -75,7 +76,7 @@ func TestSessionActor(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil)
-		name := runtime.SessionName("tenant1", "client1", tool.ID)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -97,7 +98,7 @@ func TestSessionActor(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil)
-		name := runtime.SessionName("tenant1", "client1", tool.ID)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -120,7 +121,7 @@ func TestSessionActor(t *testing.T) {
 		tool.IdleTimeout = 200 * time.Millisecond
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil)
-		name := runtime.SessionName("tenant1", "client1", tool.ID)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -144,7 +145,7 @@ func TestGetOrCreateSession(t *testing.T) {
 		defer stop()
 
 		// Use Registrar flow (matches production) so supervisor is child of Registrar
-		regPID, err := system.Spawn(ctx, runtime.ActorNameRegistrar, newRegistrar())
+		regPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -201,7 +202,7 @@ func TestGetOrCreateSession(t *testing.T) {
 
 		tool := validStdioTool("mismatch-tool")
 		dep := actorextension.NewToolDependency(tool)
-		name := runtime.ToolSupervisorName(tool.ID)
+		name := mcp.ToolSupervisorName(tool.ID)
 		supPID, err := system.Spawn(ctx, name, newToolSupervisor(), goaktactor.WithDependencies(dep))
 		require.NoError(t, err)
 		waitForActors()
@@ -251,7 +252,7 @@ func TestToolDependencyMarshalUnmarshal(t *testing.T) {
 }
 
 func TestCircuitConfigDependencyMarshalUnmarshal(t *testing.T) {
-	cfg := runtime.CircuitConfig{
+	cfg := mcp.CircuitConfig{
 		FailureThreshold:    5,
 		OpenDuration:        30 * time.Second,
 		HalfOpenMaxRequests: 3,

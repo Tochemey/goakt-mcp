@@ -31,7 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestNewStdioExecutor_Validation(t *testing.T) {
@@ -39,45 +39,45 @@ func TestNewStdioExecutor_Validation(t *testing.T) {
 		exec, err := NewStdioExecutor(nil, time.Second)
 		assert.Nil(t, exec)
 		require.Error(t, err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.ErrorAs(t, err, &rErr)
-		assert.Equal(t, runtime.ErrCodeInvalidRequest, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
 	})
 
 	t.Run("empty command returns error", func(t *testing.T) {
-		cfg := &runtime.StdioTransportConfig{Command: ""}
+		cfg := &mcp.StdioTransportConfig{Command: ""}
 		exec, err := NewStdioExecutor(cfg, time.Second)
 		assert.Nil(t, exec)
 		require.Error(t, err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.ErrorAs(t, err, &rErr)
-		assert.Equal(t, runtime.ErrCodeInvalidRequest, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
 	})
 
 	t.Run("non-existent command returns transport failure", func(t *testing.T) {
-		cfg := &runtime.StdioTransportConfig{Command: "/nonexistent/binary/xyz"}
+		cfg := &mcp.StdioTransportConfig{Command: "/nonexistent/binary/xyz"}
 		exec, err := NewStdioExecutor(cfg, 500*time.Millisecond)
 		assert.Nil(t, exec)
 		require.Error(t, err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.ErrorAs(t, err, &rErr)
-		assert.Equal(t, runtime.ErrCodeTransportFailure, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeTransportFailure, rErr.Code)
 	})
 }
 
 func TestStdioExecutor_Execute_NilSession(t *testing.T) {
 	e := &StdioExecutor{}
-	inv := &runtime.Invocation{
+	inv := &mcp.Invocation{
 		ToolID: "test",
-		Correlation: runtime.CorrelationMeta{
+		Correlation: mcp.CorrelationMeta{
 			RequestID: "req-1",
 		},
 	}
 	result, err := e.Execute(context.Background(), inv)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.Equal(t, runtime.ExecutionStatusFailure, result.Status)
-	assert.Equal(t, runtime.ErrCodeTransportFailure, result.Err.Code)
+	assert.Equal(t, mcp.ExecutionStatusFailure, result.Status)
+	assert.Equal(t, mcp.ErrCodeTransportFailure, result.Err.Code)
 }
 
 func TestStdioExecutor_Close_Idempotent(t *testing.T) {
@@ -88,10 +88,10 @@ func TestStdioExecutor_Close_Idempotent(t *testing.T) {
 
 func TestStdioExecutorFactory_NonStdioTool(t *testing.T) {
 	factory := NewStdioExecutorFactory(time.Second)
-	tool := runtime.Tool{
+	tool := mcp.Tool{
 		ID:        "http-tool",
-		Transport: runtime.TransportHTTP,
-		HTTP:      &runtime.HTTPTransportConfig{URL: "http://localhost"},
+		Transport: mcp.TransportHTTP,
+		HTTP:      &mcp.HTTPTransportConfig{URL: "http://localhost"},
 	}
 	exec, err := factory.Create(context.Background(), tool, nil)
 	require.NoError(t, err)
@@ -100,9 +100,9 @@ func TestStdioExecutorFactory_NonStdioTool(t *testing.T) {
 
 func TestStdioExecutorFactory_NilStdioConfig(t *testing.T) {
 	factory := NewStdioExecutorFactory(time.Second)
-	tool := runtime.Tool{
+	tool := mcp.Tool{
 		ID:        "stdio-tool",
-		Transport: runtime.TransportStdio,
+		Transport: mcp.TransportStdio,
 		Stdio:     nil,
 	}
 	exec, err := factory.Create(context.Background(), tool, nil)

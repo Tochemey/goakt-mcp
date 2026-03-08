@@ -24,8 +24,8 @@
 package policy
 
 import (
-	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // Decision is the outcome of a policy evaluation.
@@ -46,16 +46,16 @@ const (
 // Input holds the context required to evaluate policy for an invocation.
 type Input struct {
 	// Invocation is the tool invocation request.
-	Invocation *runtime.Invocation
+	Invocation *mcp.Invocation
 
 	// Tool is the registered tool definition.
-	Tool runtime.Tool
+	Tool mcp.Tool
 
 	// TenantID is the resolved tenant identity (never zero; defaults to "default").
-	TenantID runtime.TenantID
+	TenantID mcp.TenantID
 
 	// ClientID is the resolved client identity (never zero; defaults to "default").
-	ClientID runtime.ClientID
+	ClientID mcp.ClientID
 
 	// TenantConfig is the tenant configuration when the tenant is known.
 	// Nil when the tenant is not in the static configuration.

@@ -33,6 +33,7 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // toolSupervisor is the ToolSupervisor Actor.
@@ -43,7 +44,7 @@ import (
 // administrative disable status.
 //
 // Spawn: Registrar spawns ToolSupervisor in spawnSupervisor via
-// ctx.Spawn(runtime.ToolSupervisorName(tool.ID), newToolSupervisor(),
+// ctx.Spawn(mcp.ToolSupervisorName(tool.ID), newToolSupervisor(),
 // WithDependencies(extension.NewToolDependency(tool))) as a child of Registrar. One supervisor
 // per registered tool; spawned on RegisterTool or BootstrapTools.
 //
@@ -57,12 +58,12 @@ import (
 //
 // All fields are unexported to enforce actor immutability rules.
 type toolSupervisor struct {
-	tool             runtime.Tool
-	circuitState     runtime.CircuitState
+	tool             mcp.Tool
+	circuitState     mcp.CircuitState
 	failureCount     int
 	openAt           time.Time
 	halfOpenRequests int
-	circuitConfig    runtime.CircuitConfig
+	circuitConfig    mcp.CircuitConfig
 	logger           goaktlog.Logger
 	self             *goaktactor.PID
 }
@@ -88,14 +89,14 @@ func (x *toolSupervisor) PreStart(ctx *goaktactor.Context) error {
 	}
 
 	if x.tool.ID.IsZero() {
-		return runtime.NewRuntimeError(runtime.ErrCodeInternal, "tool dependency not found")
+		return mcp.NewRuntimeError(mcp.ErrCodeInternal, "tool dependency not found")
 	}
 
-	x.circuitState = runtime.CircuitClosed
-	x.circuitConfig = runtime.CircuitConfig{
-		FailureThreshold:    runtime.DefaultCircuitFailureThreshold,
-		OpenDuration:        runtime.DefaultCircuitOpenDuration,
-		HalfOpenMaxRequests: runtime.DefaultCircuitHalfOpenMaxRequests,
+	x.circuitState = mcp.CircuitClosed
+	x.circuitConfig = mcp.CircuitConfig{
+		FailureThreshold:    mcp.DefaultCircuitFailureThreshold,
+		OpenDuration:        mcp.DefaultCircuitOpenDuration,
+		HalfOpenMaxRequests: mcp.DefaultCircuitHalfOpenMaxRequests,
 	}
 
 	circuitDependency := ctx.Dependency(actorextension.CircuitConfigDependencyID)
@@ -143,7 +144,7 @@ func (x *toolSupervisor) handleCanAcceptWork(ctx *goaktactor.ReceiveContext, msg
 		return
 	}
 
-	if x.tool.State == runtime.ToolStateDisabled {
+	if x.tool.State == mcp.ToolStateDisabled {
 		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "tool is disabled"})
 		return
 	}
@@ -154,12 +155,12 @@ func (x *toolSupervisor) handleCanAcceptWork(ctx *goaktactor.ReceiveContext, msg
 		return
 	}
 
-	if x.circuitState == runtime.CircuitHalfOpen && x.halfOpenRequests >= x.circuitConfig.HalfOpenMaxRequests {
+	if x.circuitState == mcp.CircuitHalfOpen && x.halfOpenRequests >= x.circuitConfig.HalfOpenMaxRequests {
 		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "half-open probe limit reached"})
 		return
 	}
 
-	if x.circuitState == runtime.CircuitHalfOpen {
+	if x.circuitState == mcp.CircuitHalfOpen {
 		x.halfOpenRequests++
 	}
 
@@ -171,25 +172,25 @@ func (x *toolSupervisor) handleCanAcceptWork(ctx *goaktactor.ReceiveContext, msg
 // is a child of this supervisor, ensuring cleanup on supervisor stop.
 func (x *toolSupervisor) handleGetOrCreateSession(ctx *goaktactor.ReceiveContext, msg *runtime.GetOrCreateSession) {
 	if msg.ToolID != x.tool.ID {
-		ctx.Response(&runtime.GetOrCreateSessionResult{Err: runtime.NewRuntimeError(runtime.ErrCodeInvalidRequest, "tool ID mismatch")})
+		ctx.Response(&runtime.GetOrCreateSessionResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID mismatch")})
 		return
 	}
 
-	name := runtime.SessionName(msg.TenantID, msg.ClientID, msg.ToolID)
+	name := mcp.SessionName(msg.TenantID, msg.ClientID, msg.ToolID)
 	cid := ctx.Child(name)
 	if cid != nil && cid.IsRunning() {
 		ctx.Response(&runtime.GetOrCreateSessionResult{Session: cid, Found: true})
 		return
 	}
 
-	var executor runtime.ToolExecutor
+	var executor mcp.ToolExecutor
 	if ext := ctx.Extension(actorextension.ExecutorFactoryExtensionID); ext != nil {
 		if ef, ok := ext.(*actorextension.ExecutorFactoryExtension); ok {
 			var err error
 			executor, err = ef.Factory().Create(ctx.Context(), x.tool, msg.Credentials)
 			if err != nil {
 				x.logger.Warnf("actor supervisor:%s create executor: %v", x.tool.ID, err)
-				ctx.Response(&runtime.GetOrCreateSessionResult{Err: runtime.WrapRuntimeError(runtime.ErrCodeInternal, "failed to create executor", err)})
+				ctx.Response(&runtime.GetOrCreateSessionResult{Err: mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to create executor", err)})
 				return
 			}
 		}
@@ -206,7 +207,7 @@ func (x *toolSupervisor) handleGetOrCreateSession(ctx *goaktactor.ReceiveContext
 			_ = executor.Close()
 		}
 		x.logger.Warnf("actor supervisor:%s spawn session: %v", x.tool.ID, err)
-		ctx.Response(&runtime.GetOrCreateSessionResult{Err: runtime.WrapRuntimeError(runtime.ErrCodeInternal, "failed to spawn session", err)})
+		ctx.Response(&runtime.GetOrCreateSessionResult{Err: mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to spawn session", err)})
 		return
 	}
 
@@ -215,7 +216,7 @@ func (x *toolSupervisor) handleGetOrCreateSession(ctx *goaktactor.ReceiveContext
 
 // sessionIdleTimeout returns the tool's configured idle timeout or the default
 // when unset. This controls how long a session can remain idle before passivation.
-func sessionIdleTimeout(tool runtime.Tool) time.Duration {
+func sessionIdleTimeout(tool mcp.Tool) time.Duration {
 	if tool.IdleTimeout > 0 {
 		return tool.IdleTimeout
 	}
@@ -232,16 +233,16 @@ func (x *toolSupervisor) handleReportFailure(_ *goaktactor.ReceiveContext, msg *
 	x.failureCount++
 	x.logger.Debugf("actor supervisor:%s failure count=%d circuit=%s", x.tool.ID, x.failureCount, x.circuitState)
 
-	if x.circuitState == runtime.CircuitHalfOpen {
-		x.circuitState = runtime.CircuitOpen
+	if x.circuitState == mcp.CircuitHalfOpen {
+		x.circuitState = mcp.CircuitOpen
 		x.openAt = time.Now()
 		x.halfOpenRequests = 0
 		x.logger.Warnf("actor supervisor:%s circuit reopened after probe failure", x.tool.ID)
 		return
 	}
 
-	if x.circuitState == runtime.CircuitClosed && x.failureCount >= x.circuitConfig.FailureThreshold {
-		x.circuitState = runtime.CircuitOpen
+	if x.circuitState == mcp.CircuitClosed && x.failureCount >= x.circuitConfig.FailureThreshold {
+		x.circuitState = mcp.CircuitOpen
 		x.openAt = time.Now()
 		x.logger.Warnf("actor supervisor:%s circuit opened after %d failures", x.tool.ID, x.failureCount)
 	}
@@ -254,27 +255,27 @@ func (x *toolSupervisor) handleReportSuccess(_ *goaktactor.ReceiveContext, msg *
 		return
 	}
 
-	if x.circuitState == runtime.CircuitHalfOpen {
-		x.circuitState = runtime.CircuitClosed
+	if x.circuitState == mcp.CircuitHalfOpen {
+		x.circuitState = mcp.CircuitClosed
 		x.failureCount = 0
 		x.halfOpenRequests = 0
 		x.logger.Infof("actor supervisor:%s circuit closed after successful probe", x.tool.ID)
 		return
 	}
 
-	if x.circuitState == runtime.CircuitClosed {
+	if x.circuitState == mcp.CircuitClosed {
 		x.failureCount = 0
 	}
 }
 
 // maybeTransitionFromOpen checks if the circuit has been open long enough to try half-open.
 func (x *toolSupervisor) maybeTransitionFromOpen() {
-	if x.circuitState != runtime.CircuitOpen {
+	if x.circuitState != mcp.CircuitOpen {
 		return
 	}
 
 	if time.Since(x.openAt) >= x.circuitConfig.OpenDuration {
-		x.circuitState = runtime.CircuitHalfOpen
+		x.circuitState = mcp.CircuitHalfOpen
 		x.halfOpenRequests = 0
 		x.logger.Infof("actor supervisor:%s circuit half-open for recovery probe", x.tool.ID)
 	}

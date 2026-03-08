@@ -29,17 +29,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/tochemey/goakt-mcp/internal/egress/mcpconv"
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // HTTPExecutor executes MCP tool invocations over HTTP using the streamable transport.
 // Each executor owns a single MCP client session and is bound to one tool endpoint.
 type HTTPExecutor struct {
-	client   *mcp.Client
-	sess     *mcp.ClientSession
+	client   *sdkmcp.Client
+	sess     *sdkmcp.ClientSession
 	closed   sync.Once
 	closeErr error
 }
@@ -47,43 +47,43 @@ type HTTPExecutor struct {
 // Execute runs the MCP tools/call invocation and returns the result.
 // The context should carry a request-scoped deadline. Execute does not
 // set its own timeout.
-func (e *HTTPExecutor) Execute(ctx context.Context, inv *runtime.Invocation) (*runtime.ExecutionResult, error) {
+func (e *HTTPExecutor) Execute(ctx context.Context, inv *mcp.Invocation) (*mcp.ExecutionResult, error) {
 	if e.sess == nil {
-		return &runtime.ExecutionResult{
-			Status:      runtime.ExecutionStatusFailure,
-			Err:         runtime.NewRuntimeError(runtime.ErrCodeTransportFailure, "session not connected"),
+		return &mcp.ExecutionResult{
+			Status:      mcp.ExecutionStatusFailure,
+			Err:         mcp.NewRuntimeError(mcp.ErrCodeTransportFailure, "session not connected"),
 			Correlation: inv.Correlation,
 		}, nil
 	}
 
 	name, args := mcpconv.ParamsFromInvocation(inv)
-	params := &mcp.CallToolParams{Name: name, Arguments: args}
+	params := &sdkmcp.CallToolParams{Name: name, Arguments: args}
 
 	res, err := e.sess.CallTool(ctx, params)
 	if err != nil {
 		if ctx.Err() != nil {
-			return &runtime.ExecutionResult{
-				Status:      runtime.ExecutionStatusTimeout,
-				Err:         runtime.WrapRuntimeError(runtime.ErrCodeInvocationTimeout, "invocation timed out", err),
+			return &mcp.ExecutionResult{
+				Status:      mcp.ExecutionStatusTimeout,
+				Err:         mcp.WrapRuntimeError(mcp.ErrCodeInvocationTimeout, "invocation timed out", err),
 				Correlation: inv.Correlation,
 			}, nil
 		}
-		return &runtime.ExecutionResult{
-			Status:      runtime.ExecutionStatusFailure,
-			Err:         runtime.WrapRuntimeError(runtime.ErrCodeTransportFailure, "call failed", err),
+		return &mcp.ExecutionResult{
+			Status:      mcp.ExecutionStatusFailure,
+			Err:         mcp.WrapRuntimeError(mcp.ErrCodeTransportFailure, "call failed", err),
 			Correlation: inv.Correlation,
 		}, nil
 	}
 
 	output := mcpconv.CallResultToOutput(res)
-	status := runtime.ExecutionStatusSuccess
-	var rErr *runtime.RuntimeError
+	status := mcp.ExecutionStatusSuccess
+	var rErr *mcp.RuntimeError
 	if res.IsError {
-		status = runtime.ExecutionStatusFailure
-		rErr = runtime.NewRuntimeError(runtime.ErrCodeInternal, mcpconv.ContentErrorText(res))
+		status = mcp.ExecutionStatusFailure
+		rErr = mcp.NewRuntimeError(mcp.ErrCodeInternal, mcpconv.ContentErrorText(res))
 	}
 
-	return &runtime.ExecutionResult{
+	return &mcp.ExecutionResult{
 		Status:      status,
 		Output:      output,
 		Err:         rErr,
@@ -113,9 +113,9 @@ func (e *HTTPExecutor) Close() error {
 //
 // The fallbackClient should not set a global Timeout since request-level
 // deadlines are managed by the session's context.
-func NewHTTPExecutor(cfg *runtime.HTTPTransportConfig, fallbackClient *http.Client, startupTimeout time.Duration) (*HTTPExecutor, error) {
+func NewHTTPExecutor(cfg *mcp.HTTPTransportConfig, fallbackClient *http.Client, startupTimeout time.Duration) (*HTTPExecutor, error) {
 	if cfg == nil || cfg.URL == "" {
-		return nil, runtime.NewRuntimeError(runtime.ErrCodeInvalidRequest, "http config required")
+		return nil, mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "http config required")
 	}
 
 	httpClient, err := buildHTTPClient(cfg, fallbackClient)
@@ -123,8 +123,8 @@ func NewHTTPExecutor(cfg *runtime.HTTPTransportConfig, fallbackClient *http.Clie
 		return nil, err
 	}
 
-	client := mcp.NewClient(&mcp.Implementation{Name: "goakt-mcp", Version: "v0.1.0"}, nil)
-	transport := &mcp.StreamableClientTransport{
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "goakt-mcp", Version: "v0.1.0"}, nil)
+	transport := &sdkmcp.StreamableClientTransport{
 		Endpoint:   cfg.URL,
 		HTTPClient: httpClient,
 		MaxRetries: 2,
@@ -139,7 +139,7 @@ func NewHTTPExecutor(cfg *runtime.HTTPTransportConfig, fallbackClient *http.Clie
 
 	sess, err := client.Connect(ctx, transport, nil)
 	if err != nil {
-		return nil, runtime.WrapRuntimeError(runtime.ErrCodeTransportFailure, "http connect failed", err)
+		return nil, mcp.WrapRuntimeError(mcp.ErrCodeTransportFailure, "http connect failed", err)
 	}
 
 	return &HTTPExecutor{client: client, sess: sess}, nil
@@ -149,7 +149,7 @@ func NewHTTPExecutor(cfg *runtime.HTTPTransportConfig, fallbackClient *http.Clie
 // When the tool has TLS configuration, a new client with a cloned transport
 // is created so that TLS settings are isolated per tool. Otherwise the
 // fallback client (or a default) is returned.
-func buildHTTPClient(cfg *runtime.HTTPTransportConfig, fallback *http.Client) (*http.Client, error) {
+func buildHTTPClient(cfg *mcp.HTTPTransportConfig, fallback *http.Client) (*http.Client, error) {
 	if cfg.TLS == nil {
 		if fallback != nil {
 			return fallback, nil
@@ -157,7 +157,7 @@ func buildHTTPClient(cfg *runtime.HTTPTransportConfig, fallback *http.Client) (*
 		return &http.Client{}, nil
 	}
 
-	tlsCfg, err := runtime.BuildClientTLSConfig(cfg.TLS)
+	tlsCfg, err := mcp.BuildClientTLSConfig(cfg.TLS)
 	if err != nil {
 		return nil, err
 	}

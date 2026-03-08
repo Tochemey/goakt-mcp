@@ -33,6 +33,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // runProbes is an internal message the HealthActor sends to itself to trigger a probe run.
@@ -70,7 +71,7 @@ func newHealthChecker(registrar *goaktactor.PID, interval time.Duration) *health
 // PreStart initializes the logger. Dependencies are already set via the constructor.
 func (x *healthChecker) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
-	x.logger.Infof("actor=%s starting interval=%s", runtime.ActorNameHealth, x.interval)
+	x.logger.Infof("actor=%s starting interval=%s", mcp.ActorNameHealth, x.interval)
 	return nil
 }
 
@@ -78,7 +79,7 @@ func (x *healthChecker) PreStart(ctx *goaktactor.Context) error {
 func (x *healthChecker) Receive(ctx *goaktactor.ReceiveContext) {
 	switch ctx.Message().(type) {
 	case *goaktactor.PostStart:
-		x.logger.Infof("actor=%s started", runtime.ActorNameHealth)
+		x.logger.Infof("actor=%s started", mcp.ActorNameHealth)
 		x.scheduleNext(ctx)
 	case *runProbes:
 		x.runProbes(ctx)
@@ -100,7 +101,7 @@ func (x *healthChecker) runProbes(ctx *goaktactor.ReceiveContext) {
 
 	listResp, err := goaktactor.Ask(probeCtx, x.registrar, &runtime.ListTools{}, 5*time.Second)
 	if err != nil {
-		x.logger.Warnf("actor=%s list tools failed: %v", runtime.ActorNameHealth, err)
+		x.logger.Warnf("actor=%s list tools failed: %v", mcp.ActorNameHealth, err)
 		x.scheduleNext(ctx)
 		return
 	}
@@ -112,7 +113,7 @@ func (x *healthChecker) runProbes(ctx *goaktactor.ReceiveContext) {
 	}
 
 	for _, tool := range listResult.Tools {
-		if tool.State == runtime.ToolStateDisabled {
+		if tool.State == mcp.ToolStateDisabled {
 			continue
 		}
 		state := x.probeTool(probeCtx, tool)
@@ -125,43 +126,43 @@ func (x *healthChecker) runProbes(ctx *goaktactor.ReceiveContext) {
 }
 
 // probeTool asks the tool supervisor CanAcceptWork and maps the result to ToolState.
-func (x *healthChecker) probeTool(ctx context.Context, tool runtime.Tool) runtime.ToolState {
+func (x *healthChecker) probeTool(ctx context.Context, tool mcp.Tool) mcp.ToolState {
 	supResp, err := goaktactor.Ask(ctx, x.registrar, &runtime.GetSupervisor{ToolID: tool.ID}, 2*time.Second)
 	if err != nil {
-		return runtime.ToolStateUnavailable
+		return mcp.ToolStateUnavailable
 	}
 
 	gsResult, ok := supResp.(*runtime.GetSupervisorResult)
 	if !ok || !gsResult.Found || gsResult.Supervisor == nil {
-		return runtime.ToolStateUnavailable
+		return mcp.ToolStateUnavailable
 	}
 
 	supervisor, ok := gsResult.Supervisor.(*goaktactor.PID)
 	if !ok || !supervisor.IsRunning() {
-		return runtime.ToolStateUnavailable
+		return mcp.ToolStateUnavailable
 	}
 
 	acceptResp, err := goaktactor.Ask(ctx, supervisor, &runtime.CanAcceptWork{ToolID: tool.ID}, 2*time.Second)
 	if err != nil {
-		return runtime.ToolStateUnavailable
+		return mcp.ToolStateUnavailable
 	}
 
 	acceptResult, ok := acceptResp.(*runtime.CanAcceptWorkResult)
 	if !ok {
-		return runtime.ToolStateUnavailable
+		return mcp.ToolStateUnavailable
 	}
 
 	if acceptResult.Accept {
-		return runtime.ToolStateEnabled
+		return mcp.ToolStateEnabled
 	}
 
 	reason := strings.ToLower(acceptResult.Reason)
 	if strings.Contains(reason, "circuit") || strings.Contains(reason, "open") {
-		return runtime.ToolStateUnavailable
+		return mcp.ToolStateUnavailable
 	}
 
 	if strings.Contains(reason, "half-open") || strings.Contains(reason, "degraded") {
-		return runtime.ToolStateDegraded
+		return mcp.ToolStateDegraded
 	}
 	return tool.State
 }
@@ -178,12 +179,12 @@ func (x *healthChecker) scheduleNext(ctx *goaktactor.ReceiveContext) {
 	}
 
 	if err := sys.ScheduleOnce(ctx.Context(), &runProbes{}, ctx.Self(), x.interval); err != nil {
-		x.logger.Warnf("actor=%s schedule next probe failed: %v", runtime.ActorNameHealth, err)
+		x.logger.Warnf("actor=%s schedule next probe failed: %v", mcp.ActorNameHealth, err)
 	}
 }
 
 // PostStop performs cleanup after HealthChecker has stopped.
 func (x *healthChecker) PostStop(ctx *goaktactor.Context) error {
-	x.logger.Infof("actor=%s stopped", runtime.ActorNameHealth)
+	x.logger.Infof("actor=%s stopped", mcp.ActorNameHealth)
 	return nil
 }

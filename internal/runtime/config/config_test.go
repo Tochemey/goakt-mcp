@@ -30,27 +30,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestDefaultConstants(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, DefaultSessionIdleTimeout)
 	assert.Equal(t, 30*time.Second, DefaultRequestTimeout)
 	assert.Equal(t, 10*time.Second, DefaultStartupTimeout)
-	assert.Equal(t, ":8080", DefaultHTTPListenAddress)
 }
 
 func TestConfigZeroValue(t *testing.T) {
 	var cfg Config
 	assert.Empty(t, cfg.Tools)
 	assert.Empty(t, cfg.Tenants)
-	assert.Empty(t, cfg.HTTP.ListenAddress)
 	assert.Zero(t, cfg.Runtime.RequestTimeout)
-}
-
-func TestHTTPConfig(t *testing.T) {
-	cfg := HTTPConfig{ListenAddress: ":9090"}
-	assert.Equal(t, ":9090", cfg.ListenAddress)
 }
 
 func TestRuntimeConfig(t *testing.T) {
@@ -105,21 +98,21 @@ func TestCredentialsConfig(t *testing.T) {
 
 func TestTenantConfig(t *testing.T) {
 	cfg := TenantConfig{
-		ID: runtime.TenantID("acme-dev"),
+		ID: mcp.TenantID("acme-dev"),
 		Quotas: TenantQuotaConfig{
 			RequestsPerMinute:  1000,
 			ConcurrentSessions: 200,
 		},
 	}
-	assert.Equal(t, runtime.TenantID("acme-dev"), cfg.ID)
+	assert.Equal(t, mcp.TenantID("acme-dev"), cfg.ID)
 	assert.Equal(t, 1000, cfg.Quotas.RequestsPerMinute)
 	assert.Equal(t, 200, cfg.Quotas.ConcurrentSessions)
 }
 
 func TestStdioToolConfig(t *testing.T) {
 	cfg := ToolConfig{
-		ID:                  runtime.ToolID("filesystem"),
-		Transport:           runtime.TransportStdio,
+		ID:                  mcp.ToolID("filesystem"),
+		Transport:           mcp.TransportStdio,
 		Command:             "npx",
 		Args:                []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"},
 		Env:                 map[string]string{},
@@ -127,36 +120,36 @@ func TestStdioToolConfig(t *testing.T) {
 		StartupTimeout:      10 * time.Second,
 		RequestTimeout:      30 * time.Second,
 		IdleTimeout:         5 * time.Minute,
-		Routing:             runtime.RoutingSticky,
-		CredentialPolicy:    runtime.CredentialPolicyOptional,
-		AuthorizationPolicy: runtime.AuthorizationPolicyTenantAllowlist,
+		Routing:             mcp.RoutingSticky,
+		CredentialPolicy:    mcp.CredentialPolicyOptional,
+		AuthorizationPolicy: mcp.AuthorizationPolicyTenantAllowlist,
 	}
 
-	assert.Equal(t, runtime.ToolID("filesystem"), cfg.ID)
-	assert.Equal(t, runtime.TransportStdio, cfg.Transport)
+	assert.Equal(t, mcp.ToolID("filesystem"), cfg.ID)
+	assert.Equal(t, mcp.TransportStdio, cfg.Transport)
 	assert.Equal(t, "npx", cfg.Command)
 	require.Len(t, cfg.Args, 3)
-	assert.Equal(t, runtime.RoutingSticky, cfg.Routing)
-	assert.Equal(t, runtime.CredentialPolicyOptional, cfg.CredentialPolicy)
+	assert.Equal(t, mcp.RoutingSticky, cfg.Routing)
+	assert.Equal(t, mcp.CredentialPolicyOptional, cfg.CredentialPolicy)
 }
 
 func TestHTTPToolConfig(t *testing.T) {
 	cfg := ToolConfig{
-		ID:                  runtime.ToolID("docs-search"),
-		Transport:           runtime.TransportHTTP,
+		ID:                  mcp.ToolID("docs-search"),
+		Transport:           mcp.TransportHTTP,
 		URL:                 "https://mcp.internal.example.com",
 		RequestTimeout:      15 * time.Second,
 		IdleTimeout:         2 * time.Minute,
-		Routing:             runtime.RoutingLeastLoaded,
-		CredentialPolicy:    runtime.CredentialPolicyRequired,
-		AuthorizationPolicy: runtime.AuthorizationPolicyTenantAllowlist,
+		Routing:             mcp.RoutingLeastLoaded,
+		CredentialPolicy:    mcp.CredentialPolicyRequired,
+		AuthorizationPolicy: mcp.AuthorizationPolicyTenantAllowlist,
 	}
 
-	assert.Equal(t, runtime.ToolID("docs-search"), cfg.ID)
-	assert.Equal(t, runtime.TransportHTTP, cfg.Transport)
+	assert.Equal(t, mcp.ToolID("docs-search"), cfg.ID)
+	assert.Equal(t, mcp.TransportHTTP, cfg.Transport)
 	assert.Equal(t, "https://mcp.internal.example.com", cfg.URL)
-	assert.Equal(t, runtime.RoutingLeastLoaded, cfg.Routing)
-	assert.Equal(t, runtime.CredentialPolicyRequired, cfg.CredentialPolicy)
+	assert.Equal(t, mcp.RoutingLeastLoaded, cfg.Routing)
+	assert.Equal(t, mcp.CredentialPolicyRequired, cfg.CredentialPolicy)
 }
 
 func TestToolConfigToTool(t *testing.T) {
@@ -168,53 +161,53 @@ func TestToolConfigToTool(t *testing.T) {
 
 	t.Run("stdio tool with explicit values", func(t *testing.T) {
 		cfg := ToolConfig{
-			ID:                  runtime.ToolID("fs"),
-			Transport:           runtime.TransportStdio,
+			ID:                  mcp.ToolID("fs"),
+			Transport:           mcp.TransportStdio,
 			Command:             "npx",
 			Args:                []string{"-y", "mcp-server"},
 			StartupTimeout:      15 * time.Second,
 			RequestTimeout:      45 * time.Second,
 			IdleTimeout:         10 * time.Minute,
-			Routing:             runtime.RoutingSticky,
-			CredentialPolicy:    runtime.CredentialPolicyOptional,
-			AuthorizationPolicy: runtime.AuthorizationPolicyTenantAllowlist,
+			Routing:             mcp.RoutingSticky,
+			CredentialPolicy:    mcp.CredentialPolicyOptional,
+			AuthorizationPolicy: mcp.AuthorizationPolicyTenantAllowlist,
 		}
 		tool := ToolConfigToTool(cfg, defaults)
-		assert.Equal(t, runtime.ToolID("fs"), tool.ID)
-		assert.Equal(t, runtime.TransportStdio, tool.Transport)
+		assert.Equal(t, mcp.ToolID("fs"), tool.ID)
+		assert.Equal(t, mcp.TransportStdio, tool.Transport)
 		require.NotNil(t, tool.Stdio)
 		assert.Equal(t, "npx", tool.Stdio.Command)
 		require.Len(t, tool.Stdio.Args, 2)
 		assert.Equal(t, 15*time.Second, tool.StartupTimeout)
 		assert.Equal(t, 45*time.Second, tool.RequestTimeout)
 		assert.Equal(t, 10*time.Minute, tool.IdleTimeout)
-		assert.Equal(t, runtime.ToolStateEnabled, tool.State)
+		assert.Equal(t, mcp.ToolStateEnabled, tool.State)
 	})
 
 	t.Run("http tool with zero values uses defaults", func(t *testing.T) {
 		cfg := ToolConfig{
-			ID:        runtime.ToolID("http-tool"),
-			Transport: runtime.TransportHTTP,
+			ID:        mcp.ToolID("http-tool"),
+			Transport: mcp.TransportHTTP,
 			URL:       "http://localhost:8080",
 		}
 		tool := ToolConfigToTool(cfg, defaults)
-		assert.Equal(t, runtime.ToolID("http-tool"), tool.ID)
-		assert.Equal(t, runtime.TransportHTTP, tool.Transport)
+		assert.Equal(t, mcp.ToolID("http-tool"), tool.ID)
+		assert.Equal(t, mcp.TransportHTTP, tool.Transport)
 		require.NotNil(t, tool.HTTP)
 		assert.Equal(t, "http://localhost:8080", tool.HTTP.URL)
 		assert.Nil(t, tool.HTTP.TLS)
 		assert.Equal(t, DefaultStartupTimeout, tool.StartupTimeout)
 		assert.Equal(t, DefaultRequestTimeout, tool.RequestTimeout)
 		assert.Equal(t, DefaultSessionIdleTimeout, tool.IdleTimeout)
-		assert.Equal(t, runtime.ToolStateEnabled, tool.State)
+		assert.Equal(t, mcp.ToolStateEnabled, tool.State)
 	})
 
 	t.Run("http tool with HTTPTLS maps to runtime", func(t *testing.T) {
 		cfg := ToolConfig{
-			ID:        runtime.ToolID("mcp-secure"),
-			Transport: runtime.TransportHTTP,
+			ID:        mcp.ToolID("mcp-secure"),
+			Transport: mcp.TransportHTTP,
 			URL:       "https://mcp.internal.example.com",
-			HTTPTLS: &runtime.EgressTLSConfig{
+			HTTPTLS: &mcp.EgressTLSConfig{
 				CACertFile:         "/etc/ca.crt",
 				ClientCertFile:     "/etc/client.crt",
 				ClientKeyFile:      "/etc/client.key",
@@ -222,7 +215,7 @@ func TestToolConfigToTool(t *testing.T) {
 			},
 		}
 		tool := ToolConfigToTool(cfg, defaults)
-		assert.Equal(t, runtime.ToolID("mcp-secure"), tool.ID)
+		assert.Equal(t, mcp.ToolID("mcp-secure"), tool.ID)
 		require.NotNil(t, tool.HTTP)
 		assert.Equal(t, "https://mcp.internal.example.com", tool.HTTP.URL)
 		require.NotNil(t, tool.HTTP.TLS)
@@ -235,7 +228,6 @@ func TestToolConfigToTool(t *testing.T) {
 
 func TestFullConfig(t *testing.T) {
 	cfg := Config{
-		HTTP: HTTPConfig{ListenAddress: DefaultHTTPListenAddress},
 		Runtime: RuntimeConfig{
 			SessionIdleTimeout: DefaultSessionIdleTimeout,
 			RequestTimeout:     DefaultRequestTimeout,
@@ -259,14 +251,13 @@ func TestFullConfig(t *testing.T) {
 		Tenants: []TenantConfig{
 			{ID: "acme-dev", Quotas: TenantQuotaConfig{RequestsPerMinute: 1000, ConcurrentSessions: 200}},
 		},
-		Tools: []ToolConfig{
-			{ID: "filesystem", Transport: runtime.TransportStdio, Command: "npx"},
+		Tools: []mcp.Tool{
+			{ID: "filesystem", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "npx"}, State: mcp.ToolStateEnabled},
 		},
 	}
 
-	assert.Equal(t, ":8080", cfg.HTTP.ListenAddress)
 	assert.True(t, cfg.Cluster.Enabled)
 	require.Len(t, cfg.Tenants, 1)
 	require.Len(t, cfg.Tools, 1)
-	assert.Equal(t, runtime.ToolID("filesystem"), cfg.Tools[0].ID)
+	assert.Equal(t, mcp.ToolID("filesystem"), cfg.Tools[0].ID)
 }

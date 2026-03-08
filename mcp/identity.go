@@ -21,7 +21,7 @@
 // SOFTWARE.
 //
 
-package runtime
+package mcp
 
 // TenantID is the opaque identifier for a tenant.
 //

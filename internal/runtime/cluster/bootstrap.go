@@ -39,7 +39,7 @@ import (
 	"github.com/tochemey/goakt/v4/discovery/kubernetes"
 	"github.com/tochemey/goakt/v4/remote"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	runtimeConfig "github.com/tochemey/goakt-mcp/internal/runtime/config"
 )
 
 const (
@@ -53,89 +53,98 @@ const (
 //
 // Returns true only when Cluster.Enabled and discovery is properly configured
 // (kubernetes with valid config, or dnssd with non-empty DomainName).
-func IsClusterConfigured(cfg config.Config) bool {
-	if !cfg.Cluster.Enabled {
+func IsClusterConfigured(config runtimeConfig.Config) bool {
+	if !config.Cluster.Enabled {
 		return false
 	}
-	switch cfg.Cluster.Discovery {
+	switch config.Cluster.Discovery {
 	case "kubernetes":
-		return isKubernetesDiscoveryValid(cfg.Cluster.Kubernetes)
+		return isKubernetesDiscoveryValid(config.Cluster.Kubernetes)
 	case "dnssd":
-		return isDNSSDDiscoveryValid(cfg.Cluster.DNSSD)
+		return isDNSSDDiscoveryValid(config.Cluster.DNSSD)
 	default:
 		return false
 	}
 }
 
-func isKubernetesDiscoveryValid(k *config.KubernetesDiscoveryConfig) bool {
-	if k == nil {
+func isKubernetesDiscoveryValid(kubernetesConfig *runtimeConfig.KubernetesDiscoveryConfig) bool {
+	if kubernetesConfig == nil {
 		return false
 	}
-	return k.Namespace != "" &&
-		k.DiscoveryPortName != "" &&
-		k.RemotingPortName != "" &&
-		k.PeersPortName != "" &&
-		len(k.PodLabels) > 0
+	return kubernetesConfig.Namespace != "" &&
+		kubernetesConfig.DiscoveryPortName != "" &&
+		kubernetesConfig.RemotingPortName != "" &&
+		kubernetesConfig.PeersPortName != "" &&
+		len(kubernetesConfig.PodLabels) > 0
 }
 
-func isDNSSDDiscoveryValid(d *config.DNSSDDiscoveryConfig) bool {
-	if d == nil {
+func isDNSSDDiscoveryValid(dnssdConfig *runtimeConfig.DNSSDDiscoveryConfig) bool {
+	if dnssdConfig == nil {
 		return false
 	}
-	return d.DomainName != ""
+	return dnssdConfig.DomainName != ""
 }
 
 // BuildOptions returns actor system options for cluster mode when enabled.
 //
 // When cfg.Cluster.Enabled is false, returns nil (single-node, no cluster options).
 // When enabled with valid kubernetes or dnssd discovery, builds ClusterConfig and
-// RemoteConfig. kinds are the actor instances to register for cluster (e.g., RegistryActor).
-func BuildOptions(cfg config.Config, kinds ...goaktactor.Actor) []goaktactor.Option {
-	if !cfg.Cluster.Enabled {
+// RemoteConfig. remoteOpts are forwarded to [remote.NewConfig] (e.g., serializer
+// registrations via [remote.WithSerializables]). kinds are the actor instances to
+// register for cluster (e.g., RegistryActor).
+func BuildOptions(config runtimeConfig.Config, remoteOpts []remote.Option, kinds ...goaktactor.Actor) []goaktactor.Option {
+	if !config.Cluster.Enabled {
 		return nil
 	}
-	cl := cfg.Cluster
-	peersPort := cl.PeersPort
+
+	clConfig := config.Cluster
+	peersPort := clConfig.PeersPort
 	if peersPort <= 0 {
 		peersPort = defaultPeersPort
 	}
-	remotingPort := cl.RemotingPort
+	remotingPort := clConfig.RemotingPort
 	if remotingPort <= 0 {
 		remotingPort = defaultRemotingPort
 	}
 
 	var opts []goaktactor.Option
 
-	remoteCfg := remote.NewConfig("0.0.0.0", remotingPort)
+	remoteCfg := remote.NewConfig("0.0.0.0", remotingPort, remoteOpts...)
 	opts = append(opts, goaktactor.WithRemote(remoteCfg))
 
-	var disc discovery.Provider
-	switch cl.Discovery {
+	var discoveryProvider discovery.Provider
+	switch clConfig.Discovery {
 	case "kubernetes":
-		disc = buildKubernetesDiscovery(cl.Kubernetes)
+		discoveryProvider = buildKubernetesDiscovery(clConfig.Kubernetes)
 	case "dnssd":
-		disc = buildDNSSDDiscovery(cl.DNSSD)
+		discoveryProvider = buildDNSSDDiscovery(clConfig.DNSSD)
 	}
 
-	if disc != nil {
-		clusterCfg := goaktactor.NewClusterConfig().
-			WithDiscovery(disc).
+	if discoveryProvider != nil {
+		clusterConfig := goaktactor.NewClusterConfig().
+			WithDiscovery(discoveryProvider).
 			WithPeersPort(peersPort).
 			WithDiscoveryPort(peersPort).
-			WithBootstrapTimeout(10 * time.Second)
+			WithBootstrapTimeout(10 * time.Second).
+			WithClusterBalancerInterval(time.Second).
+			WithPartitionCount(20).
+			WithMinimumPeersQuorum(1).
+			WithReplicaCount(1)
+
 		if len(kinds) > 0 {
-			clusterCfg = clusterCfg.WithKinds(kinds...)
+			clusterConfig = clusterConfig.WithKinds(kinds...)
 		}
-		if cl.SingletonRole != "" {
-			clusterCfg = clusterCfg.WithRoles(cl.SingletonRole)
+
+		if clConfig.SingletonRole != "" {
+			clusterConfig = clusterConfig.WithRoles(clConfig.SingletonRole)
 		}
-		opts = append(opts, goaktactor.WithCluster(clusterCfg))
+		opts = append(opts, goaktactor.WithCluster(clusterConfig))
 	}
 
 	return opts
 }
 
-func buildKubernetesDiscovery(k *config.KubernetesDiscoveryConfig) *kubernetes.Discovery {
+func buildKubernetesDiscovery(k *runtimeConfig.KubernetesDiscoveryConfig) *kubernetes.Discovery {
 	if k == nil || !isKubernetesDiscoveryValid(k) {
 		return nil
 	}
@@ -148,7 +157,7 @@ func buildKubernetesDiscovery(k *config.KubernetesDiscoveryConfig) *kubernetes.D
 	})
 }
 
-func buildDNSSDDiscovery(d *config.DNSSDDiscoveryConfig) *dnssd.Discovery {
+func buildDNSSDDiscovery(d *runtimeConfig.DNSSDDiscoveryConfig) *dnssd.Discovery {
 	if d == nil || !isDNSSDDiscoveryValid(d) {
 		return nil
 	}

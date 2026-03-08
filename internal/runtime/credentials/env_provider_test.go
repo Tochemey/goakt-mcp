@@ -31,7 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestEnvProvider(t *testing.T) {
@@ -39,7 +39,7 @@ func TestEnvProvider(t *testing.T) {
 	p := NewEnvProvider()
 
 	t.Run("returns nil when no matching env vars", func(t *testing.T) {
-		creds, err := p.Resolve(ctx, runtime.TenantID("tenant"), runtime.ToolID("nonexistent-tool-xyz"))
+		creds, err := p.Resolve(ctx, mcp.TenantID("tenant"), mcp.ToolID("nonexistent-tool-xyz"))
 		require.NoError(t, err)
 		assert.Nil(t, creds)
 	})
@@ -49,7 +49,7 @@ func TestEnvProvider(t *testing.T) {
 		os.Setenv(key, "secret-value")
 		defer os.Unsetenv(key)
 
-		creds, err := p.Resolve(ctx, runtime.TenantID("tenant"), runtime.ToolID("test-tool"))
+		creds, err := p.Resolve(ctx, mcp.TenantID("tenant"), mcp.ToolID("test-tool"))
 		require.NoError(t, err)
 		require.NotNil(t, creds)
 		assert.Equal(t, "secret-value", creds["api-key"])

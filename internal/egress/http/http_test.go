@@ -31,7 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestNewHTTPExecutor_Validation(t *testing.T) {
@@ -39,45 +39,45 @@ func TestNewHTTPExecutor_Validation(t *testing.T) {
 		exec, err := NewHTTPExecutor(nil, nil, time.Second)
 		assert.Nil(t, exec)
 		require.Error(t, err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.ErrorAs(t, err, &rErr)
-		assert.Equal(t, runtime.ErrCodeInvalidRequest, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
 	})
 
 	t.Run("empty URL returns error", func(t *testing.T) {
-		cfg := &runtime.HTTPTransportConfig{URL: ""}
+		cfg := &mcp.HTTPTransportConfig{URL: ""}
 		exec, err := NewHTTPExecutor(cfg, nil, time.Second)
 		assert.Nil(t, exec)
 		require.Error(t, err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.ErrorAs(t, err, &rErr)
-		assert.Equal(t, runtime.ErrCodeInvalidRequest, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
 	})
 
 	t.Run("unreachable endpoint returns transport failure", func(t *testing.T) {
-		cfg := &runtime.HTTPTransportConfig{URL: "http://127.0.0.1:1/unreachable"}
+		cfg := &mcp.HTTPTransportConfig{URL: "http://127.0.0.1:1/unreachable"}
 		exec, err := NewHTTPExecutor(cfg, nil, 500*time.Millisecond)
 		assert.Nil(t, exec)
 		require.Error(t, err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.ErrorAs(t, err, &rErr)
-		assert.Equal(t, runtime.ErrCodeTransportFailure, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeTransportFailure, rErr.Code)
 	})
 }
 
 func TestHTTPExecutor_Execute_NilSession(t *testing.T) {
 	e := &HTTPExecutor{}
-	inv := &runtime.Invocation{
+	inv := &mcp.Invocation{
 		ToolID: "test",
-		Correlation: runtime.CorrelationMeta{
+		Correlation: mcp.CorrelationMeta{
 			RequestID: "req-1",
 		},
 	}
 	result, err := e.Execute(context.Background(), inv)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.Equal(t, runtime.ExecutionStatusFailure, result.Status)
-	assert.Equal(t, runtime.ErrCodeTransportFailure, result.Err.Code)
+	assert.Equal(t, mcp.ExecutionStatusFailure, result.Status)
+	assert.Equal(t, mcp.ErrCodeTransportFailure, result.Err.Code)
 }
 
 func TestHTTPExecutor_Close_Idempotent(t *testing.T) {
@@ -88,10 +88,10 @@ func TestHTTPExecutor_Close_Idempotent(t *testing.T) {
 
 func TestHTTPExecutorFactory_NonHTTPTool(t *testing.T) {
 	factory := NewHTTPExecutorFactory(nil, time.Second)
-	tool := runtime.Tool{
+	tool := mcp.Tool{
 		ID:        "stdio-tool",
-		Transport: runtime.TransportStdio,
-		Stdio:     &runtime.StdioTransportConfig{Command: "echo"},
+		Transport: mcp.TransportStdio,
+		Stdio:     &mcp.StdioTransportConfig{Command: "echo"},
 	}
 	exec, err := factory.Create(context.Background(), tool, nil)
 	require.NoError(t, err)
@@ -100,9 +100,9 @@ func TestHTTPExecutorFactory_NonHTTPTool(t *testing.T) {
 
 func TestHTTPExecutorFactory_NilHTTPConfig(t *testing.T) {
 	factory := NewHTTPExecutorFactory(nil, time.Second)
-	tool := runtime.Tool{
+	tool := mcp.Tool{
 		ID:        "http-tool",
-		Transport: runtime.TransportHTTP,
+		Transport: mcp.TransportHTTP,
 		HTTP:      nil,
 	}
 	exec, err := factory.Create(context.Background(), tool, nil)

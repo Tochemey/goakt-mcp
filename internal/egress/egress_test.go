@@ -31,7 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestCompositeExecutorFactory_Create(t *testing.T) {
@@ -39,7 +39,7 @@ func TestCompositeExecutorFactory_Create(t *testing.T) {
 	require.NotNil(t, factory)
 
 	t.Run("unknown transport returns nil executor", func(t *testing.T) {
-		tool := runtime.Tool{
+		tool := mcp.Tool{
 			ID:        "unknown-tool",
 			Transport: "grpc",
 		}
@@ -49,16 +49,16 @@ func TestCompositeExecutorFactory_Create(t *testing.T) {
 	})
 
 	t.Run("empty transport returns nil executor", func(t *testing.T) {
-		tool := runtime.Tool{ID: "empty-tool"}
+		tool := mcp.Tool{ID: "empty-tool"}
 		exec, err := factory.Create(context.Background(), tool, nil)
 		require.NoError(t, err)
 		assert.Nil(t, exec)
 	})
 
 	t.Run("stdio tool without config returns nil", func(t *testing.T) {
-		tool := runtime.Tool{
+		tool := mcp.Tool{
 			ID:        "stdio-no-cfg",
-			Transport: runtime.TransportStdio,
+			Transport: mcp.TransportStdio,
 			Stdio:     nil,
 		}
 		exec, err := factory.Create(context.Background(), tool, nil)
@@ -67,9 +67,9 @@ func TestCompositeExecutorFactory_Create(t *testing.T) {
 	})
 
 	t.Run("http tool without config returns nil", func(t *testing.T) {
-		tool := runtime.Tool{
+		tool := mcp.Tool{
 			ID:        "http-no-cfg",
-			Transport: runtime.TransportHTTP,
+			Transport: mcp.TransportHTTP,
 			HTTP:      nil,
 		}
 		exec, err := factory.Create(context.Background(), tool, nil)
@@ -78,31 +78,31 @@ func TestCompositeExecutorFactory_Create(t *testing.T) {
 	})
 
 	t.Run("stdio tool with invalid command returns error", func(t *testing.T) {
-		tool := runtime.Tool{
+		tool := mcp.Tool{
 			ID:        "stdio-bad",
-			Transport: runtime.TransportStdio,
-			Stdio:     &runtime.StdioTransportConfig{Command: "/nonexistent/binary/xyz"},
+			Transport: mcp.TransportStdio,
+			Stdio:     &mcp.StdioTransportConfig{Command: "/nonexistent/binary/xyz"},
 		}
 		exec, err := factory.Create(context.Background(), tool, nil)
 		assert.Nil(t, exec)
 		require.Error(t, err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.ErrorAs(t, err, &rErr)
-		assert.Equal(t, runtime.ErrCodeTransportFailure, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeTransportFailure, rErr.Code)
 	})
 
 	t.Run("http tool with unreachable URL returns error", func(t *testing.T) {
-		tool := runtime.Tool{
+		tool := mcp.Tool{
 			ID:        "http-bad",
-			Transport: runtime.TransportHTTP,
-			HTTP:      &runtime.HTTPTransportConfig{URL: "http://127.0.0.1:1/unreachable"},
+			Transport: mcp.TransportHTTP,
+			HTTP:      &mcp.HTTPTransportConfig{URL: "http://127.0.0.1:1/unreachable"},
 		}
 		exec, err := factory.Create(context.Background(), tool, nil)
 		assert.Nil(t, exec)
 		require.Error(t, err)
-		var rErr *runtime.RuntimeError
+		var rErr *mcp.RuntimeError
 		require.ErrorAs(t, err, &rErr)
-		assert.Equal(t, runtime.ErrCodeTransportFailure, rErr.Code)
+		assert.Equal(t, mcp.ErrCodeTransportFailure, rErr.Code)
 	})
 }
 
@@ -112,5 +112,5 @@ func TestNewCompositeExecutorFactory_DefaultTimeout(t *testing.T) {
 }
 
 func TestCompositeExecutorFactory_ImplementsInterface(t *testing.T) {
-	var _ runtime.ExecutorFactory = (*CompositeExecutorFactory)(nil)
+	var _ mcp.ExecutorFactory = (*CompositeExecutorFactory)(nil)
 }
