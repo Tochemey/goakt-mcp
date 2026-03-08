@@ -113,7 +113,7 @@ func NewStdioExecutor(cfg *runtime.StdioTransportConfig, startupTimeout time.Dur
 		return nil, runtime.NewRuntimeError(runtime.ErrCodeInvalidRequest, "stdio config required")
 	}
 
-	cmd := exec.Command(cfg.Command, cfg.Args...)
+	cmd := exec.Command(cfg.Command, cfg.Args...) //nolint:gosec // command and args are from admin-controlled tool configuration, not user input
 	if cfg.WorkingDirectory != "" {
 		cmd.Dir = cfg.WorkingDirectory
 	}
