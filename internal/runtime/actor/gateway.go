@@ -25,11 +25,14 @@ package actor
 
 import (
 	"context"
+	"net/http"
+	"sync"
 
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 
 	"github.com/tochemey/goakt-mcp/internal/egress"
+	ingresshttp "github.com/tochemey/goakt-mcp/internal/ingress/http"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/cluster"
@@ -47,10 +50,16 @@ const gatewayActorSystemName = "goakt-mcp"
 //
 // Gateway itself is not an actor. The actor composition root inside the system is
 // GatewayManager, which is spawned by Gateway during Start.
+//
+// When HTTP.ListenAddress is configured, Gateway starts the ingress HTTP server
+// and stops it during Stop.
 type Gateway struct {
-	config config.Config
-	logger goaktlog.Logger
-	system goaktactor.ActorSystem
+	config     config.Config
+	logger     goaktlog.Logger
+	system     goaktactor.ActorSystem
+	httpServer *ingresshttp.Server
+	httpDone   chan struct{}
+	httpOnce   sync.Once
 }
 
 // New creates a new Gateway with the provided configuration and logger.
@@ -108,18 +117,38 @@ func (g *Gateway) Start(ctx context.Context) error {
 	}
 
 	g.system = system
+
+	if g.config.HTTP.ListenAddress != "" {
+		g.httpServer = ingresshttp.NewServer(g.config.HTTP, system, g.logger)
+		g.httpDone = make(chan struct{})
+		go func() {
+			defer close(g.httpDone)
+			if err := g.httpServer.Start(ctx); err != nil && err != http.ErrServerClosed {
+				g.logger.Warnf("ingress http server: %v", err)
+			}
+		}()
+	}
+
 	return nil
 }
 
-// Stop gracefully shuts down the actor system and all running actors.
+// Stop gracefully shuts down the HTTP server (if started) and the actor system.
 //
-// Stop blocks until the actor system has completed its shutdown sequence or the
-// provided context is cancelled. Calling Stop on a Gateway that was never started
-// is a no-op. Stop must not be called concurrently with Start.
+// Stop blocks until both have completed or the provided context is cancelled.
+// Calling Stop on a Gateway that was never started is a no-op. Stop must not
+// be called concurrently with Start.
 func (g *Gateway) Stop(ctx context.Context) error {
 	if g.system == nil {
 		return nil
 	}
+
+	g.httpOnce.Do(func() {
+		if g.httpServer != nil {
+			_ = g.httpServer.Stop(ctx)
+			g.httpServer = nil
+			<-g.httpDone
+		}
+	})
 
 	if err := g.system.Stop(ctx); err != nil {
 		return runtime.WrapRuntimeError(runtime.ErrCodeInternal, "failed to stop actor system", err)

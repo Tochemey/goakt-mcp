@@ -112,6 +112,27 @@ type StdioTransportConfig struct {
 type HTTPTransportConfig struct {
 	// URL is the base URL of the remote MCP server.
 	URL string
+
+	// TLS holds optional TLS configuration for outbound connections.
+	// When nil, the default system CA pool is used for https:// URLs.
+	TLS *EgressTLSConfig
+}
+
+// EgressTLSConfig holds TLS settings for outbound HTTP connections to MCP servers.
+type EgressTLSConfig struct {
+	// CACertFile is the path to a CA certificate (PEM) for verifying the server.
+	// When empty, the system default CA pool is used.
+	CACertFile string
+
+	// ClientCertFile is the path to the client certificate (PEM) for mutual TLS.
+	ClientCertFile string
+
+	// ClientKeyFile is the path to the client private key (PEM).
+	ClientKeyFile string
+
+	// InsecureSkipVerify, when true, disables server certificate verification.
+	// Use only for development or testing.
+	InsecureSkipVerify bool
 }
 
 // Tool represents a registered MCP capability with its full execution metadata.

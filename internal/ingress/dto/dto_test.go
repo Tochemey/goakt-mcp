@@ -26,11 +26,51 @@ package dto
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestPackageCompiles verifies that the dto package compiles and can be used.
-// Phase 0 placeholder; real DTO types and tests will be added in Phase 11.
-func TestPackageCompiles(t *testing.T) {
-	require.True(t, true, "testify should be available for assertions")
+func TestInvokeRequest_Validate(t *testing.T) {
+	valid := InvokeRequest{
+		TenantID:  "acme",
+		ClientID:  "client-1",
+		RequestID: "req-1",
+		TraceID:   "trace-1",
+		Method:    "tools/call",
+		Params:    map[string]any{"name": "test"},
+	}
+	require.NoError(t, valid.Validate())
+
+	t.Run("rejects empty tenant_id", func(t *testing.T) {
+		r := valid
+		r.TenantID = ""
+		require.Error(t, r.Validate())
+	})
+	t.Run("rejects empty client_id", func(t *testing.T) {
+		r := valid
+		r.ClientID = ""
+		require.Error(t, r.Validate())
+	})
+	t.Run("rejects empty request_id", func(t *testing.T) {
+		r := valid
+		r.RequestID = ""
+		require.Error(t, r.Validate())
+	})
+	t.Run("rejects empty trace_id", func(t *testing.T) {
+		r := valid
+		r.TraceID = ""
+		require.Error(t, r.Validate())
+	})
+	t.Run("rejects empty method", func(t *testing.T) {
+		r := valid
+		r.Method = ""
+		require.Error(t, r.Validate())
+	})
+	t.Run("rejects nil params", func(t *testing.T) {
+		r := valid
+		r.Params = nil
+		err := r.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "params")
+	})
 }

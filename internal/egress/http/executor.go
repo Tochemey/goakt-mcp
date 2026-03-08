@@ -36,6 +36,7 @@ import (
 )
 
 // HTTPExecutor executes MCP tool invocations over HTTP using the streamable transport.
+// Each executor owns a single MCP client session and is bound to one tool endpoint.
 type HTTPExecutor struct {
 	client   *mcp.Client
 	sess     *mcp.ClientSession
@@ -44,6 +45,8 @@ type HTTPExecutor struct {
 }
 
 // Execute runs the MCP tools/call invocation and returns the result.
+// The context should carry a request-scoped deadline. Execute does not
+// set its own timeout.
 func (e *HTTPExecutor) Execute(ctx context.Context, inv *runtime.Invocation) (*runtime.ExecutionResult, error) {
 	if e.sess == nil {
 		return &runtime.ExecutionResult{
@@ -88,7 +91,8 @@ func (e *HTTPExecutor) Execute(ctx context.Context, inv *runtime.Invocation) (*r
 	}, nil
 }
 
-// Close releases the HTTP session and connection.
+// Close releases the HTTP session and connection. Close is safe to call
+// multiple times; only the first call performs cleanup.
 func (e *HTTPExecutor) Close() error {
 	e.closed.Do(func() {
 		if e.sess != nil {
@@ -101,16 +105,22 @@ func (e *HTTPExecutor) Close() error {
 }
 
 // NewHTTPExecutor creates an executor by connecting to the configured HTTP endpoint.
-// The httpClient should not set a global Timeout since request-level deadlines are
-// managed by the session's context. When httpClient is nil a default client without
-// a global timeout is used.
-func NewHTTPExecutor(cfg *runtime.HTTPTransportConfig, httpClient *http.Client, startupTimeout time.Duration) (*HTTPExecutor, error) {
+//
+// When cfg.TLS is set, a per-tool HTTP client is created with the appropriate
+// TLS configuration (custom CA, client certificates, or InsecureSkipVerify).
+// When cfg.TLS is nil and fallbackClient is non-nil, fallbackClient is used.
+// When both are nil, a default http.Client is used.
+//
+// The fallbackClient should not set a global Timeout since request-level
+// deadlines are managed by the session's context.
+func NewHTTPExecutor(cfg *runtime.HTTPTransportConfig, fallbackClient *http.Client, startupTimeout time.Duration) (*HTTPExecutor, error) {
 	if cfg == nil || cfg.URL == "" {
 		return nil, runtime.NewRuntimeError(runtime.ErrCodeInvalidRequest, "http config required")
 	}
 
-	if httpClient == nil {
-		httpClient = &http.Client{}
+	httpClient, err := buildHTTPClient(cfg, fallbackClient)
+	if err != nil {
+		return nil, err
 	}
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "goakt-mcp", Version: "v0.1.0"}, nil)
@@ -133,4 +143,37 @@ func NewHTTPExecutor(cfg *runtime.HTTPTransportConfig, httpClient *http.Client, 
 	}
 
 	return &HTTPExecutor{client: client, sess: sess}, nil
+}
+
+// buildHTTPClient returns the http.Client to use for this tool.
+// When the tool has TLS configuration, a new client with a cloned transport
+// is created so that TLS settings are isolated per tool. Otherwise the
+// fallback client (or a default) is returned.
+func buildHTTPClient(cfg *runtime.HTTPTransportConfig, fallback *http.Client) (*http.Client, error) {
+	if cfg.TLS == nil {
+		if fallback != nil {
+			return fallback, nil
+		}
+		return &http.Client{}, nil
+	}
+
+	tlsCfg, err := runtime.BuildClientTLSConfig(cfg.TLS)
+	if err != nil {
+		return nil, err
+	}
+
+	base := http.DefaultTransport
+	if fallback != nil && fallback.Transport != nil {
+		base = fallback.Transport
+	}
+
+	if t, ok := base.(*http.Transport); ok {
+		clone := t.Clone()
+		clone.TLSClientConfig = tlsCfg
+		return &http.Client{Transport: clone}, nil
+	}
+
+	return &http.Client{
+		Transport: &http.Transport{TLSClientConfig: tlsCfg},
+	}, nil
 }

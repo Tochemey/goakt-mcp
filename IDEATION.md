@@ -188,6 +188,11 @@ Every request path should carry deadline and cancellation context. A slow or dis
 ## Security Model
 Security should be part of the architecture, especially when launching local tools.
 
+### Transport security (TLS)
+- **Ingress**: the HTTP gateway supports TLS for HTTPS. Configure `cert_file` and `key_file` for server certificates. Optionally set `client_ca_file` to require client certificates (mutual TLS).
+- **Egress**: HTTP tools can use per-tool TLS configuration. Each tool may specify a custom CA (`ca_cert_file`), client certificates (`client_cert_file`, `client_key_file`) for mTLS, or `insecure_skip_verify` for development only (never in production).
+- TLS is configured per tool for egress so different MCP servers can use different certificates and CAs.
+
 ### Credential handling
 - session actors should request credentials just in time from a dedicated broker
 - secrets should not be embedded in actor state unless strictly necessary
@@ -526,6 +531,7 @@ tools:
   - id: docs-search
     transport: http
     url: "https://mcp.internal.example.com"
+    # Optional: http_tls for custom CA, client certs, or dev skip-verify
     request_timeout: 15s
     idle_timeout: 2m
     routing: least_loaded

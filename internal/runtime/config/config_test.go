@@ -202,10 +202,34 @@ func TestToolConfigToTool(t *testing.T) {
 		assert.Equal(t, runtime.TransportHTTP, tool.Transport)
 		require.NotNil(t, tool.HTTP)
 		assert.Equal(t, "http://localhost:8080", tool.HTTP.URL)
+		assert.Nil(t, tool.HTTP.TLS)
 		assert.Equal(t, DefaultStartupTimeout, tool.StartupTimeout)
 		assert.Equal(t, DefaultRequestTimeout, tool.RequestTimeout)
 		assert.Equal(t, DefaultSessionIdleTimeout, tool.IdleTimeout)
 		assert.Equal(t, runtime.ToolStateEnabled, tool.State)
+	})
+
+	t.Run("http tool with HTTPTLS maps to runtime", func(t *testing.T) {
+		cfg := ToolConfig{
+			ID:        runtime.ToolID("mcp-secure"),
+			Transport: runtime.TransportHTTP,
+			URL:       "https://mcp.internal.example.com",
+			HTTPTLS: &runtime.EgressTLSConfig{
+				CACertFile:         "/etc/ca.crt",
+				ClientCertFile:     "/etc/client.crt",
+				ClientKeyFile:      "/etc/client.key",
+				InsecureSkipVerify: false,
+			},
+		}
+		tool := ToolConfigToTool(cfg, defaults)
+		assert.Equal(t, runtime.ToolID("mcp-secure"), tool.ID)
+		require.NotNil(t, tool.HTTP)
+		assert.Equal(t, "https://mcp.internal.example.com", tool.HTTP.URL)
+		require.NotNil(t, tool.HTTP.TLS)
+		assert.Equal(t, "/etc/ca.crt", tool.HTTP.TLS.CACertFile)
+		assert.Equal(t, "/etc/client.crt", tool.HTTP.TLS.ClientCertFile)
+		assert.Equal(t, "/etc/client.key", tool.HTTP.TLS.ClientKeyFile)
+		assert.False(t, tool.HTTP.TLS.InsecureSkipVerify)
 	})
 }
 

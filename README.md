@@ -83,6 +83,11 @@ tenants:
       concurrent_sessions: 200
 http:
   listen_address: ":8080"
+  # Optional TLS for ingress (HTTPS). Omit for plain HTTP.
+  # tls:
+  #   cert_file: /etc/goakt-mcp/tls/server.crt
+  #   key_file: /etc/goakt-mcp/tls/server.key
+  #   client_ca_file: /etc/goakt-mcp/tls/client-ca.crt  # optional, enables mTLS
 cluster:
   enabled: true
   discovery: consul
@@ -114,6 +119,12 @@ tools:
   - id: docs-search
     transport: http
     url: "https://mcp.internal.example.com"
+    # Optional TLS for egress (custom CA, client certs, or dev skip-verify)
+    # http_tls:
+    #   ca_cert_file: /etc/goakt-mcp/tls/mcp-ca.crt
+    #   client_cert_file: /etc/goakt-mcp/tls/client.crt
+    #   client_key_file: /etc/goakt-mcp/tls/client.key
+    #   insecure_skip_verify: false  # dev only; never use in production
     request_timeout: 15s
     idle_timeout: 2m
     routing: least_loaded

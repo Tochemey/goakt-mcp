@@ -30,7 +30,10 @@
 package config
 
 import (
+	"os"
 	"time"
+
+	goaktlog "github.com/tochemey/goakt/v4/log"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 )
@@ -51,6 +54,10 @@ const (
 
 	// DefaultHTTPListenAddress is the default address the HTTP server binds to.
 	DefaultHTTPListenAddress = ":8080"
+
+	// DefaultShutdownTimeout is the default maximum duration granted to the
+	// gateway for a graceful shutdown before the process is terminated.
+	DefaultShutdownTimeout = 30 * time.Second
 )
 
 // Config is the root configuration for the goakt-mcp gateway.
@@ -60,6 +67,12 @@ const (
 // telemetry export, audit sinks, credential providers, tenant quotas, and
 // tool definitions.
 type Config struct {
+	// LogLevel sets the gateway-wide logging verbosity. When unset (the zero
+	// value InvalidLevel) the GoAkt DefaultLogger (InfoLevel) is used.
+	// Accepted values: DebugLevel, InfoLevel, WarningLevel, ErrorLevel,
+	// FatalLevel, PanicLevel.
+	LogLevel goaktlog.Level
+
 	// HTTP configures the inbound HTTP server.
 	HTTP HTTPConfig
 
@@ -91,6 +104,24 @@ type Config struct {
 type HTTPConfig struct {
 	// ListenAddress is the network address the HTTP server binds to (e.g., ":8080").
 	ListenAddress string
+
+	// TLS configures TLS for the ingress server. When set, the server uses
+	// ListenAndServeTLS with the given certificate and key. ClientCAFile
+	// enables mutual TLS when non-empty.
+	TLS *IngressTLSConfig
+}
+
+// IngressTLSConfig holds TLS settings for the ingress HTTP server.
+type IngressTLSConfig struct {
+	// CertFile is the path to the server certificate (PEM).
+	CertFile string
+
+	// KeyFile is the path to the server private key (PEM).
+	KeyFile string
+
+	// ClientCAFile is the path to a CA certificate (PEM) for verifying client
+	// certificates. When set, mutual TLS is enabled.
+	ClientCAFile string
 }
 
 // RuntimeConfig holds core runtime tuning parameters.
@@ -113,6 +144,10 @@ type RuntimeConfig struct {
 	// HealthProbeInterval is the interval between health probe runs.
 	// Defaults to DefaultHealthProbeInterval when zero.
 	HealthProbeInterval time.Duration
+
+	// ShutdownTimeout is the maximum time granted for a graceful shutdown.
+	// Defaults to DefaultShutdownTimeout when zero.
+	ShutdownTimeout time.Duration
 }
 
 // ClusterConfig holds multi-node operation settings.
@@ -250,6 +285,10 @@ type ToolConfig struct {
 	// URL is the base URL of the remote MCP server for HTTP tools.
 	URL string
 
+	// HTTPTLS configures TLS for outbound HTTP connections to this tool.
+	// When nil, the default system CA pool is used for https:// URLs.
+	HTTPTLS *runtime.EgressTLSConfig
+
 	// --- Timing configuration ---
 
 	// StartupTimeout overrides the global startup timeout for this tool.
@@ -324,8 +363,21 @@ func ToolConfigToTool(toolConfig ToolConfig, defaults RuntimeConfig) runtime.Too
 			WorkingDirectory: toolConfig.WorkingDirectory,
 		}
 	case runtime.TransportHTTP:
-		tool.HTTP = &runtime.HTTPTransportConfig{URL: toolConfig.URL}
+		tool.HTTP = &runtime.HTTPTransportConfig{
+			URL: toolConfig.URL,
+			TLS: toolConfig.HTTPTLS,
+		}
 	}
 
 	return tool
+}
+
+// NewLogger creates a goaktlog.Logger based on the configured LogLevel.
+// When the level is InvalidLevel (i.e. not set in config), the GoAkt
+// DefaultLogger is returned, which logs at InfoLevel to stdout.
+func NewLogger(level goaktlog.Level) goaktlog.Logger {
+	if level == goaktlog.InvalidLevel {
+		return goaktlog.DefaultLogger
+	}
+	return goaktlog.NewZap(level, os.Stdout)
 }

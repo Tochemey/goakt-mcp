@@ -1,0 +1,252 @@
+# goakt-mcp gateway — example configuration
+#
+# Usage:
+#   goakt-mcp -config example/config.yaml
+#   GOAKT_MCP_CONFIG=example/config.yaml goakt-mcp
+#
+# All duration values accept Go duration strings: "30s", "5m", "1h30m", etc.
+# Fields marked [optional] may be omitted; their defaults are shown inline.
+# Fields marked [required] must be present for the gateway to start.
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+# Gateway-wide log verbosity.
+# Accepted: debug | info | warning | error | fatal | panic
+# When omitted, the GoAkt default logger (info) is used.
+log_level: info
+
+# ---------------------------------------------------------------------------
+# HTTP — inbound data-plane server
+# ---------------------------------------------------------------------------
+http:
+  # Network address the HTTP server binds to.                [optional, :8080]
+  listen_address: ":8080"
+
+  # TLS — enable HTTPS on the ingress server.
+  # When this block is present both cert_file and key_file are required.
+  # Remove or comment out the entire tls block to serve plain HTTP.
+  #
+  # tls:
+  #   # Path to the server certificate (PEM).               [required for TLS]
+  #   cert_file: /etc/goakt-mcp/server.crt
+  #
+  #   # Path to the server private key (PEM).               [required for TLS]
+  #   key_file: /etc/goakt-mcp/server.key
+  #
+  #   # Path to a CA certificate (PEM) used to verify client certificates.
+  #   # When set, mutual TLS (mTLS) is enforced on every inbound connection.
+  #   # Omit to disable client-certificate verification.      [optional]
+  #   client_ca_file: /etc/goakt-mcp/client-ca.crt
+
+# ---------------------------------------------------------------------------
+# Runtime — global timing and lifecycle tuning
+# ---------------------------------------------------------------------------
+# These values apply to all tools unless overridden at the tool level.
+runtime:
+  # Duration after which an idle MCP session is passivated (actor suspended).
+  # Increase for long-lived interactive sessions.            [optional, 5m]
+  session_idle_timeout: 5m
+
+  # Maximum time allowed for a single tool invocation.
+  # Requests that exceed this are cancelled with a timeout error.
+  #                                                          [optional, 30s]
+  request_timeout: 30s
+
+  # Maximum time the runtime waits for a tool process or connection to
+  # become ready before treating it as a startup failure.   [optional, 10s]
+  startup_timeout: 10s
+
+  # Interval between internal actor health probe runs.       [optional, 30s]
+  health_probe_interval: 30s
+
+  # Maximum duration granted for a graceful shutdown before the
+  # process is forcibly terminated.                          [optional, 30s]
+  shutdown_timeout: 30s
+
+# ---------------------------------------------------------------------------
+# Cluster — multi-node operation
+# ---------------------------------------------------------------------------
+# When enabled is false the gateway runs in single-node mode with no
+# distributed coordination. All cluster sub-fields are ignored.
+cluster:
+  # Set to true to enable clustered mode.                   [optional, false]
+  enabled: false
+
+  # Discovery backend: "kubernetes" (production) or "dnssd" (local dev).
+  # Required when enabled is true.                          [required if enabled]
+  discovery: ""
+
+  # Role name used to elect the cluster singleton coordinator.
+  # Must be unique within the GoAkt actor system.           [optional]
+  singleton_role: control-plane
+
+  # Gossip port for cluster membership protocol.            [optional, 15000]
+  peers_port: 15000
+
+  # Remoting port for cross-node actor communication.       [optional, 15001]
+  remoting_port: 15001
+
+  # Kubernetes discovery — required when discovery is "kubernetes".
+  #
+  # kubernetes:
+  #   # Kubernetes namespace to list pods in.               [required]
+  #   namespace: default
+  #
+  #   # Container port name exposed for gossip traffic.     [required]
+  #   discovery_port_name: gossip
+  #
+  #   # Container port name exposed for remoting traffic.   [required]
+  #   remoting_port_name: remoting
+  #
+  #   # Container port name exposed for cluster membership. [required]
+  #   peers_port_name: cluster
+  #
+  #   # Pod label selector used to identify gateway peers.  [required]
+  #   pod_labels:
+  #     app: goakt-mcp
+
+  # DNS-SD discovery — required when discovery is "dnssd".
+  # Suitable for local development with a headless service or mDNS.
+  #
+  # dnssd:
+  #   # DNS name resolved to obtain peer IP addresses.      [required]
+  #   domain_name: goakt-mcp.default.svc.cluster.local
+  #
+  #   # When true, only IPv6 addresses are resolved.        [optional, false]
+  #   ipv6: false
+
+# ---------------------------------------------------------------------------
+# Telemetry — OpenTelemetry export
+# ---------------------------------------------------------------------------
+telemetry:
+  # OTLP collector endpoint for traces and metrics.
+  # Example: "http://otel-collector:4318"
+  # When empty, telemetry export is disabled.               [optional]
+  otlp_endpoint: ""
+
+# ---------------------------------------------------------------------------
+# Audit — durable audit sink
+# ---------------------------------------------------------------------------
+audit:
+  # Storage backend for audit events. Example: "s3", "file".
+  # When empty, audit events are only held in the in-memory sink.  [optional]
+  backend: ""
+
+  # S3-compatible bucket name. Required when backend is "s3".      [optional]
+  bucket: ""
+
+# ---------------------------------------------------------------------------
+# Credentials — secret provider backends
+# ---------------------------------------------------------------------------
+credentials:
+  # Ordered list of credential backends consulted when resolving secrets.
+  # Supported: "env" (environment variables).
+  # At least one provider must be listed when any tool uses
+  # credential_policy: required.                            [optional]
+  providers:
+    - env
+
+# ---------------------------------------------------------------------------
+# Tenants — per-tenant quota and policy
+# ---------------------------------------------------------------------------
+# Each tenant requires a unique, non-empty id.
+# Quotas set to 0 mean no limit is enforced for that dimension.
+tenants:
+  - id: acme-prod
+    quotas:
+      # Maximum tool invocations per minute for this tenant.  [optional, 0]
+      requests_per_minute: 500
+      # Maximum simultaneous MCP sessions across all tools.   [optional, 0]
+      concurrent_sessions: 50
+
+  - id: acme-dev
+    quotas:
+      requests_per_minute: 2000
+      concurrent_sessions: 200
+
+# ---------------------------------------------------------------------------
+# Tools — registered MCP tool definitions
+# ---------------------------------------------------------------------------
+# Each tool requires a unique, non-empty id and a transport.
+# Timing fields (startup_timeout, request_timeout, idle_timeout) override
+# the global runtime values for this specific tool when non-zero.
+#
+# Policy fields:
+#   routing              sticky | least_loaded        [optional, sticky]
+#   credential_policy    optional | required           [optional, optional]
+#   authorization_policy tenant_allowlist              [optional, tenant_allowlist]
+tools:
+  # --- stdio tool -----------------------------------------------------------
+  # stdio tools are launched as local child processes. The gateway communicates
+  # with them over stdin/stdout using the MCP stdio protocol.
+  - id: filesystem
+    transport: stdio
+
+    # Executable to launch.                                  [required]
+    command: npx
+
+    # Arguments passed to the command.                       [optional]
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "/tmp"
+
+    # Extra environment variables injected into the child process.
+    # These are merged with the gateway process environment.  [optional]
+    env:
+      NODE_ENV: production
+
+    # Working directory for the child process.               [optional]
+    working_directory: /tmp
+
+    startup_timeout: 15s
+    request_timeout: 30s
+    idle_timeout: 5m
+    routing: sticky
+    credential_policy: optional
+    authorization_policy: tenant_allowlist
+
+  # --- http tool (plain HTTPS, system CA) -----------------------------------
+  # http tools connect to a remote MCP server over HTTP/HTTPS.
+  - id: docs-search
+    transport: http
+
+    # Base URL of the remote MCP server.                     [required]
+    url: "https://mcp.internal.example.com"
+
+    request_timeout: 15s
+    idle_timeout: 2m
+    routing: least_loaded
+    credential_policy: required
+    authorization_policy: tenant_allowlist
+
+  # --- http tool (custom CA + mutual TLS) -----------------------------------
+  # Use http_tls when the remote MCP server uses a private CA or requires
+  # client certificates. All http_tls fields are optional individually,
+  # but client_cert_file and client_key_file must both be set or both omitted.
+  #
+  # - id: internal-api
+  #   transport: http
+  #   url: "https://internal-mcp.corp.example.com"
+  #
+  #   http_tls:
+  #     # Path to a CA certificate (PEM) for verifying the remote server.
+  #     # When omitted, the system default CA pool is used.    [optional]
+  #     ca_cert_file: /etc/goakt-mcp/corp-ca.crt
+  #
+  #     # Client certificate and key for mutual TLS.
+  #     # Both must be present or both must be absent.         [optional]
+  #     client_cert_file: /etc/goakt-mcp/client.crt
+  #     client_key_file:  /etc/goakt-mcp/client.key
+  #
+  #     # Disable server certificate verification.
+  #     # Use only in development or controlled test environments.
+  #     #                                                       [optional, false]
+  #     insecure_skip_verify: false
+  #
+  #   request_timeout: 20s
+  #   idle_timeout: 3m
+  #   routing: sticky
+  #   credential_policy: required
+  #   authorization_policy: tenant_allowlist
