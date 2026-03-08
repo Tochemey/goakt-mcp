@@ -1,0 +1,238 @@
+// MIT License
+//
+// Copyright (c) 2026 GoAkt Team
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
+
+package mcpconv
+
+import (
+	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/tochemey/goakt-mcp/internal/runtime"
+)
+
+func TestParamsFromInvocation(t *testing.T) {
+	t.Run("nil invocation returns empty", func(t *testing.T) {
+		name, args := ParamsFromInvocation(nil)
+		assert.Empty(t, name)
+		assert.Nil(t, args)
+	})
+
+	t.Run("nil params returns empty", func(t *testing.T) {
+		inv := &runtime.Invocation{ToolID: "my-tool"}
+		name, args := ParamsFromInvocation(inv)
+		assert.Empty(t, name)
+		assert.Nil(t, args)
+	})
+
+	t.Run("extracts name and arguments from params", func(t *testing.T) {
+		inv := &runtime.Invocation{
+			ToolID: "my-tool",
+			Params: map[string]any{
+				"name":      "greet",
+				"arguments": map[string]any{"user": "alice"},
+			},
+		}
+		name, args := ParamsFromInvocation(inv)
+		assert.Equal(t, "greet", name)
+		argsMap, ok := args.(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "alice", argsMap["user"])
+	})
+
+	t.Run("falls back to ToolID when name is missing", func(t *testing.T) {
+		inv := &runtime.Invocation{
+			ToolID: "fallback-tool",
+			Params: map[string]any{
+				"arguments": map[string]any{"x": 1},
+			},
+		}
+		name, args := ParamsFromInvocation(inv)
+		assert.Equal(t, "fallback-tool", name)
+		assert.NotNil(t, args)
+	})
+
+	t.Run("falls back to ToolID when name is empty string", func(t *testing.T) {
+		inv := &runtime.Invocation{
+			ToolID: "fallback-tool",
+			Params: map[string]any{
+				"name":      "",
+				"arguments": nil,
+			},
+		}
+		name, _ := ParamsFromInvocation(inv)
+		assert.Equal(t, "fallback-tool", name)
+	})
+}
+
+func TestCallResultToOutput(t *testing.T) {
+	t.Run("nil result returns nil", func(t *testing.T) {
+		assert.Nil(t, CallResultToOutput(nil))
+	})
+
+	t.Run("empty result returns map without content key", func(t *testing.T) {
+		res := &mcp.CallToolResult{}
+		out := CallResultToOutput(res)
+		require.NotNil(t, out)
+		_, hasContent := out["content"]
+		assert.False(t, hasContent)
+	})
+
+	t.Run("text content is mapped", func(t *testing.T) {
+		res := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: "hello"},
+			},
+		}
+		out := CallResultToOutput(res)
+		content, ok := out["content"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, content, 1)
+		assert.Equal(t, "text", content[0]["type"])
+		assert.Equal(t, "hello", content[0]["text"])
+	})
+
+	t.Run("image content is mapped with base64 data", func(t *testing.T) {
+		res := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.ImageContent{Data: []byte{0x89, 0x50}, MIMEType: "image/png"},
+			},
+		}
+		out := CallResultToOutput(res)
+		content, ok := out["content"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, content, 1)
+		assert.Equal(t, "image", content[0]["type"])
+		assert.Equal(t, "image/png", content[0]["mimeType"])
+		assert.NotEmpty(t, content[0]["data"])
+	})
+
+	t.Run("audio content is mapped", func(t *testing.T) {
+		res := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.AudioContent{Data: []byte{0x00}, MIMEType: "audio/wav"},
+			},
+		}
+		out := CallResultToOutput(res)
+		content, ok := out["content"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, content, 1)
+		assert.Equal(t, "audio", content[0]["type"])
+		assert.Equal(t, "audio/wav", content[0]["mimeType"])
+	})
+
+	t.Run("embedded resource is mapped", func(t *testing.T) {
+		res := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.EmbeddedResource{
+					Resource: &mcp.ResourceContents{
+						URI:      "file:///test.txt",
+						MIMEType: "text/plain",
+						Text:     "file contents",
+					},
+				},
+			},
+		}
+		out := CallResultToOutput(res)
+		content, ok := out["content"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, content, 1)
+		assert.Equal(t, "resource", content[0]["type"])
+		assert.Equal(t, "file:///test.txt", content[0]["uri"])
+		assert.Equal(t, "text/plain", content[0]["mimeType"])
+		assert.Equal(t, "file contents", content[0]["text"])
+	})
+
+	t.Run("resource link is mapped", func(t *testing.T) {
+		res := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.ResourceLink{
+					URI:      "https://example.com",
+					Name:     "example",
+					MIMEType: "text/html",
+				},
+			},
+		}
+		out := CallResultToOutput(res)
+		content, ok := out["content"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, content, 1)
+		assert.Equal(t, "resource_link", content[0]["type"])
+		assert.Equal(t, "https://example.com", content[0]["uri"])
+		assert.Equal(t, "example", content[0]["name"])
+		assert.Equal(t, "text/html", content[0]["mimeType"])
+	})
+
+	t.Run("structured content is included", func(t *testing.T) {
+		sc := map[string]any{"key": "val"}
+		res := &mcp.CallToolResult{StructuredContent: sc}
+		out := CallResultToOutput(res)
+		assert.Equal(t, sc, out["structuredContent"])
+	})
+
+	t.Run("mixed content types in single result", func(t *testing.T) {
+		res := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: "hello"},
+				&mcp.ImageContent{Data: []byte{0x01}, MIMEType: "image/jpeg"},
+			},
+		}
+		out := CallResultToOutput(res)
+		content, ok := out["content"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, content, 2)
+		assert.Equal(t, "text", content[0]["type"])
+		assert.Equal(t, "image", content[1]["type"])
+	})
+}
+
+func TestContentErrorText(t *testing.T) {
+	t.Run("nil result returns default", func(t *testing.T) {
+		assert.Equal(t, "tool error", ContentErrorText(nil))
+	})
+
+	t.Run("empty content returns default", func(t *testing.T) {
+		res := &mcp.CallToolResult{}
+		assert.Equal(t, "tool error", ContentErrorText(res))
+	})
+
+	t.Run("text content returns text", func(t *testing.T) {
+		res := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: "something went wrong"},
+			},
+		}
+		assert.Equal(t, "something went wrong", ContentErrorText(res))
+	})
+
+	t.Run("non-text first content returns default", func(t *testing.T) {
+		res := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.ImageContent{Data: []byte{0x01}, MIMEType: "image/png"},
+			},
+		}
+		assert.Equal(t, "tool error", ContentErrorText(res))
+	})
+}
