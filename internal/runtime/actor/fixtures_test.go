@@ -1,0 +1,168 @@
+// MIT License
+//
+// Copyright (c) 2026 GoAkt Team
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
+
+package actor
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	goaktactor "github.com/tochemey/goakt/v4/actor"
+	goaktlog "github.com/tochemey/goakt/v4/log"
+	"github.com/tochemey/goakt/v4/testkit"
+
+	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
+	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
+)
+
+// askTimeout is the default timeout for Ask calls in tests.
+const askTimeout = 5 * time.Second
+
+// validStdioTool returns a valid stdio tool for use in tests.
+func validStdioTool(id runtime.ToolID) runtime.Tool {
+	return runtime.Tool{
+		ID:        id,
+		Transport: runtime.TransportStdio,
+		Stdio:     &runtime.StdioTransportConfig{Command: "npx"},
+		State:     runtime.ToolStateEnabled,
+	}
+}
+
+// validHTTPTool returns a valid HTTP tool for use in tests.
+func validHTTPTool(id runtime.ToolID) runtime.Tool {
+	return runtime.Tool{
+		ID:        id,
+		Transport: runtime.TransportHTTP,
+		HTTP:      &runtime.HTTPTransportConfig{URL: "http://localhost:8080"},
+		State:     runtime.ToolStateEnabled,
+	}
+}
+
+// testActorSystem creates and starts a minimal GoAkt actor system for use in tests.
+// The returned stop function must be called to clean up the system after the test.
+// Uses the discard logger to suppress all log output during tests.
+func testActorSystem(t *testing.T) (goaktactor.ActorSystem, func()) {
+	t.Helper()
+	ctx := context.Background()
+	system, err := goaktactor.NewActorSystem(
+		"test-goakt-mcp",
+		goaktactor.WithLogger(goaktlog.DiscardLogger),
+	)
+	require.NoError(t, err)
+	require.NoError(t, system.Start(ctx))
+
+	stop := func() {
+		require.NoError(t, system.Stop(ctx))
+	}
+	return system, stop
+}
+
+// testConfig returns a minimal Config suitable for use in tests.
+func testConfig() config.Config {
+	return config.Config{
+		HTTP: config.HTTPConfig{
+			ListenAddress: config.DefaultHTTPListenAddress,
+		},
+		Runtime: config.RuntimeConfig{
+			SessionIdleTimeout: config.DefaultSessionIdleTimeout,
+			RequestTimeout:     config.DefaultRequestTimeout,
+			StartupTimeout:     config.DefaultStartupTimeout,
+		},
+	}
+}
+
+// testConfigWithTenants returns a Config with tenant allowlist for policy tests.
+func testConfigWithTenants(tenantIDs ...runtime.TenantID) config.Config {
+	cfg := testConfig()
+	for _, id := range tenantIDs {
+		cfg.Tenants = append(cfg.Tenants, config.TenantConfig{ID: id, Quotas: config.TenantQuotaConfig{}})
+	}
+	return cfg
+}
+
+// waitForActors pauses briefly to allow asynchronous PostStart messages to be
+// delivered and processed by newly spawned actors. This is necessary in tests
+// that assert on actor state that is set during PostStart handling.
+func waitForActors() {
+	time.Sleep(100 * time.Millisecond)
+}
+
+// sessionInvocation returns a minimal Invocation for session tests.
+func sessionInvocation(toolID runtime.ToolID, tenantID, clientID string) *runtime.Invocation {
+	return &runtime.Invocation{
+		Correlation: runtime.CorrelationMeta{
+			TenantID:  runtime.TenantID(tenantID),
+			ClientID:  runtime.ClientID(clientID),
+			RequestID: "req-1",
+		},
+		ToolID: toolID,
+		Method: "tools/call",
+		Params: map[string]any{},
+	}
+}
+
+// newTestKit creates a testkit for use in tests. The returned kit is cleaned up via t.Cleanup.
+func newTestKit(t *testing.T) (*testkit.TestKit, context.Context) {
+	t.Helper()
+	ctx := context.Background()
+	kit := testkit.New(ctx, t)
+	t.Cleanup(func() {
+		kit.Shutdown(ctx)
+	})
+	return kit, ctx
+}
+
+// failingAuditSink is a test sink that returns an error on Write.
+type failingAuditSink struct{}
+
+func (f *failingAuditSink) Write(_ *audit.Event) error {
+	return errors.New("write failed")
+}
+
+func (f *failingAuditSink) Close() error {
+	return nil
+}
+
+// mockCredentialProvider is a test credential provider for use in tests.
+type mockCredentialProvider struct {
+	creds map[string]string
+	err   error
+}
+
+func (m *mockCredentialProvider) ID() string {
+	return "mock"
+}
+
+func (m *mockCredentialProvider) Resolve(_ context.Context, _ runtime.TenantID, _ runtime.ToolID) (map[string]string, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.creds, nil
+}
+
+var _ credentials.Provider = (*mockCredentialProvider)(nil)
