@@ -91,7 +91,7 @@ func TestInvocationConstruction(t *testing.T) {
 	now := time.Now()
 	corr := CorrelationMeta{
 		TenantID:  "acme-dev",
-		ClientID:  "cursor-user-1",
+		ClientID:  "client-app-1",
 		RequestID: "req-01JXYZ",
 		TraceID:   "trace-01JXYZ",
 	}
@@ -105,7 +105,7 @@ func TestInvocationConstruction(t *testing.T) {
 			"name":      "search_docs",
 			"arguments": map[string]any{"query": "actor supervision"},
 		},
-		Metadata:   map[string]string{"source": "cursor"},
+		Metadata:   map[string]string{"source": "gateway-client"},
 		ReceivedAt: now,
 	}
 
@@ -114,14 +114,14 @@ func TestInvocationConstruction(t *testing.T) {
 	assert.Equal(t, SessionID("sess-abc"), inv.SessionID)
 	assert.Equal(t, "tools/call", inv.Method)
 	assert.NotEmpty(t, inv.Params)
-	assert.Equal(t, "cursor", inv.Metadata["source"])
+	assert.Equal(t, "gateway-client", inv.Metadata["source"])
 	assert.Equal(t, now, inv.ReceivedAt)
 }
 
 func TestExecutionResultConstruction(t *testing.T) {
 	corr := CorrelationMeta{
 		TenantID:  "acme-dev",
-		ClientID:  "cursor-user-1",
+		ClientID:  "client-app-1",
 		RequestID: "req-01JXYZ",
 		TraceID:   "trace-01JXYZ",
 	}

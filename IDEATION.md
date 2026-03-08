@@ -1,7 +1,7 @@
 # GoAkt MCP Gateway Ideation
 
 ## Project Vision
-`goakt-mcp` is a Go-based MCP gateway built on top of `GoAkt`. Its purpose is to sit between AI agents and MCP servers, providing a resilient, observable, and scalable execution layer for tool calls.
+`goakt-mcp` is a Go-based MCP gateway built on top of `GoAkt`. Its purpose is to sit between clients and MCP servers, providing a resilient, observable, and scalable execution layer for tool calls.
 
 The vision is not simply to proxy JSON-RPC messages. The gateway should act as an operational control plane for MCP workloads:
 
@@ -14,7 +14,7 @@ The vision is not simply to proxy JSON-RPC messages. The gateway should act as a
 GoAkt is a strong fit because the actor model maps naturally to MCP connection management. Each tool session is stateful, failure-prone, and concurrent, which is exactly the kind of workload actors, supervision, mailboxes, and passivation are designed to handle.
 
 ## Problem Statement
-AI agents increasingly rely on external tools for retrieval, automation, data access, and execution. In practice, that creates a few recurring operational problems:
+MCP clients increasingly rely on external tools for retrieval, automation, data access, and execution. In practice, that creates a few recurring operational problems:
 
 - MCP servers are stateful and can be expensive to start or reconnect
 - tool runtimes may be local processes, containers, or remote services
@@ -25,7 +25,7 @@ AI agents increasingly rely on external tools for retrieval, automation, data ac
 The gateway should solve these problems without forcing clients to understand the complexity of the underlying tool topology.
 
 ## Product Goal
-Expose a single, well-defined gateway that agents can call while the runtime handles:
+Expose a single, well-defined gateway that clients can call while the runtime handles:
 
 - MCP server lifecycle management
 - connection pooling or session ownership where applicable
@@ -62,7 +62,7 @@ This allows `goakt-mcp` to focus on MCP semantics and product concerns rather th
 The system can be organized into three layers: ingress, actor runtime, and egress.
 
 ### 1. Ingress Layer
-This layer accepts requests from AI agents, SDKs, or upstream orchestrators.
+This layer accepts requests from clients, SDKs, or upstream orchestrators.
 
 Responsibilities:
 
@@ -282,7 +282,7 @@ The first release should ship with the capabilities required for real production
 - routing decisions based on tenant, tool capabilities, node health, and session affinity
 
 ## Non-Goals For The First Iteration
-- becoming a full workflow engine for multi-step agent orchestration
+- becoming a full workflow engine for multi-step orchestration
 - supporting every MCP transport or extension on day one
 - providing a general-purpose API gateway unrelated to MCP
 - acting as a full secret-management product instead of integrating with established providers
@@ -441,7 +441,7 @@ The first implementation should standardize on a small but production-ready inte
 ```json
 {
   "tenant_id": "acme-dev",
-  "client_id": "cursor-user-123",
+  "client_id": "client-app-123",
   "request_id": "req_01JXYZ",
   "trace_id": "trace_01JXYZ",
   "method": "tools/call",
@@ -452,7 +452,7 @@ The first implementation should standardize on a small but production-ready inte
     }
   },
   "metadata": {
-    "source": "cursor"
+    "source": "gateway-client"
   }
 }
 ```

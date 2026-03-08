@@ -5,7 +5,7 @@
 
 ---
 
-goakt-mcp is a production-oriented MCP gateway built in Go. It sits between AI agents and MCP servers and provides a resilient, observable, and scalable execution layer for tool calls.
+goakt-mcp is a production-oriented MCP gateway built in Go. It sits between clients and MCP servers and provides a resilient, observable, and scalable execution layer for tool calls.
 
 Instead of behaving like a thin JSON-RPC proxy, goakt-mcp is designed as an operational control plane for MCP workloads. It manages tool lifecycle, session affinity, supervision, routing, credential brokering, policy enforcement, and auditability behind a single gateway API.
 
@@ -54,7 +54,7 @@ The control plane is expected to include endpoints for registering, updating, di
 ```json
 {
   "tenant_id": "acme-dev",
-  "client_id": "cursor-user-123",
+  "client_id": "client-app-123",
   "request_id": "req_01JXYZ",
   "trace_id": "trace_01JXYZ",
   "method": "tools/call",
@@ -65,7 +65,7 @@ The control plane is expected to include endpoints for registering, updating, di
     }
   },
   "metadata": {
-    "source": "cursor"
+    "source": "gateway-client"
   }
 }
 ```

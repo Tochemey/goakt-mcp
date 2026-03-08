@@ -61,7 +61,7 @@ func TestSessionName(t *testing.T) {
 		expected string
 	}{
 		{"acme", "user-1", "filesystem", "session-acme-user-1-filesystem"},
-		{"tenant-b", "cursor-123", "docs-search", "session-tenant-b-cursor-123-docs-search"},
+		{"tenant-b", "client-123", "docs-search", "session-tenant-b-client-123-docs-search"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {

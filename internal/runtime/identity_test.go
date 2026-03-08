@@ -50,12 +50,12 @@ func TestClientID(t *testing.T) {
 		assert.True(t, id.IsZero())
 	})
 	t.Run("IsZero returns false for non-empty value", func(t *testing.T) {
-		id := ClientID("cursor-user-1")
+		id := ClientID("client-app-1")
 		assert.False(t, id.IsZero())
 	})
 	t.Run("String returns the underlying string", func(t *testing.T) {
-		id := ClientID("cursor-user-1")
-		assert.Equal(t, "cursor-user-1", id.String())
+		id := ClientID("client-app-1")
+		assert.Equal(t, "client-app-1", id.String())
 	})
 }
 
