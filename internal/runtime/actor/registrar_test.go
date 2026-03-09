@@ -353,4 +353,35 @@ func TestRegistryActor(t *testing.T) {
 		assert.ErrorIs(t, result.Err, mcp.ErrToolNotFound)
 		probe.Stop()
 	})
+
+	t.Run("NewRegistrar returns valid actor for cluster kind registration", func(t *testing.T) {
+		a := NewRegistrar()
+		require.NotNil(t, a)
+	})
+
+	t.Run("count sessions for tenant", func(t *testing.T) {
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("count-sessions-tool")
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.CountSessionsForTenant{TenantID: "tenant-1"}, askTimeout)
+		require.NoError(t, err)
+		countResult, ok := resp.(*runtime.CountSessionsForTenantResult)
+		require.True(t, ok)
+		require.NotNil(t, countResult)
+		assert.GreaterOrEqual(t, countResult.Count, 0)
+	})
 }

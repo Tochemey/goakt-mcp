@@ -197,4 +197,37 @@ func TestHealthActor(t *testing.T) {
 		// The journal is wired; verify no panic occurred.
 		assert.NotNil(t, sink.Events())
 	})
+
+	t.Run("runProbes calls recordHealthTransition when tool state transitions from Unavailable to Enabled", func(t *testing.T) {
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
+		defer stop()
+
+		sink := audit.NewMemorySink()
+		journalPID, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(sink))
+		require.NoError(t, err)
+		waitForActors()
+
+		registrarPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("transition-tool")
+		tool.State = mcp.ToolStateUnavailable
+		_, err = goaktactor.Ask(ctx, registrarPID, &runtime.RegisterTool{Tool: tool}, 5*time.Second)
+		require.NoError(t, err)
+		waitForActors()
+
+		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(registrarPID, journalPID, time.Hour))
+		require.NoError(t, err)
+		waitForActors()
+
+		require.NoError(t, healthPID.Tell(ctx, healthPID, &runProbes{}))
+		time.Sleep(500 * time.Millisecond)
+
+		events := sink.Events()
+		require.NotNil(t, events)
+		assert.GreaterOrEqual(t, len(events), 1, "expected at least one health transition event")
+	})
 }

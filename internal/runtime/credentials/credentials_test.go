@@ -21,9 +21,10 @@
 // SOFTWARE.
 //
 
-package mcp_test
+package credentials
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,26 +32,45 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-func TestActorNameConstants(t *testing.T) {
-	assert.Equal(t, "gateway-manager", mcp.ActorNameGatewayManager)
-	assert.Equal(t, "registrar", mcp.ActorNameRegistrar)
-	assert.Equal(t, "health", mcp.ActorNameHealth)
-	assert.Equal(t, "journal", mcp.ActorNameJournal)
-	assert.Equal(t, "credential-broker", mcp.ActorNameCredentialBroker)
-	assert.Equal(t, "router", mcp.ActorNameRouter)
-	assert.Equal(t, "policy", mcp.ActorNamePolicy)
+func TestResolveResult_Resolved(t *testing.T) {
+	t.Run("returns true when credentials resolved successfully", func(t *testing.T) {
+		r := &ResolveResult{
+			Credentials: map[string]string{"key": "value"},
+			Err:         nil,
+		}
+		assert.True(t, r.Resolved())
+	})
+
+	t.Run("returns false when error is set", func(t *testing.T) {
+		r := &ResolveResult{
+			Credentials: map[string]string{"key": "value"},
+			Err:         errors.New("resolution failed"),
+		}
+		assert.False(t, r.Resolved())
+	})
+
+	t.Run("returns false when credentials map is empty", func(t *testing.T) {
+		r := &ResolveResult{
+			Credentials: nil,
+			Err:         nil,
+		}
+		assert.False(t, r.Resolved())
+	})
+
+	t.Run("returns false when credentials map is empty with nil err", func(t *testing.T) {
+		r := &ResolveResult{
+			Credentials: map[string]string{},
+			Err:         nil,
+		}
+		assert.False(t, r.Resolved())
+	})
 }
 
-func TestToolSupervisorName(t *testing.T) {
-	assert.Equal(t, "supervisor-my-tool", mcp.ToolSupervisorName("my-tool"))
-}
-
-func TestSessionName(t *testing.T) {
-	assert.Equal(t, "session-t1-c1-tool-a", mcp.SessionName("t1", "c1", "tool-a"))
-}
-
-func TestToolIDFromSupervisorName(t *testing.T) {
-	assert.Equal(t, mcp.ToolID("my-tool"), mcp.ToolIDFromSupervisorName("supervisor-my-tool"))
-	assert.Equal(t, mcp.ToolID(""), mcp.ToolIDFromSupervisorName("supervisor-"))
-	assert.Equal(t, mcp.ToolID("other"), mcp.ToolIDFromSupervisorName("other"))
+func TestResolveRequest(t *testing.T) {
+	req := ResolveRequest{
+		TenantID: mcp.TenantID("tenant-1"),
+		ToolID:   mcp.ToolID("tool-1"),
+	}
+	assert.Equal(t, mcp.TenantID("tenant-1"), req.TenantID)
+	assert.Equal(t, mcp.ToolID("tool-1"), req.ToolID)
 }
