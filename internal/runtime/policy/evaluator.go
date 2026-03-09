@@ -108,6 +108,7 @@ func (e *Evaluator) checkQuotas(in *Input) Result {
 		}
 	}
 
+	// Throttle when current count already equals limit (allow N, throttle N+1).
 	if q.RequestsPerMinute > 0 && in.RequestsInCurrentMinute >= q.RequestsPerMinute {
 		return Result{
 			Decision: DecisionThrottle,

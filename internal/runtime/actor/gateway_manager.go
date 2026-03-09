@@ -30,12 +30,13 @@ import (
 	goakterrors "github.com/tochemey/goakt/v4/errors"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 
+	"github.com/tochemey/goakt-mcp/mcp"
+
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/cluster"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
-	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // GatewayManager is the runtime composition root inside the GoAkt actor system.
@@ -121,7 +122,7 @@ func (g *GatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext)
 
 	// spawn the router actor
 	if registrar != nil {
-		ctx.Spawn(mcp.ActorNameRouter, newRouterActor(registrar, policyPID, credentialBroker, journaler))
+		ctx.Spawn(mcp.ActorNameRouter, newRouterActor(registrar, policyPID, credentialBroker, journaler, hasConcurrencyQuotas(g.config)))
 	}
 
 	// bootstrap the tools after journal is running so supervisors can resolve it
@@ -175,14 +176,35 @@ func (g *GatewayManager) spawnRegistrar(ctx *goaktactor.ReceiveContext) *goaktac
 }
 
 // createAuditSink creates an audit sink from config.
-// Returns MemorySink for "memory" or empty backend; nil otherwise.
+// Returns MemorySink for "memory" or empty backend; FileSink for "file" when
+// Bucket (directory path) is set; MemorySink as fallback for unknown backends.
 func createAuditSink(cfg config.AuditConfig) audit.Sink {
 	switch cfg.Backend {
 	case "", "memory":
 		return audit.NewMemorySink()
+	case "file":
+		if cfg.Bucket == "" {
+			return audit.NewMemorySink()
+		}
+		sink, err := audit.NewFileSink(cfg.Bucket)
+		if err != nil {
+			return audit.NewMemorySink()
+		}
+		return sink
 	default:
 		return audit.NewMemorySink()
 	}
+}
+
+// hasConcurrencyQuotas returns true when any tenant has ConcurrentSessions > 0.
+// Used to skip the expensive fan-out CountSessionsForTenant on the hot path.
+func hasConcurrencyQuotas(cfg config.Config) bool {
+	for i := range cfg.Tenants {
+		if cfg.Tenants[i].Quotas.ConcurrentSessions > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // buildCredentialProviders builds provider instances from config provider names.

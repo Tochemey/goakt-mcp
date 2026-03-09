@@ -31,8 +31,9 @@ import (
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 	"github.com/tochemey/goakt-mcp/mcp"
+
+	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 )
 
 func TestPolicyActor(t *testing.T) {

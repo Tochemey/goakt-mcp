@@ -202,6 +202,10 @@ func (g *Gateway) remoteOptions() []remote.Option {
 			(*runtime.GetSupervisorResult)(nil),
 			(*runtime.ListTools)(nil),
 			(*runtime.ListToolsResult)(nil),
+			(*runtime.CountSessionsForTenant)(nil),
+			(*runtime.CountSessionsForTenantResult)(nil),
+			(*runtime.SupervisorCountSessionsForTenant)(nil),
+			(*runtime.SupervisorCountSessionsForTenantResult)(nil),
 
 			(*runtime.GetOrCreateSession)(nil),
 			(*runtime.GetOrCreateSessionResult)(nil),

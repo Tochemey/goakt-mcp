@@ -33,11 +33,12 @@ import (
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
 
+	"github.com/tochemey/goakt-mcp/mcp"
+
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
-	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestHealthActor(t *testing.T) {

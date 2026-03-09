@@ -40,9 +40,12 @@ type CanAcceptWork struct {
 }
 
 // CanAcceptWorkResult is the response to CanAcceptWork.
+// SessionCount is populated for callers that need backpressure info without
+// a separate round-trip.
 type CanAcceptWorkResult struct {
-	Accept bool
-	Reason string
+	Accept       bool
+	Reason       string
+	SessionCount int
 }
 
 // ReportFailure notifies the supervisor that an invocation or session failed.
@@ -59,4 +62,17 @@ type ReportFailure struct {
 // this closes the circuit. Typically sent via Tell.
 type ReportSuccess struct {
 	ToolID mcp.ToolID
+}
+
+// SupervisorCountSessionsForTenant is a request to count this supervisor's
+// sessions that belong to the given tenant. Session names follow
+// SessionName(tenantID, clientID, toolID). Must be used with Ask.
+// Response is SupervisorCountSessionsForTenantResult.
+type SupervisorCountSessionsForTenant struct {
+	TenantID mcp.TenantID
+}
+
+// SupervisorCountSessionsForTenantResult is the response.
+type SupervisorCountSessionsForTenantResult struct {
+	Count int
 }

@@ -161,3 +161,15 @@ type ListTools struct{}
 type ListToolsResult struct {
 	Tools []mcp.Tool
 }
+
+// CountSessionsForTenant is a command to count active sessions for a tenant
+// across all tools. Used by policy evaluation for ConcurrentSessions quota.
+// Must be used with Ask. Response is CountSessionsForTenantResult.
+type CountSessionsForTenant struct {
+	TenantID mcp.TenantID
+}
+
+// CountSessionsForTenantResult is the response to CountSessionsForTenant.
+type CountSessionsForTenantResult struct {
+	Count int
+}

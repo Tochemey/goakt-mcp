@@ -27,9 +27,10 @@ import (
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 
+	"github.com/tochemey/goakt-mcp/mcp"
+
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
-	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // journaler is the Journal Actor.

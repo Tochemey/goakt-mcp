@@ -30,6 +30,11 @@ import (
 
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
@@ -37,7 +42,6 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
-	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // routingTimeout is the maximum time for the full routing chain (lookup + session + execute).
@@ -50,7 +54,7 @@ const routingTimeout = config.DefaultRequestTimeout
 // and execution. Routing decisions are deterministic and tenant-aware.
 //
 // Spawn: GatewayManager spawns RouterActor in spawnFoundationalActors via
-// ctx.Spawn(ActorNameRouter, newRouterActor(registrar, policy, credentialBroker, journal))
+// ctx.Spawn(ActorNameRouter, newRouterActor(registrar, policy, credentialBroker, journal, hasConcurrencyQuotas))
 // as a child of GatewayManager. Dependencies are passed in the constructor because
 // RouterActor does not relocate.
 //
@@ -63,11 +67,12 @@ const routingTimeout = config.DefaultRequestTimeout
 //
 // All fields are unexported to enforce actor immutability rules.
 type router struct {
-	registrar        *goaktactor.PID
-	policyPID        *goaktactor.PID
-	credentialBroker *goaktactor.PID
-	journaler        *goaktactor.PID
-	logger           goaktlog.Logger
+	registrar            *goaktactor.PID
+	policyPID            *goaktactor.PID
+	credentialBroker     *goaktactor.PID
+	journaler            *goaktactor.PID
+	hasConcurrencyQuotas bool
+	logger               goaktlog.Logger
 }
 
 // enforce that routerActor satisfies the GoAkt Actor interface at compile time.
@@ -75,12 +80,13 @@ var _ goaktactor.Actor = (*router)(nil)
 
 // newRouterActor creates a RouterActor with the given PIDs. Registrar must be
 // non-nil and running; policy, credentialBroker, and journal may be nil.
-func newRouterActor(registrar, policy, credentialBroker, journal *goaktactor.PID) *router {
+func newRouterActor(registrar, policy, credentialBroker, journal *goaktactor.PID, hasConcurrencyQuotas bool) *router {
 	return &router{
-		registrar:        registrar,
-		policyPID:        policy,
-		credentialBroker: credentialBroker,
-		journaler:        journal,
+		registrar:            registrar,
+		policyPID:            policy,
+		credentialBroker:     credentialBroker,
+		journaler:            journal,
+		hasConcurrencyQuotas: hasConcurrencyQuotas,
 	}
 }
 
@@ -144,8 +150,33 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 	goCtx, cancel := context.WithTimeout(ctx.Context(), routingTimeout)
 	defer cancel()
 
+	// routeErr tracks the terminal error for span recording. Using a single
+	// variable that all error paths assign to ensures the deferred span closure
+	// always captures the actual failure, regardless of block scoping.
+	var routeErr error
+
+	if telemetry.TracingEnabled() {
+		var span trace.Span
+		goCtx, span = telemetry.Tracer().Start(goCtx, "goaktmcp.route.invoke",
+			trace.WithAttributes(
+				attribute.String("mcp.tool_id", string(inv.ToolID)),
+				attribute.String("mcp.tenant_id", string(tenantID)),
+				attribute.String("mcp.client_id", string(clientID)),
+			),
+			trace.WithSpanKind(trace.SpanKindInternal),
+		)
+		defer func() {
+			if routeErr != nil {
+				span.SetStatus(codes.Error, routeErr.Error())
+				span.RecordError(routeErr)
+			}
+			span.End()
+		}()
+	}
+
 	tool, err := x.lookupTool(goCtx, inv.ToolID)
 	if err != nil {
+		routeErr = err
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeToolNotFound))
 		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "error", string(mcp.ErrCodeToolNotFound), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
@@ -153,6 +184,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 	}
 
 	if err := x.evaluatePolicy(goCtx, inv, tool, tenantID, clientID); err != nil {
+		routeErr = err
 		code := mcp.ErrCodePolicyDenied
 		if re := (*mcp.RuntimeError)(nil); errors.As(err, &re) {
 			code = re.Code
@@ -165,6 +197,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 
 	supervisorPID, err := x.lookupSupervisor(goCtx, inv.ToolID)
 	if err != nil {
+		routeErr = err
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeInternal))
 		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "error", string(mcp.ErrCodeInternal), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
@@ -172,6 +205,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 	}
 
 	if err := x.checkAcceptWork(goCtx, supervisorPID, inv.ToolID, tool); err != nil {
+		routeErr = err
 		code := mcp.ErrCodeToolUnavailable
 		if re := (*mcp.RuntimeError)(nil); errors.As(err, &re) {
 			code = re.Code
@@ -184,6 +218,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 
 	invToUse, err := x.resolveCredentials(goCtx, inv, tool, tenantID)
 	if err != nil {
+		routeErr = err
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeCredentialUnavailable))
 		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "credential_unavailable", string(mcp.ErrCodeCredentialUnavailable), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
@@ -192,6 +227,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 
 	sessionPID, err := x.resolveSession(goCtx, supervisorPID, tenantID, clientID, inv.ToolID, invToUse.Credentials)
 	if err != nil {
+		routeErr = err
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeInternal))
 		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "session_error", string(mcp.ErrCodeInternal), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
@@ -200,6 +236,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 
 	result, err := x.executeInvocation(goCtx, sessionPID, invToUse, tool)
 	if err != nil {
+		routeErr = err
 		code := mcp.ErrCodeInternal
 		if re := (*mcp.RuntimeError)(nil); errors.As(err, &re) {
 			code = re.Code
@@ -257,15 +294,25 @@ func (x *router) resolveCredentials(goCtx context.Context, inv *mcp.Invocation, 
 // evaluatePolicy asks the PolicyActor for an authorization decision. Returns nil
 // when no PolicyActor is available (policy is optional) or when the request is
 // allowed. Returns a RuntimeError with the appropriate denial code on reject.
+// ActiveSessionCount is resolved from the registrar for ConcurrentSessions quota.
 func (x *router) evaluatePolicy(goCtx context.Context, inv *mcp.Invocation, tool mcp.Tool, tenantID mcp.TenantID, clientID mcp.ClientID) error {
 	if x.policyPID == nil || !x.policyPID.IsRunning() {
 		return nil
 	}
+	activeSessions := 0
+	if x.hasConcurrencyQuotas && x.registrar != nil && x.registrar.IsRunning() {
+		if resp, err := goaktactor.Ask(goCtx, x.registrar, &runtime.CountSessionsForTenant{TenantID: tenantID}, routingTimeout); err == nil {
+			if result, ok := resp.(*runtime.CountSessionsForTenantResult); ok {
+				activeSessions = result.Count
+			}
+		}
+	}
 	in := &policy.Input{
-		Invocation: inv,
-		Tool:       tool,
-		TenantID:   tenantID,
-		ClientID:   clientID,
+		Invocation:         inv,
+		Tool:               tool,
+		TenantID:           tenantID,
+		ClientID:           clientID,
+		ActiveSessionCount: activeSessions,
 	}
 	resp, err := goaktactor.Ask(goCtx, x.policyPID, &policy.EvaluateRequest{Input: in}, routingTimeout)
 	if err != nil {
@@ -328,7 +375,9 @@ func (x *router) lookupSupervisor(goCtx context.Context, toolID mcp.ToolID) (*go
 }
 
 // checkAcceptWork asks the ToolSupervisorActor whether it can accept new work.
-// Returns a typed RuntimeError (ToolDisabled or ToolUnavailable) when rejected.
+// The supervisor evaluates circuit state, tool availability, and backpressure
+// (MaxSessionsPerTool) in a single Ask. Returns a typed RuntimeError
+// (ToolDisabled, ToolUnavailable, or ConcurrencyLimitReached) when rejected.
 func (x *router) checkAcceptWork(goCtx context.Context, supervisorPID *goaktactor.PID, toolID mcp.ToolID, tool mcp.Tool) error {
 	acceptResp, err := goaktactor.Ask(goCtx, supervisorPID, &runtime.CanAcceptWork{ToolID: toolID}, routingTimeout)
 	if err != nil {
@@ -340,10 +389,14 @@ func (x *router) checkAcceptWork(goCtx context.Context, supervisorPID *goaktacto
 		if acceptResult != nil && acceptResult.Reason != "" {
 			reason = acceptResult.Reason
 		}
-		if tool.State == mcp.ToolStateDisabled {
+		switch {
+		case tool.State == mcp.ToolStateDisabled:
 			return mcp.NewRuntimeError(mcp.ErrCodeToolDisabled, reason)
+		case tool.MaxSessionsPerTool > 0 && acceptResult != nil && acceptResult.SessionCount >= tool.MaxSessionsPerTool:
+			return mcp.NewRuntimeError(mcp.ErrCodeConcurrencyLimitReached, reason)
+		default:
+			return mcp.NewRuntimeError(mcp.ErrCodeToolUnavailable, reason)
 		}
-		return mcp.NewRuntimeError(mcp.ErrCodeToolUnavailable, reason)
 	}
 	return nil
 }

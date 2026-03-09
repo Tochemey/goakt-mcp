@@ -25,7 +25,7 @@ package telemetry
 
 import (
 	"context"
-	"sync"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -47,10 +47,7 @@ type Metrics struct {
 	circuitState      metric.Int64Counter
 }
 
-var (
-	defaultMetrics *Metrics
-	metricsMu      sync.RWMutex
-)
+var metricsPtr atomic.Pointer[Metrics]
 
 // RegisterMetrics creates OpenTelemetry instruments from the given Meter and
 // registers them as the default metrics for the process. Call this at gateway
@@ -58,22 +55,22 @@ var (
 // cannot be created.
 //
 // Pass nil to use otel.GetMeterProvider().Meter(instrumentationName).
-func RegisterMetrics(m metric.Meter) (*Metrics, error) {
-	if m == nil {
-		m = otel.GetMeterProvider().Meter(instrumentationName)
+func RegisterMetrics(meter metric.Meter) (*Metrics, error) {
+	if meter == nil {
+		meter = otel.GetMeterProvider().Meter(instrumentationName)
 	}
 
 	metrics := &Metrics{}
 	var err error
 
-	if metrics.toolAvailability, err = m.Int64Counter(
+	if metrics.toolAvailability, err = meter.Int64Counter(
 		"goaktmcp.tool.availability",
 		metric.WithDescription("Tool availability state transitions"),
 	); err != nil {
 		return nil, err
 	}
 
-	if metrics.invocationLatency, err = m.Float64Histogram(
+	if metrics.invocationLatency, err = meter.Float64Histogram(
 		"goaktmcp.invocation.latency",
 		metric.WithDescription("Tool invocation latency in milliseconds"),
 		metric.WithUnit("ms"),
@@ -81,39 +78,33 @@ func RegisterMetrics(m metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 
-	if metrics.invocationFailure, err = m.Int64Counter(
+	if metrics.invocationFailure, err = meter.Int64Counter(
 		"goaktmcp.invocation.failure",
 		metric.WithDescription("Failed tool invocations"),
 	); err != nil {
 		return nil, err
 	}
 
-	if metrics.circuitState, err = m.Int64Counter(
+	if metrics.circuitState, err = meter.Int64Counter(
 		"goaktmcp.circuit.state",
 		metric.WithDescription("Circuit breaker state transitions"),
 	); err != nil {
 		return nil, err
 	}
 
-	metricsMu.Lock()
-	defaultMetrics = metrics
-	metricsMu.Unlock()
+	metricsPtr.Store(metrics)
 	return metrics, nil
 }
 
 // UnregisterMetrics clears the default metrics. Use in tests to reset state.
 func UnregisterMetrics() {
-	metricsMu.Lock()
-	defaultMetrics = nil
-	metricsMu.Unlock()
+	metricsPtr.Store(nil)
 }
 
 // RecordToolAvailability records a tool availability state transition.
 // No-op when metrics are not registered.
 func RecordToolAvailability(ctx context.Context, toolID mcp.ToolID, available bool) {
-	metricsMu.RLock()
-	m := defaultMetrics
-	metricsMu.RUnlock()
+	m := metricsPtr.Load()
 	if m == nil {
 		return
 	}
@@ -126,9 +117,7 @@ func RecordToolAvailability(ctx context.Context, toolID mcp.ToolID, available bo
 // RecordInvocationLatency records the latency of a successful tool invocation.
 // No-op when metrics are not registered.
 func RecordInvocationLatency(ctx context.Context, toolID mcp.ToolID, tenantID mcp.TenantID, latencyMs float64) {
-	metricsMu.RLock()
-	m := defaultMetrics
-	metricsMu.RUnlock()
+	m := metricsPtr.Load()
 	if m == nil {
 		return
 	}
@@ -141,9 +130,7 @@ func RecordInvocationLatency(ctx context.Context, toolID mcp.ToolID, tenantID mc
 // RecordInvocationFailure records a failed tool invocation.
 // No-op when metrics are not registered.
 func RecordInvocationFailure(ctx context.Context, toolID mcp.ToolID, tenantID mcp.TenantID, reason string) {
-	metricsMu.RLock()
-	m := defaultMetrics
-	metricsMu.RUnlock()
+	m := metricsPtr.Load()
 	if m == nil {
 		return
 	}
@@ -157,9 +144,7 @@ func RecordInvocationFailure(ctx context.Context, toolID mcp.ToolID, tenantID mc
 // RecordCircuitState records a circuit breaker state transition.
 // No-op when metrics are not registered.
 func RecordCircuitState(ctx context.Context, toolID mcp.ToolID, state string) {
-	metricsMu.RLock()
-	m := defaultMetrics
-	metricsMu.RUnlock()
+	m := metricsPtr.Load()
 	if m == nil {
 		return
 	}

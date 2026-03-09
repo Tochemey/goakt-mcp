@@ -28,9 +28,11 @@ import (
 	goaktlog "github.com/tochemey/goakt/v4/log"
 	"github.com/tochemey/goakt/v4/supervisor"
 
+	"github.com/tochemey/goakt-mcp/mcp"
+
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
-	"github.com/tochemey/goakt-mcp/mcp"
+	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 )
 
 // registrar is the Registry actor.
@@ -98,6 +100,8 @@ func (x *registrar) Receive(ctx *goaktactor.ReceiveContext) {
 		x.handleGetSupervisor(ctx, msg)
 	case *runtime.ListTools:
 		x.handleListTools(ctx)
+	case *runtime.CountSessionsForTenant:
+		x.handleCountSessionsForTenant(ctx, msg)
 	default:
 		ctx.Unhandled()
 	}
@@ -254,6 +258,27 @@ func (x *registrar) handleListTools(ctx *goaktactor.ReceiveContext) {
 		tools = append(tools, t)
 	}
 	x.respondIfAsk(ctx, &runtime.ListToolsResult{Tools: tools})
+}
+
+// handleCountSessionsForTenant sums session counts for the tenant across all
+// tool supervisors. Used by policy evaluation for ConcurrentSessions quota.
+func (x *registrar) handleCountSessionsForTenant(ctx *goaktactor.ReceiveContext, msg *runtime.CountSessionsForTenant) {
+	total := 0
+	for _, supervisor := range x.supervisors {
+		if supervisor == nil || !supervisor.IsRunning() {
+			continue
+		}
+
+		resp, err := goaktactor.Ask(ctx.Context(), supervisor, &runtime.SupervisorCountSessionsForTenant{TenantID: msg.TenantID}, config.DefaultRequestTimeout)
+		if err != nil {
+			continue
+		}
+
+		if result, ok := resp.(*runtime.SupervisorCountSessionsForTenantResult); ok {
+			total += result.Count
+		}
+	}
+	x.respondIfAsk(ctx, &runtime.CountSessionsForTenantResult{Count: total})
 }
 
 // spawnSupervisor creates a ToolSupervisorActor as a child of the registry for

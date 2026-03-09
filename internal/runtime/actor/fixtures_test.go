@@ -34,11 +34,12 @@ import (
 	goaktlog "github.com/tochemey/goakt/v4/log"
 	"github.com/tochemey/goakt/v4/testkit"
 
+	"github.com/tochemey/goakt-mcp/mcp"
+
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
-	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // askTimeout is the default timeout for Ask calls in tests.

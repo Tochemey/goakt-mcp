@@ -30,8 +30,9 @@ import (
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
 	"github.com/tochemey/goakt-mcp/mcp"
+
+	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
 )
 
 // credentialCacheEntry holds cached credentials with expiration.

@@ -26,6 +26,7 @@ package actor
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	goaktactor "github.com/tochemey/goakt/v4/actor"
@@ -145,6 +146,8 @@ func (x *toolSupervisor) Receive(ctx *goaktactor.ReceiveContext) {
 		x.handleReportFailure(ctx, msg)
 	case *runtime.ReportSuccess:
 		x.handleReportSuccess(ctx, msg)
+	case *runtime.SupervisorCountSessionsForTenant:
+		x.handleCountSessionsForTenant(ctx, msg)
 	default:
 		ctx.Unhandled()
 	}
@@ -164,27 +167,37 @@ func (x *toolSupervisor) PostStop(ctx *goaktactor.Context) error {
 }
 
 // handleCanAcceptWork checks whether this supervisor can accept new work by
-// evaluating tool disable status, circuit state, and half-open probe limits.
-// Responds with CanAcceptWorkResult indicating accept/reject and the reason.
+// evaluating tool disable status, circuit state, half-open probe limits, and
+// per-tool backpressure (MaxSessionsPerTool). Responds with CanAcceptWorkResult
+// indicating accept/reject, the reason, and the current session count.
+// SessionCount is always populated so the caller can use it for further
+// decisions (e.g. backpressure) without a separate round-trip.
 func (x *toolSupervisor) handleCanAcceptWork(ctx *goaktactor.ReceiveContext, msg *runtime.CanAcceptWork) {
+	sessionCount := ctx.Self().ChildrenCount()
+
 	if msg.ToolID != x.tool.ID {
-		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "tool ID mismatch"})
+		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "tool ID mismatch", SessionCount: sessionCount})
 		return
 	}
 
 	if x.tool.State == mcp.ToolStateDisabled {
-		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "tool is disabled"})
+		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "tool is disabled", SessionCount: sessionCount})
 		return
 	}
 
 	x.maybeTransitionFromOpen()
 	if !x.circuitState.CanAccept() {
-		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "circuit is open"})
+		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "circuit is open", SessionCount: sessionCount})
 		return
 	}
 
 	if x.circuitState == mcp.CircuitHalfOpen && x.halfOpenRequests >= x.circuitConfig.HalfOpenMaxRequests {
-		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "half-open probe limit reached"})
+		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "half-open probe limit reached", SessionCount: sessionCount})
+		return
+	}
+
+	if x.tool.MaxSessionsPerTool > 0 && sessionCount >= x.tool.MaxSessionsPerTool {
+		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "tool session limit reached (backpressure)", SessionCount: sessionCount})
 		return
 	}
 
@@ -192,7 +205,7 @@ func (x *toolSupervisor) handleCanAcceptWork(ctx *goaktactor.ReceiveContext, msg
 		x.halfOpenRequests++
 	}
 
-	ctx.Response(&runtime.CanAcceptWorkResult{Accept: true})
+	ctx.Response(&runtime.CanAcceptWorkResult{Accept: true, SessionCount: sessionCount})
 }
 
 // handleGetOrCreateSession resolves an existing child session for the given
@@ -311,6 +324,20 @@ func (x *toolSupervisor) maybeTransitionFromOpen() {
 		x.logger.Infof("actor supervisor:%s circuit half-open for recovery probe", x.tool.ID)
 		x.recordCircuitStateChange(string(mcp.CircuitHalfOpen), map[string]string{"reason": "open_duration_elapsed"})
 	}
+}
+
+// handleCountSessionsForTenant counts this supervisor's child sessions that
+// belong to the given tenant. Session names follow SessionName(tenantID,
+// clientID, toolID) = "session-{tenantID}-{clientID}-{toolID}".
+func (x *toolSupervisor) handleCountSessionsForTenant(ctx *goaktactor.ReceiveContext, msg *runtime.SupervisorCountSessionsForTenant) {
+	prefix := "session-" + string(msg.TenantID) + "-"
+	count := 0
+	for _, child := range ctx.Self().Children() {
+		if child != nil && child.IsRunning() && strings.HasPrefix(child.Name(), prefix) {
+			count++
+		}
+	}
+	ctx.Response(&runtime.SupervisorCountSessionsForTenantResult{Count: count})
 }
 
 // recordCircuitStateChange sends a circuit state change audit event to the

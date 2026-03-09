@@ -34,8 +34,9 @@ import (
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
 	"github.com/tochemey/goakt-mcp/mcp"
+
+	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
 )
 
 func TestCredentialBrokerActor(t *testing.T) {

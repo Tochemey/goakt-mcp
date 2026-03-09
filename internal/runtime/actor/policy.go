@@ -29,9 +29,10 @@ import (
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 
+	"github.com/tochemey/goakt-mcp/mcp"
+
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
-	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // policyActor is the PolicyActor.
@@ -117,16 +118,19 @@ func (x *policyActor) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy
 	now := time.Now()
 	minute := now.Unix() / 60
 	if minute != x.currentMinute {
-		x.requestCounts = make(map[mcp.TenantID]int)
+		clear(x.requestCounts)
 		x.currentMinute = minute
 	}
 
-	x.requestCounts[in.TenantID]++
+	// Pass current count before incrementing so evaluator can enforce "allow N,
+	// throttle N+1". We increment only after a successful allow.
 	in.RequestsInCurrentMinute = x.requestCounts[in.TenantID]
-
 	in.TenantConfig = x.lookupTenantConfig(in.TenantID)
 
 	result := x.evaluator.Evaluate(in)
+	if result.Allowed() {
+		x.requestCounts[in.TenantID]++
+	}
 	ctx.Response(&policy.EvaluateResult{Result: result})
 }
 

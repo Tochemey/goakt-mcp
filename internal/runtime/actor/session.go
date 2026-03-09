@@ -29,12 +29,16 @@ import (
 
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
-	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // session is the SessionActor.
@@ -146,6 +150,7 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 		TraceID:   msg.Invocation.Correlation.TraceID,
 		ToolID:    msg.Invocation.ToolID,
 	}
+
 	log := x.logger
 	if kvs := corr.LogKeyValues(); len(kvs) > 0 {
 		log = x.logger.With(kvs...)
@@ -169,6 +174,25 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 		defer cancel()
 
 		var err error
+		if telemetry.TracingEnabled() {
+			var span trace.Span
+			execCtx, span = telemetry.Tracer().Start(execCtx, "goaktmcp.session.execute",
+				trace.WithAttributes(
+					attribute.String("mcp.tool_id", string(x.toolID)),
+					attribute.String("mcp.tenant_id", string(x.tenantID)),
+					attribute.String("mcp.client_id", string(x.clientID)),
+				),
+				trace.WithSpanKind(trace.SpanKindInternal),
+			)
+			defer func() {
+				if err != nil {
+					span.SetStatus(codes.Error, err.Error())
+					span.RecordError(err)
+				}
+				span.End()
+			}()
+		}
+
 		result, err = x.executor.Execute(execCtx, msg.Invocation)
 		duration := time.Since(start)
 		if err != nil {
@@ -194,6 +218,27 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 
 	ctx.Response(&runtime.SessionInvokeResult{Result: result})
 
+	// Report success or failure to the supervisor for circuit breaker state.
+	// The session is a child of ToolSupervisor; Parent() returns the supervisor PID.
+	x.reportOutcomeToSupervisor(ctx, result)
+
 	// Resume passivation now that invocation is complete.
 	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.ResumePassivation{})
+}
+
+// reportOutcomeToSupervisor notifies the ToolSupervisor of invocation success or
+// failure for circuit breaker state management. Uses Tell (fire-and-forget) so
+// the invocation response is not blocked. Parent() returns nil for top-level
+// actors; session is always a child of ToolSupervisor.
+func (x *session) reportOutcomeToSupervisor(ctx *goaktactor.ReceiveContext, result *mcp.ExecutionResult) {
+	parent := ctx.Self().Parent()
+	if parent == nil || !parent.IsRunning() {
+		return
+	}
+	success := result != nil && result.Status == mcp.ExecutionStatusSuccess && result.Err == nil
+	if success {
+		_ = goaktactor.Tell(ctx.Context(), parent, &runtime.ReportSuccess{ToolID: x.toolID})
+	} else {
+		_ = goaktactor.Tell(ctx.Context(), parent, &runtime.ReportFailure{ToolID: x.toolID})
+	}
 }

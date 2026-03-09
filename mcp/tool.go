@@ -102,6 +102,11 @@ type Tool struct {
 	CredentialPolicy    CredentialPolicy
 	AuthorizationPolicy AuthorizationPolicy
 	State               ToolState
+
+	// MaxSessionsPerTool limits the number of concurrent sessions for this tool.
+	// When > 0, the router rejects new work (backpressure) when the supervisor's
+	// session count reaches this limit. Zero means no limit.
+	MaxSessionsPerTool int
 }
 
 // IsStdio reports whether the tool uses the stdio transport.

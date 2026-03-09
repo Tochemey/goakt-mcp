@@ -26,7 +26,7 @@ package telemetry
 import (
 	"context"
 	"net/http"
-	"sync"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -35,8 +35,8 @@ import (
 )
 
 var (
-	defaultTracer trace.Tracer
-	tracerMu      sync.RWMutex
+	tracerPtr  atomic.Pointer[trace.Tracer]
+	noopTracer = noop.NewTracerProvider().Tracer(instrumentationName)
 )
 
 // RegisterTracer creates an OpenTelemetry Tracer from the global
@@ -44,38 +44,28 @@ var (
 // gateway Start when WithTracing() is enabled. The TracerProvider and
 // exporter must be configured before Start, similar to GoAkt's WithTracing().
 func RegisterTracer() trace.Tracer {
-	t := otel.GetTracerProvider().Tracer(instrumentationName)
-	tracerMu.Lock()
-	defaultTracer = t
-	tracerMu.Unlock()
-	return t
+	tracer := otel.GetTracerProvider().Tracer(instrumentationName)
+	tracerPtr.Store(&tracer)
+	return tracer
 }
 
 // UnregisterTracer clears the default tracer. Use in tests to reset state.
 func UnregisterTracer() {
-	tracerMu.Lock()
-	defaultTracer = nil
-	tracerMu.Unlock()
+	tracerPtr.Store(nil)
 }
 
-// Tracer returns the registered tracer, or a no-op tracer when tracing is
-// not enabled. Safe for concurrent use.
+// Tracer returns the registered tracer, or a package-level no-op tracer
+// when tracing is not enabled. Lock-free via atomic load.
 func Tracer() trace.Tracer {
-	tracerMu.RLock()
-	t := defaultTracer
-	tracerMu.RUnlock()
-	if t == nil {
-		return noop.NewTracerProvider().Tracer(instrumentationName)
+	if p := tracerPtr.Load(); p != nil {
+		return *p
 	}
-	return t
+	return noopTracer
 }
 
-// TracingEnabled reports whether a tracer has been registered.
+// TracingEnabled reports whether a tracer has been registered. Lock-free.
 func TracingEnabled() bool {
-	tracerMu.RLock()
-	enabled := defaultTracer != nil
-	tracerMu.RUnlock()
-	return enabled
+	return tracerPtr.Load() != nil
 }
 
 // OTelContextPropagator adapts the OpenTelemetry propagation.TextMapPropagator
@@ -94,13 +84,13 @@ func NewOTelContextPropagator() *OTelContextPropagator {
 }
 
 // Inject writes OTel trace context from ctx into the outgoing http.Header.
-func (p *OTelContextPropagator) Inject(ctx context.Context, headers http.Header) error {
-	p.propagator.Inject(ctx, propagation.HeaderCarrier(headers))
+func (x *OTelContextPropagator) Inject(ctx context.Context, headers http.Header) error {
+	x.propagator.Inject(ctx, propagation.HeaderCarrier(headers))
 	return nil
 }
 
 // Extract reads OTel trace context from the incoming http.Header and returns
 // a derived context carrying the propagated span context.
-func (p *OTelContextPropagator) Extract(ctx context.Context, headers http.Header) (context.Context, error) {
-	return p.propagator.Extract(ctx, propagation.HeaderCarrier(headers)), nil
+func (x *OTelContextPropagator) Extract(ctx context.Context, headers http.Header) (context.Context, error) {
+	return x.propagator.Extract(ctx, propagation.HeaderCarrier(headers)), nil
 }

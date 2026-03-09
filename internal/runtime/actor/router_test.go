@@ -34,13 +34,14 @@ import (
 	"github.com/tochemey/goakt/v4/testkit"
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
 
+	"github.com/tochemey/goakt-mcp/mcp"
+
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
-	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestRouterActor(t *testing.T) {
@@ -64,7 +65,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil, false))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -88,7 +89,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil, false))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -133,7 +134,7 @@ func TestRouterActor(t *testing.T) {
 		}
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil, false))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -167,7 +168,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil, false))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -190,7 +191,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil, false))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -212,7 +213,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil, false))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -250,7 +251,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, policyPID, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, policyPID, nil, nil, false))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -287,7 +288,7 @@ func TestRouterActor(t *testing.T) {
 		probe.ExpectAnyMessage()
 		waitForActors()
 
-		_, err = kit.ActorSystem().Spawn(ctx, "router-journal", newRouterActor(registryPID, nil, nil, journalPID))
+		_, err = kit.ActorSystem().Spawn(ctx, "router-journal", newRouterActor(registryPID, nil, nil, journalPID, false))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -331,7 +332,7 @@ func TestRouterActor(t *testing.T) {
 		probe.ExpectAnyMessage()
 		waitForActors()
 
-		_, err = kit.ActorSystem().Spawn(ctx, "router-cred", newRouterActor(registryPID, nil, brokerPID, nil))
+		_, err = kit.ActorSystem().Spawn(ctx, "router-cred", newRouterActor(registryPID, nil, brokerPID, nil, false))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -369,7 +370,7 @@ func TestRouterActor(t *testing.T) {
 		probe.ExpectAnyMessage()
 		waitForActors()
 
-		_, err = kit.ActorSystem().Spawn(ctx, "router-unavail", newRouterActor(registryPID, nil, brokerPID, nil))
+		_, err = kit.ActorSystem().Spawn(ctx, "router-unavail", newRouterActor(registryPID, nil, brokerPID, nil, false))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -413,7 +414,7 @@ func TestRouterActor(t *testing.T) {
 		probe.ExpectAnyMessage()
 		waitForActors()
 
-		_, err = kit.ActorSystem().Spawn(ctx, "router-rate", newRouterActor(registryPID, policyPID, nil, nil))
+		_, err = kit.ActorSystem().Spawn(ctx, "router-rate", newRouterActor(registryPID, policyPID, nil, nil, false))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -430,9 +431,18 @@ func TestRouterActor(t *testing.T) {
 		resp2 := probe.ExpectAnyMessage()
 		result2, ok := resp2.(*runtime.RouteResult)
 		require.True(t, ok)
-		require.Error(t, result2.Err)
+		require.NoError(t, result2.Err)
+
+		// Third request exceeds limit (allow N, throttle N+1)
+		inv3 := sessionInvocation("rate-tool", "rate-tenant", "client1")
+		inv3.Correlation.RequestID = "req-3"
+		probe.SendSync("router-rate", &runtime.RouteInvocation{Invocation: inv3}, askTimeout)
+		resp3 := probe.ExpectAnyMessage()
+		result3, ok := resp3.(*runtime.RouteResult)
+		require.True(t, ok)
+		require.Error(t, result3.Err)
 		var rErr *mcp.RuntimeError
-		require.True(t, assert.ErrorAs(t, result2.Err, &rErr))
+		require.True(t, assert.ErrorAs(t, result3.Err, &rErr))
 		assert.Equal(t, mcp.ErrCodeRateLimited, rErr.Code)
 		probe.Stop()
 	})
@@ -458,7 +468,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil, false))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -486,7 +496,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil, false))
 		require.NoError(t, err)
 		waitForActors()
 
