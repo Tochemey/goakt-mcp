@@ -160,7 +160,7 @@ func TestGatewayStartStop(t *testing.T) {
 		cfg := testConfig()
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Discovery = "kubernetes"
-		cfg.Cluster.Kubernetes = nil
+		cfg.Cluster.Kubernetes = mcp.KubernetesDiscoveryConfig{}
 
 		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
 		require.NoError(t, err)
@@ -177,7 +177,7 @@ func TestGatewayStartStop(t *testing.T) {
 		cfg := testConfig()
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = &mcp.DNSSDDiscoveryConfig{DomainName: ""}
+		cfg.Cluster.DNSSD = mcp.DNSSDDiscoveryConfig{DomainName: ""}
 
 		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
 		require.NoError(t, err)

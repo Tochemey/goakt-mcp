@@ -37,9 +37,8 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
-	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
+	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
-	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
@@ -68,7 +67,7 @@ const routingTimeout = config.DefaultRequestTimeout
 // All fields are unexported to enforce actor immutability rules.
 type router struct {
 	registrar            *goaktactor.PID
-	policyPID            *goaktactor.PID
+	policyMaker          *goaktactor.PID
 	credentialBroker     *goaktactor.PID
 	journaler            *goaktactor.PID
 	hasConcurrencyQuotas bool
@@ -78,24 +77,16 @@ type router struct {
 // enforce that routerActor satisfies the GoAkt Actor interface at compile time.
 var _ goaktactor.Actor = (*router)(nil)
 
-// newRouterActor creates a RouterActor with the given PIDs. Registrar must be
-// non-nil and running; policy, credentialBroker, and journal may be nil.
-func newRouterActor(registrar, policy, credentialBroker, journal *goaktactor.PID, hasConcurrencyQuotas bool) *router {
-	return &router{
-		registrar:            registrar,
-		policyPID:            policy,
-		credentialBroker:     credentialBroker,
-		journaler:            journal,
-		hasConcurrencyQuotas: hasConcurrencyQuotas,
-	}
+// newRouterActor creates a RouterActor.
+func newRouterActor() *router {
+	return &router{}
 }
 
 // PreStart validates the registrar and initializes the logger.
 func (x *router) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
-	if x.registrar == nil || !x.registrar.IsRunning() {
-		return mcp.NewRuntimeError(mcp.ErrCodeInternal, "router dependency (registry) not found")
-	}
+	config := ctx.Extension(extension.ConfigExtensionID).(*extension.ConfigExtension).Config()
+	x.hasConcurrencyQuotas = hasConcurrencyQuotas(config)
 	x.logger.Infof("actor=%s started", mcp.ActorNameRouter)
 	return nil
 }
@@ -105,6 +96,7 @@ func (x *router) Receive(ctx *goaktactor.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goaktactor.PostStart:
 		x.logger.Debugf("actor=%s post-start", mcp.ActorNameRouter)
+		x.resolveActors(ctx)
 	case *runtime.RouteInvocation:
 		x.handleRouteInvocation(ctx, msg)
 	default:
@@ -118,6 +110,47 @@ func (x *router) PostStop(ctx *goaktactor.Context) error {
 	return nil
 }
 
+// resolveActors resolves the journal and registrar actors.
+// It is called in PreStart to ensure the actors are available when the health checker starts.
+func (x *router) resolveActors(ctx *goaktactor.ReceiveContext) {
+	actorSystem := ctx.ActorSystem()
+	goCtx := ctx.Context()
+
+	// resolve the journal actor
+	journaler, err := actorSystem.ActorOf(goCtx, mcp.ActorNameJournal)
+	if err != nil {
+		ctx.Err(err)
+		return
+	}
+
+	// resolve the registrar actor
+	registrar, err := actorSystem.ActorOf(goCtx, mcp.ActorNameRegistrar)
+	if err != nil {
+		ctx.Err(err)
+		return
+	}
+
+	// resolve the policy maker actor
+	policyMaker, err := actorSystem.ActorOf(goCtx, mcp.ActorNamePolicy)
+	if err != nil {
+		ctx.Err(err)
+		return
+	}
+
+	// resolve the credential broker actor
+	credentialBroker, err := actorSystem.ActorOf(goCtx, mcp.ActorNameCredentialBroker)
+	if err != nil {
+		ctx.Err(err)
+		return
+	}
+
+	// let us set the various required actors
+	x.journaler = journaler
+	x.registrar = registrar
+	x.policyMaker = policyMaker
+	x.credentialBroker = credentialBroker
+}
+
 // handleRouteInvocation orchestrates the full routing chain: validates the
 // invocation, evaluates policy, looks up the tool and supervisor, checks
 // circuit availability, resolves credentials, obtains a session, and
@@ -126,7 +159,7 @@ func (x *router) PostStop(ctx *goaktactor.Context) error {
 func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runtime.RouteInvocation) {
 	if err := x.validateInvocation(msg); err != nil {
 		if msg.Invocation != nil {
-			x.recordAuditEvent(invocationEvent(msg.Invocation, audit.EventTypeInvocationFailed, "invalid", string(mcp.ErrCodeInvalidRequest), err.Error()))
+			x.recordAuditEvent(invocationEvent(msg.Invocation, mcp.AuditEventTypeInvocationFailed, "invalid", string(mcp.ErrCodeInvalidRequest), err.Error()))
 		}
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
@@ -178,7 +211,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 	if err != nil {
 		routeErr = err
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeToolNotFound))
-		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "error", string(mcp.ErrCodeToolNotFound), err.Error()))
+		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "error", string(mcp.ErrCodeToolNotFound), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
@@ -190,7 +223,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 			code = re.Code
 		}
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(code))
-		x.recordAuditEvent(invocationEvent(inv, audit.EventTypePolicyDecision, outcomeFromError(err), string(code), err.Error()))
+		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypePolicyDecision, outcomeFromError(err), string(code), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
@@ -199,7 +232,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 	if err != nil {
 		routeErr = err
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeInternal))
-		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "error", string(mcp.ErrCodeInternal), err.Error()))
+		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "error", string(mcp.ErrCodeInternal), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
@@ -211,7 +244,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 			code = re.Code
 		}
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(code))
-		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "unavailable", string(code), err.Error()))
+		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "unavailable", string(code), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
@@ -220,7 +253,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 	if err != nil {
 		routeErr = err
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeCredentialUnavailable))
-		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "credential_unavailable", string(mcp.ErrCodeCredentialUnavailable), err.Error()))
+		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "credential_unavailable", string(mcp.ErrCodeCredentialUnavailable), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
@@ -229,7 +262,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 	if err != nil {
 		routeErr = err
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeInternal))
-		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "session_error", string(mcp.ErrCodeInternal), err.Error()))
+		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "session_error", string(mcp.ErrCodeInternal), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
@@ -242,12 +275,12 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 			code = re.Code
 		}
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(code))
-		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "execution_error", string(code), err.Error()))
+		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "execution_error", string(code), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
 	telemetry.RecordInvocationLatency(goCtx, inv.ToolID, tenantID, float64(time.Since(start).Milliseconds()))
-	x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationComplete, string(result.Status), "", ""))
+	x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationComplete, string(result.Status), "", ""))
 	ctx.Response(&runtime.RouteResult{Result: result})
 }
 
@@ -272,14 +305,14 @@ func (x *router) resolveCredentials(goCtx context.Context, inv *mcp.Invocation, 
 	if x.credentialBroker == nil || !x.credentialBroker.IsRunning() {
 		return nil, mcp.NewRuntimeError(mcp.ErrCodeCredentialUnavailable, "credential broker not available")
 	}
-	resp, err := goaktactor.Ask(goCtx, x.credentialBroker, &credentials.ResolveRequest{
+	resp, err := goaktactor.Ask(goCtx, x.credentialBroker, &runtime.ResolveRequest{
 		TenantID: tenantID,
 		ToolID:   inv.ToolID,
 	}, routingTimeout)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "credential resolution failed", err)
 	}
-	result, ok := resp.(*credentials.ResolveResult)
+	result, ok := resp.(*runtime.ResolveResult)
 	if !ok || !result.Resolved() {
 		if result != nil && result.Err != nil {
 			return nil, result.Err
@@ -287,7 +320,7 @@ func (x *router) resolveCredentials(goCtx context.Context, inv *mcp.Invocation, 
 		return nil, mcp.NewRuntimeError(mcp.ErrCodeCredentialUnavailable, "credentials not resolved")
 	}
 	invCopy := *inv
-	invCopy.Credentials = result.Credentials
+	invCopy.Credentials = result.Credentials.Values
 	return &invCopy, nil
 }
 
@@ -296,7 +329,7 @@ func (x *router) resolveCredentials(goCtx context.Context, inv *mcp.Invocation, 
 // allowed. Returns a RuntimeError with the appropriate denial code on reject.
 // ActiveSessionCount is resolved from the registrar for ConcurrentSessions quota.
 func (x *router) evaluatePolicy(goCtx context.Context, inv *mcp.Invocation, tool mcp.Tool, tenantID mcp.TenantID, clientID mcp.ClientID) error {
-	if x.policyPID == nil || !x.policyPID.IsRunning() {
+	if x.policyMaker == nil || !x.policyMaker.IsRunning() {
 		return nil
 	}
 	activeSessions := 0
@@ -314,7 +347,7 @@ func (x *router) evaluatePolicy(goCtx context.Context, inv *mcp.Invocation, tool
 		ClientID:           clientID,
 		ActiveSessionCount: activeSessions,
 	}
-	resp, err := goaktactor.Ask(goCtx, x.policyPID, &policy.EvaluateRequest{Input: in}, routingTimeout)
+	resp, err := goaktactor.Ask(goCtx, x.policyMaker, &policy.EvaluateRequest{Input: in}, routingTimeout)
 	if err != nil {
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "policy evaluation failed", err)
 	}
@@ -455,7 +488,7 @@ func (x *router) executeInvocation(goCtx context.Context, sessionPID *goaktactor
 
 // recordAuditEvent sends an audit event to the JournalActor via Tell (fire-and-forget).
 // No-op when the journal is not available.
-func (x *router) recordAuditEvent(event *audit.Event) {
+func (x *router) recordAuditEvent(event *mcp.AuditEvent) {
 	if x.journaler == nil || !x.journaler.IsRunning() {
 		return
 	}
@@ -464,11 +497,11 @@ func (x *router) recordAuditEvent(event *audit.Event) {
 
 // invocationEvent constructs an audit Event from invocation context. Returns nil
 // when the invocation itself is nil (defensive guard for early-validation failures).
-func invocationEvent(inv *mcp.Invocation, evType audit.EventType, outcome, errorCode, message string) *audit.Event {
+func invocationEvent(inv *mcp.Invocation, evType mcp.AuditEventType, outcome, errorCode, message string) *mcp.AuditEvent {
 	if inv == nil {
 		return nil
 	}
-	return &audit.Event{
+	return &mcp.AuditEvent{
 		Type:      evType,
 		Timestamp: time.Now(),
 		TenantID:  string(inv.Correlation.TenantID),

@@ -24,62 +24,62 @@
 package actor
 
 import (
-	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/testkit"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
+	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 )
 
 func TestCredentialBrokerActor(t *testing.T) {
-	ctx := context.Background()
-
 	t.Run("resolves credentials from env provider", func(t *testing.T) {
-		os.Setenv("MCP_CRED_CRED_TOOL_API_KEY", "test-secret")
-		defer os.Unsetenv("MCP_CRED_CRED_TOOL_API_KEY")
-
-		system, stop := testActorSystem(t)
+		ctx := t.Context()
+		t.Setenv("MCP_CRED_CRED_TOOL_API_KEY", "test-secret")
+		config := testConfig()
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(extension.NewConfigExtension(config)))
 		defer stop()
 
-		providers := []credentials.Provider{credentials.NewEnvProvider()}
-		pid, err := system.Spawn(ctx, mcp.ActorNameCredentialBroker, newCredentialBroker(providers, credentials.DefaultCredentialTTL))
+		pid, err := system.Spawn(ctx, mcp.ActorNameCredentialBroker, newCredentialBroker())
 		require.NoError(t, err)
 		waitForActors()
 
-		resp, err := goaktactor.Ask(ctx, pid, &credentials.ResolveRequest{
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.ResolveRequest{
 			TenantID: "default",
 			ToolID:   "cred-tool",
 		}, askTimeout)
 		require.NoError(t, err)
-		result, ok := resp.(*credentials.ResolveResult)
+		result, ok := resp.(*runtime.ResolveResult)
 		require.True(t, ok)
 		require.True(t, result.Resolved())
-		assert.Equal(t, "test-secret", result.Credentials["api-key"])
+		assert.Equal(t, "test-secret", result.Credentials.Values["api-key"])
 	})
 
 	t.Run("returns ErrCredentialUnavailable when no credentials", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		ctx := t.Context()
+		cfg := testConfig()
+		cfg.Credentials.Providers = []mcp.CredentialsProvider{&mockCredentialProvider{creds: nil}}
+
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(extension.NewConfigExtension(cfg)))
 		defer stop()
 
-		providers := []credentials.Provider{credentials.NewEnvProvider()}
-		pid, err := system.Spawn(ctx, mcp.ActorNameCredentialBroker, newCredentialBroker(providers, credentials.DefaultCredentialTTL))
+		pid, err := system.Spawn(ctx, mcp.ActorNameCredentialBroker, newCredentialBroker())
 		require.NoError(t, err)
 		waitForActors()
 
-		resp, err := goaktactor.Ask(ctx, pid, &credentials.ResolveRequest{
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.ResolveRequest{
 			TenantID: "default",
 			ToolID:   "no-creds-tool",
 		}, askTimeout)
 		require.NoError(t, err)
-		result, ok := resp.(*credentials.ResolveResult)
+		result, ok := resp.(*runtime.ResolveResult)
 		require.True(t, ok)
 		assert.False(t, result.Resolved())
 		require.Error(t, result.Err)
@@ -89,51 +89,55 @@ func TestCredentialBrokerActor(t *testing.T) {
 	})
 
 	t.Run("resolves from provider and caches", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
+		cfg := testConfig()
+		cfg.Credentials.Providers = []mcp.CredentialsProvider{&mockCredentialProvider{creds: map[string]string{"api_key": "secret"}}}
+		cfg.Credentials.CacheTTL = time.Minute
+		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(cfg)))
 
-		provider := &mockCredentialProvider{creds: map[string]string{"api_key": "secret"}}
-		broker := newCredentialBroker([]credentials.Provider{provider}, time.Minute)
-		kit.ActorSystem().Spawn(ctx, "broker-cache", broker)
+		pid, err := kit.ActorSystem().Spawn(ctx, "broker-cache", newCredentialBroker())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
 		waitForActors()
 
 		probe := kit.NewProbe(ctx)
-		probe.SendSync("broker-cache", &credentials.ResolveRequest{
+		probe.SendSync("broker-cache", &runtime.ResolveRequest{
 			TenantID: "tenant-1",
 			ToolID:   "tool-1",
 		}, askTimeout)
 		resp := probe.ExpectAnyMessage()
-		result, ok := resp.(*credentials.ResolveResult)
+		result, ok := resp.(*runtime.ResolveResult)
 		require.True(t, ok)
 		require.NoError(t, result.Err)
-		assert.Equal(t, "secret", result.Credentials["api_key"])
+		assert.Equal(t, "secret", result.Credentials.Values["api_key"])
 
-		probe.SendSync("broker-cache", &credentials.ResolveRequest{
+		probe.SendSync("broker-cache", &runtime.ResolveRequest{
 			TenantID: "tenant-1",
 			ToolID:   "tool-1",
 		}, askTimeout)
 		resp2 := probe.ExpectAnyMessage()
-		result2, ok := resp2.(*credentials.ResolveResult)
+		result2, ok := resp2.(*runtime.ResolveResult)
 		require.True(t, ok)
 		require.NoError(t, result2.Err)
-		assert.Equal(t, "secret", result2.Credentials["api_key"])
+		assert.Equal(t, "secret", result2.Credentials.Values["api_key"])
 		probe.Stop()
 	})
 
 	t.Run("returns ErrCredentialUnavailable when no provider has credentials", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
+		cfg := testConfig()
+		cfg.Credentials.Providers = []mcp.CredentialsProvider{&mockCredentialProvider{creds: nil}}
+		cfg.Credentials.CacheTTL = time.Minute
+		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(cfg)))
 
-		provider := &mockCredentialProvider{creds: nil}
-		broker := newCredentialBroker([]credentials.Provider{provider}, time.Minute)
-		kit.ActorSystem().Spawn(ctx, "broker-empty", broker)
+		kit.ActorSystem().Spawn(ctx, "broker-empty", newCredentialBroker())
 		waitForActors()
 
 		probe := kit.NewProbe(ctx)
-		probe.SendSync("broker-empty", &credentials.ResolveRequest{
+		probe.SendSync("broker-empty", &runtime.ResolveRequest{
 			TenantID: "tenant-1",
 			ToolID:   "tool-1",
 		}, askTimeout)
 		resp := probe.ExpectAnyMessage()
-		result, ok := resp.(*credentials.ResolveResult)
+		result, ok := resp.(*runtime.ResolveResult)
 		require.True(t, ok)
 		require.Error(t, result.Err)
 		assert.Equal(t, mcp.ErrCodeCredentialUnavailable, result.Err.(*mcp.RuntimeError).Code)
@@ -141,54 +145,59 @@ func TestCredentialBrokerActor(t *testing.T) {
 	})
 
 	t.Run("uses default cache TTL when zero", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
+		cfg := testConfig()
+		cfg.Credentials.Providers = []mcp.CredentialsProvider{&mockCredentialProvider{creds: map[string]string{"k": "v"}}}
+		cfg.Credentials.CacheTTL = 0
+		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(cfg)))
 
-		provider := &mockCredentialProvider{creds: map[string]string{"k": "v"}}
-		broker := newCredentialBroker([]credentials.Provider{provider}, 0)
-		kit.ActorSystem().Spawn(ctx, "broker-default-ttl", broker)
+		kit.ActorSystem().Spawn(ctx, "broker-default-ttl", newCredentialBroker())
 		waitForActors()
 
 		probe := kit.NewProbe(ctx)
-		probe.SendSync("broker-default-ttl", &credentials.ResolveRequest{
+		probe.SendSync("broker-default-ttl", &runtime.ResolveRequest{
 			TenantID: "t1",
 			ToolID:   "tool1",
 		}, askTimeout)
 		resp := probe.ExpectAnyMessage()
-		result, ok := resp.(*credentials.ResolveResult)
+		result, ok := resp.(*runtime.ResolveResult)
 		require.True(t, ok)
 		require.NoError(t, result.Err)
-		assert.Equal(t, "v", result.Credentials["k"])
+		assert.Equal(t, "v", result.Credentials.Values["k"])
 		probe.Stop()
 	})
 
 	t.Run("skips provider that returns error and uses next provider", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
+		cfg := testConfig()
+		cfg.Credentials.Providers = []mcp.CredentialsProvider{
+			&mockCredentialProvider{err: errors.New("provider failed")},
+			&mockCredentialProvider{creds: map[string]string{"key": "val"}},
+		}
+		cfg.Credentials.CacheTTL = time.Minute
+		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(cfg)))
 
-		failingProvider := &mockCredentialProvider{err: errors.New("provider failed")}
-		workingProvider := &mockCredentialProvider{creds: map[string]string{"key": "val"}}
-		broker := newCredentialBroker([]credentials.Provider{failingProvider, workingProvider}, time.Minute)
-		kit.ActorSystem().Spawn(ctx, "broker-fail-then-ok", broker)
+		kit.ActorSystem().Spawn(ctx, "broker-fail-then-ok", newCredentialBroker())
 		waitForActors()
 
 		probe := kit.NewProbe(ctx)
-		probe.SendSync("broker-fail-then-ok", &credentials.ResolveRequest{
+		probe.SendSync("broker-fail-then-ok", &runtime.ResolveRequest{
 			TenantID: "tenant-1",
 			ToolID:   "tool-1",
 		}, askTimeout)
 		resp := probe.ExpectAnyMessage()
-		result, ok := resp.(*credentials.ResolveResult)
+		result, ok := resp.(*runtime.ResolveResult)
 		require.True(t, ok)
 		require.NoError(t, result.Err)
-		assert.Equal(t, "val", result.Credentials["key"])
+		assert.Equal(t, "val", result.Credentials.Values["key"])
 		probe.Stop()
 	})
 
 	t.Run("unhandles unknown message", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
+		cfg := testConfig()
+		cfg.Credentials.Providers = []mcp.CredentialsProvider{&mockCredentialProvider{creds: map[string]string{"k": "v"}}}
+		cfg.Credentials.CacheTTL = time.Minute
+		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(cfg)))
 
-		provider := &mockCredentialProvider{creds: map[string]string{"k": "v"}}
-		broker := newCredentialBroker([]credentials.Provider{provider}, time.Minute)
-		pid, err := kit.ActorSystem().Spawn(ctx, "broker-unknown", broker)
+		pid, err := kit.ActorSystem().Spawn(ctx, "broker-unknown", newCredentialBroker())
 		require.NoError(t, err)
 		require.NoError(t, pid.Tell(ctx, pid, "unknown"))
 		waitForActors()

@@ -149,7 +149,7 @@ func TestBuildHTTPClient(t *testing.T) {
 
 		cfg := &mcp.HTTPTransportConfig{
 			URL: "https://example.com",
-			TLS: &mcp.EgressTLSConfig{CACertFile: badCA},
+			TLS: &mcp.TLSClientConfig{CACertFile: badCA},
 		}
 		_, err := buildHTTPClient(cfg, nil)
 		require.Error(t, err)
@@ -159,7 +159,7 @@ func TestBuildHTTPClient(t *testing.T) {
 		fallback := &http.Client{Transport: customRoundTripper{}}
 		cfg := &mcp.HTTPTransportConfig{
 			URL: "https://example.com",
-			TLS: &mcp.EgressTLSConfig{InsecureSkipVerify: true},
+			TLS: &mcp.TLSClientConfig{InsecureSkipVerify: true},
 		}
 		client, err := buildHTTPClient(cfg, fallback)
 		require.NoError(t, err)
@@ -169,7 +169,7 @@ func TestBuildHTTPClient(t *testing.T) {
 	t.Run("TLS insecure skip verify with default transport", func(t *testing.T) {
 		cfg := &mcp.HTTPTransportConfig{
 			URL: "https://example.com",
-			TLS: &mcp.EgressTLSConfig{InsecureSkipVerify: true},
+			TLS: &mcp.TLSClientConfig{InsecureSkipVerify: true},
 		}
 		client, err := buildHTTPClient(cfg, nil)
 		require.NoError(t, err)
@@ -189,7 +189,7 @@ func TestBuildHTTPClient(t *testing.T) {
 		fallback := &http.Client{Transport: &http.Transport{}}
 		cfg := &mcp.HTTPTransportConfig{
 			URL: "https://example.com",
-			TLS: &mcp.EgressTLSConfig{
+			TLS: &mcp.TLSClientConfig{
 				ClientCertFile: certFile,
 				ClientKeyFile:  keyFile,
 			},

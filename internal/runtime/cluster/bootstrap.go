@@ -67,10 +67,7 @@ func IsClusterConfigured(config runtimeConfig.Config) bool {
 	}
 }
 
-func isKubernetesDiscoveryValid(kubernetesConfig *runtimeConfig.KubernetesDiscoveryConfig) bool {
-	if kubernetesConfig == nil {
-		return false
-	}
+func isKubernetesDiscoveryValid(kubernetesConfig runtimeConfig.KubernetesDiscoveryConfig) bool {
 	return kubernetesConfig.Namespace != "" &&
 		kubernetesConfig.DiscoveryPortName != "" &&
 		kubernetesConfig.RemotingPortName != "" &&
@@ -78,10 +75,7 @@ func isKubernetesDiscoveryValid(kubernetesConfig *runtimeConfig.KubernetesDiscov
 		len(kubernetesConfig.PodLabels) > 0
 }
 
-func isDNSSDDiscoveryValid(dnssdConfig *runtimeConfig.DNSSDDiscoveryConfig) bool {
-	if dnssdConfig == nil {
-		return false
-	}
+func isDNSSDDiscoveryValid(dnssdConfig runtimeConfig.DNSSDDiscoveryConfig) bool {
 	return dnssdConfig.DomainName != ""
 }
 
@@ -144,8 +138,8 @@ func BuildOptions(config runtimeConfig.Config, remoteOpts []remote.Option, kinds
 	return opts
 }
 
-func buildKubernetesDiscovery(k *runtimeConfig.KubernetesDiscoveryConfig) *kubernetes.Discovery {
-	if k == nil || !isKubernetesDiscoveryValid(k) {
+func buildKubernetesDiscovery(k runtimeConfig.KubernetesDiscoveryConfig) *kubernetes.Discovery {
+	if !isKubernetesDiscoveryValid(k) {
 		return nil
 	}
 	return kubernetes.NewDiscovery(&kubernetes.Config{
@@ -157,8 +151,8 @@ func buildKubernetesDiscovery(k *runtimeConfig.KubernetesDiscoveryConfig) *kuber
 	})
 }
 
-func buildDNSSDDiscovery(d *runtimeConfig.DNSSDDiscoveryConfig) *dnssd.Discovery {
-	if d == nil || !isDNSSDDiscoveryValid(d) {
+func buildDNSSDDiscovery(d runtimeConfig.DNSSDDiscoveryConfig) *dnssd.Discovery {
+	if !isDNSSDDiscoveryValid(d) {
 		return nil
 	}
 	ipv6 := d.IPv6

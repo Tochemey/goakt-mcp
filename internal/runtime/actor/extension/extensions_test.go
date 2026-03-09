@@ -21,7 +21,7 @@
 // SOFTWARE.
 //
 
-package extension_test
+package extension
 
 import (
 	"testing"
@@ -31,25 +31,19 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/tochemey/goakt-mcp/mcp"
-
-	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 )
-
-// ---- ExecutorFactoryExtension ----
 
 func TestExecutorFactoryExtension(t *testing.T) {
 	t.Run("ID returns fixed identifier", func(t *testing.T) {
-		ext := extension.NewExecutorFactoryExtension(nil)
-		assert.Equal(t, extension.ExecutorFactoryExtensionID, ext.ID())
+		ext := NewExecutorFactoryExtension(nil)
+		assert.Equal(t, ExecutorFactoryExtensionID, ext.ID())
 	})
 
 	t.Run("Factory returns nil when nil factory provided", func(t *testing.T) {
-		ext := extension.NewExecutorFactoryExtension(nil)
+		ext := NewExecutorFactoryExtension(nil)
 		assert.Nil(t, ext.Factory())
 	})
 }
-
-// ---- ToolConfigExtension ----
 
 func stdioTool(id mcp.ToolID) mcp.Tool {
 	return mcp.Tool{
@@ -62,18 +56,18 @@ func stdioTool(id mcp.ToolID) mcp.Tool {
 
 func TestToolConfigExtension(t *testing.T) {
 	t.Run("ID returns ToolConfigExtensionID", func(t *testing.T) {
-		ext := extension.NewToolConfigExtension()
-		assert.Equal(t, extension.ToolConfigExtensionID, ext.ID())
+		ext := NewToolConfigExtension()
+		assert.Equal(t, ToolConfigExtensionID, ext.ID())
 	})
 
 	t.Run("Get returns false for unknown tool", func(t *testing.T) {
-		ext := extension.NewToolConfigExtension()
+		ext := NewToolConfigExtension()
 		_, found := ext.Get("missing")
 		assert.False(t, found)
 	})
 
 	t.Run("Register and Get round-trip", func(t *testing.T) {
-		ext := extension.NewToolConfigExtension()
+		ext := NewToolConfigExtension()
 		tool := stdioTool("my-tool")
 		ext.Register(tool)
 		got, found := ext.Get(tool.ID)
@@ -83,7 +77,7 @@ func TestToolConfigExtension(t *testing.T) {
 	})
 
 	t.Run("Register replaces existing tool", func(t *testing.T) {
-		ext := extension.NewToolConfigExtension()
+		ext := NewToolConfigExtension()
 		original := stdioTool("replace-tool")
 		updated := original
 		updated.State = mcp.ToolStateDisabled
@@ -95,7 +89,7 @@ func TestToolConfigExtension(t *testing.T) {
 	})
 
 	t.Run("Remove deletes tool", func(t *testing.T) {
-		ext := extension.NewToolConfigExtension()
+		ext := NewToolConfigExtension()
 		tool := stdioTool("remove-tool")
 		ext.Register(tool)
 		ext.Remove(tool.ID)
@@ -104,12 +98,10 @@ func TestToolConfigExtension(t *testing.T) {
 	})
 
 	t.Run("Remove is no-op for unknown tool", func(t *testing.T) {
-		ext := extension.NewToolConfigExtension()
+		ext := NewToolConfigExtension()
 		assert.NotPanics(t, func() { ext.Remove("nonexistent") })
 	})
 }
-
-// ---- CircuitConfigExtension ----
 
 func TestCircuitConfigExtension(t *testing.T) {
 	cfg := mcp.CircuitConfig{
@@ -119,17 +111,15 @@ func TestCircuitConfigExtension(t *testing.T) {
 	}
 
 	t.Run("ID returns CircuitConfigExtensionID", func(t *testing.T) {
-		ext := extension.NewCircuitConfigExtension(cfg)
-		assert.Equal(t, extension.CircuitConfigExtensionID, ext.ID())
+		ext := NewCircuitConfigExtension(cfg)
+		assert.Equal(t, CircuitConfigExtensionID, ext.ID())
 	})
 
 	t.Run("Config returns the wrapped config", func(t *testing.T) {
-		ext := extension.NewCircuitConfigExtension(cfg)
+		ext := NewCircuitConfigExtension(cfg)
 		assert.Equal(t, cfg, ext.Config())
 	})
 }
-
-// ---- SessionDependency ----
 
 func TestSessionDependency(t *testing.T) {
 	tenantID := mcp.TenantID("tenant-1")
@@ -137,10 +127,10 @@ func TestSessionDependency(t *testing.T) {
 	toolID := mcp.ToolID("tool-1")
 	tool := stdioTool(toolID)
 
-	dep := extension.NewSessionDependency(tenantID, clientID, toolID, tool, nil)
+	dep := NewSessionDependency(tenantID, clientID, toolID, tool, nil)
 
 	t.Run("ID returns SessionDependencyID", func(t *testing.T) {
-		assert.Equal(t, extension.SessionDependencyID, dep.ID())
+		assert.Equal(t, SessionDependencyID, dep.ID())
 	})
 
 	t.Run("accessors return correct values", func(t *testing.T) {
@@ -156,7 +146,7 @@ func TestSessionDependency(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, data)
 
-		restored := &extension.SessionDependency{}
+		restored := &SessionDependency{}
 		require.NoError(t, restored.UnmarshalBinary(data))
 		assert.Equal(t, tenantID, restored.TenantID())
 		assert.Equal(t, clientID, restored.ClientID())
@@ -165,8 +155,16 @@ func TestSessionDependency(t *testing.T) {
 	})
 
 	t.Run("UnmarshalBinary with invalid data returns error", func(t *testing.T) {
-		bad := &extension.SessionDependency{}
+		bad := &SessionDependency{}
 		err := bad.UnmarshalBinary([]byte("not-valid-gob"))
 		require.Error(t, err)
 	})
+}
+
+func TestConfigExtension(t *testing.T) {
+	conf := mcp.Config{}
+	ext := NewConfigExtension(conf)
+	require.NotNil(t, ext)
+	require.Equal(t, ConfigExtensionID, ext.ID())
+	require.Equal(t, conf, ext.Config())
 }

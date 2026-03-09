@@ -30,10 +30,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestMemorySinkImplementsSink(t *testing.T) {
-	var _ Sink = (*MemorySink)(nil)
+	var _ mcp.AuditSink = (*MemorySink)(nil)
 }
 
 func TestMemorySinkNewEmpty(t *testing.T) {
@@ -45,8 +47,8 @@ func TestMemorySinkNewEmpty(t *testing.T) {
 func TestMemorySinkWriteAndRetrieve(t *testing.T) {
 	sink := NewMemorySink()
 
-	event := &Event{
-		Type:      EventTypePolicyDecision,
+	event := &mcp.AuditEvent{
+		Type:      mcp.AuditEventTypePolicyDecision,
 		Timestamp: time.Now(),
 		TenantID:  "t1",
 		ToolID:    "tool-a",
@@ -58,7 +60,7 @@ func TestMemorySinkWriteAndRetrieve(t *testing.T) {
 
 	events := sink.Events()
 	require.Len(t, events, 1)
-	assert.Equal(t, EventTypePolicyDecision, events[0].Type)
+	assert.Equal(t, mcp.AuditEventTypePolicyDecision, events[0].Type)
 	assert.Equal(t, "t1", events[0].TenantID)
 	assert.Equal(t, "tool-a", events[0].ToolID)
 	assert.Equal(t, "allow", events[0].Outcome)
@@ -68,8 +70,8 @@ func TestMemorySinkWriteMultiple(t *testing.T) {
 	sink := NewMemorySink()
 
 	for i := 0; i < 5; i++ {
-		err := sink.Write(&Event{
-			Type:    EventTypeInvocationComplete,
+		err := sink.Write(&mcp.AuditEvent{
+			Type:    mcp.AuditEventTypeInvocationComplete,
 			Outcome: "success",
 		})
 		require.NoError(t, err)
@@ -82,8 +84,8 @@ func TestMemorySinkDefensiveCopyOnWrite(t *testing.T) {
 	sink := NewMemorySink()
 
 	meta := map[string]string{"key": "original"}
-	event := &Event{
-		Type:     EventTypeInvocationFailed,
+	event := &mcp.AuditEvent{
+		Type:     mcp.AuditEventTypeInvocationFailed,
 		Metadata: meta,
 	}
 
@@ -100,8 +102,8 @@ func TestMemorySinkDefensiveCopyOnWrite(t *testing.T) {
 func TestMemorySinkDefensiveCopyOnRead(t *testing.T) {
 	sink := NewMemorySink()
 
-	err := sink.Write(&Event{
-		Type:     EventTypeHealthTransition,
+	err := sink.Write(&mcp.AuditEvent{
+		Type:     mcp.AuditEventTypeHealthTransition,
 		Metadata: map[string]string{"state": "open"},
 	})
 	require.NoError(t, err)
@@ -117,8 +119,8 @@ func TestMemorySinkDefensiveCopyOnRead(t *testing.T) {
 func TestMemorySinkWriteNilMetadata(t *testing.T) {
 	sink := NewMemorySink()
 
-	err := sink.Write(&Event{
-		Type:   EventTypeInvocationStart,
+	err := sink.Write(&mcp.AuditEvent{
+		Type:   mcp.AuditEventTypeInvocationStart,
 		ToolID: "tool-x",
 	})
 	require.NoError(t, err)
@@ -131,13 +133,13 @@ func TestMemorySinkWriteNilMetadata(t *testing.T) {
 func TestMemorySinkCloseStopsWrites(t *testing.T) {
 	sink := NewMemorySink()
 
-	err := sink.Write(&Event{Type: EventTypeInvocationComplete})
+	err := sink.Write(&mcp.AuditEvent{Type: mcp.AuditEventTypeInvocationComplete})
 	require.NoError(t, err)
 
 	err = sink.Close()
 	require.NoError(t, err)
 
-	err = sink.Write(&Event{Type: EventTypeInvocationFailed})
+	err = sink.Write(&mcp.AuditEvent{Type: mcp.AuditEventTypeInvocationFailed})
 	require.NoError(t, err)
 
 	assert.Len(t, sink.Events(), 1)
@@ -161,8 +163,8 @@ func TestMemorySinkConcurrentWrites(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < eventsPerWriter; i++ {
-				_ = sink.Write(&Event{
-					Type:    EventTypeInvocationComplete,
+				_ = sink.Write(&mcp.AuditEvent{
+					Type:    mcp.AuditEventTypeInvocationComplete,
 					Outcome: "success",
 				})
 			}
@@ -184,7 +186,7 @@ func TestMemorySinkConcurrentWriteAndClose(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 100; i++ {
-				_ = sink.Write(&Event{Type: EventTypeInvocationComplete})
+				_ = sink.Write(&mcp.AuditEvent{Type: mcp.AuditEventTypeInvocationComplete})
 			}
 		}()
 	}

@@ -30,6 +30,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestFileSink_WriteAndClose(t *testing.T) {
@@ -38,8 +40,8 @@ func TestFileSink_WriteAndClose(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sink.Close() })
 
-	ev := &Event{
-		Type:     EventTypeInvocationComplete,
+	ev := &mcp.AuditEvent{
+		Type:     mcp.AuditEventTypeInvocationComplete,
 		TenantID: "tenant-1",
 		ToolID:   "tool-1",
 		Outcome:  "success",

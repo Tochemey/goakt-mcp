@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/testkit"
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/tochemey/goakt-mcp/mcp"
@@ -45,10 +46,18 @@ func TestHealthActor(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("starts and stops cleanly", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		cfg := testConfig()
+		cfg.HealthProbe.Interval = time.Hour
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(nil, nil, 0))
+		_, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+		waitForActors()
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 		assert.Equal(t, mcp.ActorNameHealth, pid.Name())
@@ -57,9 +66,15 @@ func TestHealthActor(t *testing.T) {
 	})
 
 	t.Run("unhandles non-PostStart messages", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
+		cfg := testConfig()
+		cfg.HealthProbe.Interval = time.Hour
+		kit, ctx := newTestKit(t, testkit.WithExtensions(actorextension.NewConfigExtension(cfg)))
 
-		kit.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(nil, nil, 0))
+		kit.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		kit.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		waitForActors()
+
+		kit.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
 		waitForActors()
 
 		pid, err := kit.ActorSystem().ActorOf(ctx, mcp.ActorNameHealth)
@@ -70,10 +85,18 @@ func TestHealthActor(t *testing.T) {
 	})
 
 	t.Run("runProbes with nil registrar is a no-op", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		cfg := testConfig()
+		cfg.HealthProbe.Interval = time.Hour
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(nil, nil, time.Hour))
+		_, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+		waitForActors()
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -82,13 +105,14 @@ func TestHealthActor(t *testing.T) {
 	})
 
 	t.Run("runProbes probes a healthy tool and skips disabled tools", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.HealthProbe.Interval = time.Hour
 		system, stop := testActorSystem(t,
-			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 		defer stop()
 
-		// Journal must exist before supervisor PostStart resolves it.
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		registrarPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
@@ -112,7 +136,7 @@ func TestHealthActor(t *testing.T) {
 		require.NoError(t, disabledResult.Err)
 		waitForActors()
 
-		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(registrarPID, nil, time.Hour))
+		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -121,17 +145,22 @@ func TestHealthActor(t *testing.T) {
 	})
 
 	t.Run("runProbes with dead registrar schedules next", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		cfg := testConfig()
+		cfg.HealthProbe.Interval = time.Hour
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		registrarPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		_, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
-		waitForActors()
-		require.NoError(t, system.Kill(ctx, mcp.ActorNameRegistrar))
+		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
 		waitForActors()
 
-		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(registrarPID, nil, time.Hour))
+		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
 		require.NoError(t, err)
+		waitForActors()
+
+		require.NoError(t, system.Kill(ctx, mcp.ActorNameRegistrar))
 		waitForActors()
 
 		require.NoError(t, healthPID.Tell(ctx, healthPID, &runProbes{}))
@@ -144,10 +173,12 @@ func TestHealthActor(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(telemetry.UnregisterMetrics)
 
-		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewToolConfigExtension()))
+		cfg := testConfig()
+		cfg.HealthProbe.Interval = time.Hour
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		registrarPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
@@ -159,7 +190,7 @@ func TestHealthActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(registrarPID, nil, time.Hour))
+		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -168,13 +199,16 @@ func TestHealthActor(t *testing.T) {
 	})
 
 	t.Run("runProbes records health transition to journal when state changes", func(t *testing.T) {
+		sink := audit.NewMemorySink()
+		cfg := testConfig()
+		cfg.HealthProbe.Interval = time.Hour
+		cfg.Audit.Sink = sink
 		system, stop := testActorSystem(t,
-			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 		defer stop()
 
-		sink := audit.NewMemorySink()
-		journalPID, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(sink))
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -187,7 +221,7 @@ func TestHealthActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(registrarPID, journalPID, time.Hour))
+		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -199,13 +233,16 @@ func TestHealthActor(t *testing.T) {
 	})
 
 	t.Run("runProbes calls recordHealthTransition when tool state transitions from Unavailable to Enabled", func(t *testing.T) {
+		sink := audit.NewMemorySink()
+		cfg := testConfig()
+		cfg.HealthProbe.Interval = time.Hour
+		cfg.Audit.Sink = sink
 		system, stop := testActorSystem(t,
-			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 		defer stop()
 
-		sink := audit.NewMemorySink()
-		journalPID, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(sink))
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -219,7 +256,7 @@ func TestHealthActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(registrarPID, journalPID, time.Hour))
+		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
 		require.NoError(t, err)
 		waitForActors()
 

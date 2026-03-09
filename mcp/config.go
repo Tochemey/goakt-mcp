@@ -60,6 +60,9 @@ type Config struct {
 	// Tenants holds per-tenant quota and policy configuration.
 	Tenants []TenantConfig
 
+	// HealthProbe configures health probe settings.
+	HealthProbe HealthProbeConfig
+
 	// Tools holds the tool definitions to register at startup.
 	Tools []Tool
 }
@@ -84,8 +87,36 @@ type ClusterConfig struct {
 	SingletonRole string
 	PeersPort     int
 	RemotingPort  int
-	Kubernetes    *KubernetesDiscoveryConfig
-	DNSSD         *DNSSDDiscoveryConfig
+	// TLS configures TLS for remoting and cluster communication.
+	// When set, both the remoting server and client use TLS; cluster memberlist
+	// and remoting traffic are encrypted. All nodes must share the same root CA.
+	TLS        *RemotingTLSConfig
+	Kubernetes KubernetesDiscoveryConfig
+	DNSSD      DNSSDDiscoveryConfig
+}
+
+// RemotingTLSConfig holds TLS settings for GoAkt remoting and cluster.
+//
+// Server identity: CertFile and KeyFile are required when TLS is enabled.
+// Client verification: CACertFile is used to verify remote servers; omit only
+// when InsecureSkipVerify is true (dev/testing only).
+// Mutual TLS: set ClientCAFile so the server validates client certs; set
+// ClientCertFile and ClientKeyFile so the client presents a cert to remotes.
+type RemotingTLSConfig struct {
+	// CertFile and KeyFile are the server certificate and private key.
+	CertFile string
+	KeyFile  string
+	// ClientCAFile, when non-empty, enables mTLS: server requires client certs
+	// signed by this CA.
+	ClientCAFile string
+	// CACertFile is the CA used to verify remote server certificates.
+	CACertFile string
+	// ClientCertFile and ClientKeyFile, when both set, present a client cert
+	// to remote nodes (mTLS).
+	ClientCertFile string
+	ClientKeyFile  string
+	// InsecureSkipVerify skips server cert verification. Use only for dev/testing.
+	InsecureSkipVerify bool
 }
 
 // KubernetesDiscoveryConfig holds settings for Kubernetes pod discovery.
@@ -110,23 +141,36 @@ type TelemetryConfig struct {
 
 // AuditConfig holds audit sink settings.
 type AuditConfig struct {
-	Backend string
-	Bucket  string
+	// Sink is the audit sink to use.
+	Sink AuditSink
 }
 
 // CredentialsConfig holds configuration for secret provider backends.
 type CredentialsConfig struct {
-	Providers []string
+	// Providers holds the list of credentials providers.
+	Providers []CredentialsProvider
+	// CacheTTL is the time to live for the credentials cache.
+	CacheTTL time.Duration
 }
 
 // TenantConfig defines per-tenant settings including quota limits.
 type TenantConfig struct {
-	ID     TenantID
+	// ID is the identifier for the tenant.
+	ID TenantID
+	// Quotas is the usage quota limits for the tenant.
 	Quotas TenantQuotaConfig
 }
 
 // TenantQuotaConfig defines the usage quota limits for a single tenant.
 type TenantQuotaConfig struct {
-	RequestsPerMinute  int
+	// RequestsPerMinute is the maximum number of requests per minute for the tenant.
+	RequestsPerMinute int
+	// ConcurrentSessions is the maximum number of concurrent sessions for the tenant.
 	ConcurrentSessions int
+}
+
+// HealthProbeConfig holds health probe settings.
+type HealthProbeConfig struct {
+	// Interval is the interval between health probes.
+	Interval time.Duration
 }

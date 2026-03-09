@@ -35,24 +35,24 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 )
 
-// policyActor is the PolicyActor.
+// policyMaker is the policy actor.
 //
-// PolicyActor evaluates authorization, quotas, rate limits, and concurrency
+// policy actor evaluates authorization, quotas, rate limits, and concurrency
 // limits before execution. It holds per-tenant usage counters for rate limiting
 // and delegates to the policy Evaluator for authorization and quota checks.
 //
-// Spawn: GatewayManager spawns PolicyActor in spawnFoundationalActors via
-// ctx.Spawn(ActorNamePolicy, newPolicyActor(cfg)) as a child of GatewayManager.
+// Spawn: GatewayManager spawns policy actor in spawnFoundationalActors via
+// ctx.Spawn(ActorNamePolicy, newPolicyMaker(cfg)) as a child of GatewayManager.
 // The config is passed from GatewayManager's config.
 //
-// Relocation: No. PolicyActor runs on the local node as a child of GatewayManager
+// Relocation: No. policy actor runs on the local node as a child of GatewayManager
 // and does not relocate in cluster mode.
 //
 // State is protected by the actor mailbox (one message at a time); no mutex
 // is needed or allowed inside an actor.
 //
 // All fields are unexported to enforce actor immutability rules.
-type policyActor struct {
+type policyMaker struct {
 	evaluator     *policy.Evaluator
 	config        config.Config
 	requestCounts map[mcp.TenantID]int
@@ -60,28 +60,28 @@ type policyActor struct {
 	logger        goaktlog.Logger
 }
 
-// enforce that policyActor satisfies the GoAkt Actor interface at compile time.
-var _ goaktactor.Actor = (*policyActor)(nil)
+// enforce that policyMaker satisfies the GoAkt Actor interface at compile time.
+var _ goaktactor.Actor = (*policyMaker)(nil)
 
-// newPolicyActor creates a PolicyActor instance.
+// newPolicyMaker creates a policy actor instance.
 // The config is passed at construction; the actor receives it from the spawner.
-func newPolicyActor(config config.Config) *policyActor {
-	return &policyActor{
+func newPolicyMaker(config config.Config) *policyMaker {
+	return &policyMaker{
 		evaluator:     policy.NewEvaluator(config),
 		config:        config,
 		requestCounts: make(map[mcp.TenantID]int),
 	}
 }
 
-// PreStart initializes the PolicyActor before message processing begins.
-func (x *policyActor) PreStart(ctx *goaktactor.Context) error {
+// PreStart initializes the policy actor before message processing begins.
+func (x *policyMaker) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
 	x.logger.Infof("actor=%s started", mcp.ActorNamePolicy)
 	return nil
 }
 
-// Receive handles messages delivered to PolicyActor.
-func (x *policyActor) Receive(ctx *goaktactor.ReceiveContext) {
+// Receive handles messages delivered to policy actor.
+func (x *policyMaker) Receive(ctx *goaktactor.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goaktactor.PostStart:
 		x.logger.Debugf("actor=%s post-start", mcp.ActorNamePolicy)
@@ -92,8 +92,8 @@ func (x *policyActor) Receive(ctx *goaktactor.ReceiveContext) {
 	}
 }
 
-// PostStop performs cleanup after PolicyActor has stopped.
-func (x *policyActor) PostStop(ctx *goaktactor.Context) error {
+// PostStop performs cleanup after policy actor has stopped.
+func (x *policyMaker) PostStop(ctx *goaktactor.Context) error {
 	x.logger.Infof("actor=%s stopped", mcp.ActorNamePolicy)
 	return nil
 }
@@ -101,7 +101,7 @@ func (x *policyActor) PostStop(ctx *goaktactor.Context) error {
 // handleEvaluate processes a policy evaluation request. It tracks per-tenant
 // request counts for rate limiting (resetting each calendar minute) and
 // delegates authorization and quota checks to the Evaluator.
-func (x *policyActor) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy.EvaluateRequest) {
+func (x *policyMaker) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy.EvaluateRequest) {
 	if msg.Input == nil {
 		ctx.Response(&policy.EvaluateResult{
 			Result: policy.Result{
@@ -136,7 +136,7 @@ func (x *policyActor) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy
 
 // lookupTenantConfig returns the TenantConfig for the given tenant, or nil
 // when the tenant is not explicitly configured. Used to resolve quota limits.
-func (x *policyActor) lookupTenantConfig(tenantID mcp.TenantID) *config.TenantConfig {
+func (x *policyMaker) lookupTenantConfig(tenantID mcp.TenantID) *config.TenantConfig {
 	for i := range x.config.Tenants {
 		tc := &x.config.Tenants[i]
 		if tc.ID == tenantID {

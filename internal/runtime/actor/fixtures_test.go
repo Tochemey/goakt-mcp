@@ -39,7 +39,6 @@ import (
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
-	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
 )
 
 // askTimeout is the default timeout for Ask calls in tests.
@@ -86,15 +85,17 @@ func testActorSystem(t *testing.T, extras ...goaktactor.Option) (goaktactor.Acto
 }
 
 // testActorSystemWithTools creates and starts an actor system pre-loaded with a
-// ToolConfigExtension containing the given tools. Convenience wrapper over
-// testActorSystem for supervisor tests.
+// ToolConfigExtension containing the given tools and ConfigExtension for journal/health.
+// Convenience wrapper over testActorSystem for supervisor tests.
 func testActorSystemWithTools(t *testing.T, tools ...mcp.Tool) (goaktactor.ActorSystem, func()) {
 	t.Helper()
 	toolCfgExt := actorextension.NewToolConfigExtension()
 	for _, tool := range tools {
 		toolCfgExt.Register(tool)
 	}
-	return testActorSystem(t, goaktactor.WithExtensions(toolCfgExt))
+	cfg := testConfig()
+	cfg.Audit.Sink = audit.NewMemorySink()
+	return testActorSystem(t, goaktactor.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)))
 }
 
 // testConfig returns a minimal Config suitable for use in tests.
@@ -104,6 +105,10 @@ func testConfig() config.Config {
 			SessionIdleTimeout: config.DefaultSessionIdleTimeout,
 			RequestTimeout:     config.DefaultRequestTimeout,
 			StartupTimeout:     config.DefaultStartupTimeout,
+		},
+		Credentials: config.CredentialsConfig{
+			Providers: []mcp.CredentialsProvider{&mockCredentialProvider{creds: map[string]string{"api-key": "test-secret"}}},
+			CacheTTL:  mcp.DefaultCredentialTTL,
 		},
 	}
 }
@@ -122,6 +127,23 @@ func testConfigWithTenants(tenantIDs ...mcp.TenantID) config.Config {
 // that assert on actor state that is set during PostStart handling.
 func waitForActors() {
 	time.Sleep(100 * time.Millisecond)
+}
+
+// spawnFoundationalActorsForTest spawns Registrar, Journal, Policy, CredentialBroker,
+// and Router with their canonical names. The system must have ConfigExtension and
+// optionally ToolConfigExtension registered. Use for router/registrar tests that
+// need the full actor graph.
+func spawnFoundationalActorsForTest(ctx context.Context, system goaktactor.ActorSystem, cfg config.Config) {
+	system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+	waitForActors()
+	system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+	waitForActors()
+	system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+	waitForActors()
+	system.Spawn(ctx, mcp.ActorNameCredentialBroker, newCredentialBroker())
+	waitForActors()
+	system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor())
+	waitForActors()
 }
 
 // sessionInvocation returns a minimal Invocation for session tests.
@@ -153,7 +175,7 @@ func newTestKit(t *testing.T, opts ...testkit.Option) (*testkit.TestKit, context
 // failingAuditSink is a test sink that returns an error on Write.
 type failingAuditSink struct{}
 
-func (f *failingAuditSink) Write(_ *audit.Event) error {
+func (f *failingAuditSink) Write(_ *mcp.AuditEvent) error {
 	return errors.New("write failed")
 }
 
@@ -167,15 +189,15 @@ type mockCredentialProvider struct {
 	err   error
 }
 
+var _ mcp.CredentialsProvider = (*mockCredentialProvider)(nil)
+
 func (m *mockCredentialProvider) ID() string {
 	return "mock"
 }
 
-func (m *mockCredentialProvider) Resolve(_ context.Context, _ mcp.TenantID, _ mcp.ToolID) (map[string]string, error) {
+func (m *mockCredentialProvider) ResolveCredentials(_ context.Context, _ mcp.TenantID, _ mcp.ToolID) (*mcp.Credentials, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	return m.creds, nil
+	return &mcp.Credentials{Values: m.creds}, nil
 }
-
-var _ credentials.Provider = (*mockCredentialProvider)(nil)

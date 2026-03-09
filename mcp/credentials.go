@@ -21,41 +21,36 @@
 // SOFTWARE.
 //
 
-package credentials
+package mcp
 
 import (
 	"context"
-	"os"
-	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	"github.com/tochemey/goakt-mcp/mcp"
+	"time"
 )
 
-func TestEnvProvider(t *testing.T) {
-	ctx := context.Background()
-	p := NewEnvProvider()
+// DefaultCredentialTTL is the default cache TTL for resolved credentials.
+const DefaultCredentialTTL = 5 * time.Minute
 
-	t.Run("returns nil when no matching env vars", func(t *testing.T) {
-		creds, err := p.Resolve(ctx, mcp.TenantID("tenant"), mcp.ToolID("nonexistent-tool-xyz"))
-		require.NoError(t, err)
-		assert.Nil(t, creds)
-	})
+// Provider resolves credentials for a tenant and tool.
+//
+// Implementations should avoid long-lived secret storage. The broker may cache
+// results with bounded TTL; providers are not required to implement caching.
+type CredentialsProvider interface {
+	// ID returns the provider identifier (e.g., "env", "file").
+	ID() string
 
-	t.Run("returns credentials from env", func(t *testing.T) {
-		key := "MCP_CRED_TEST_TOOL_API_KEY"
-		os.Setenv(key, "secret-value")
-		defer os.Unsetenv(key)
+	// ResolveCredentials returns credentials for the given tenant and tool.
+	// Returns (nil, nil) when the provider has no credentials for this combination.
+	// Returns (nil, err) when resolution fails.
+	ResolveCredentials(ctx context.Context, tenantID TenantID, toolID ToolID) (*Credentials, error)
+}
 
-		creds, err := p.Resolve(ctx, mcp.TenantID("tenant"), mcp.ToolID("test-tool"))
-		require.NoError(t, err)
-		require.NotNil(t, creds)
-		assert.Equal(t, "secret-value", creds["api-key"])
-	})
-
-	t.Run("ID returns env", func(t *testing.T) {
-		assert.Equal(t, "env", p.ID())
-	})
+// Credentials represents the credentials for a tenant and tool.
+type Credentials struct {
+	// TenantID is the identifier for the tenant.
+	TenantID TenantID
+	// ToolID is the identifier for the tool.
+	ToolID ToolID
+	// Values is the map of credentials values.
+	Values map[string]string
 }

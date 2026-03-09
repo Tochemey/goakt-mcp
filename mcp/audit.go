@@ -21,43 +21,40 @@
 // SOFTWARE.
 //
 
-// Package audit provides the audit event schema and sink abstractions for the
-// runtime. Policy decisions, tool invocations, failures, and health transitions
-// are recorded for observability and compliance.
-package audit
+package mcp
 
 import "time"
 
-// EventType identifies the category of an audit event.
-type EventType string
+// AuditEventType identifies the category of an audit event.
+type AuditEventType string
 
 const (
-	// EventTypePolicyDecision records a policy allow/deny/throttle decision.
-	EventTypePolicyDecision EventType = "policy_decision"
+	// AuditEventTypePolicyDecision records a policy allow/deny/throttle decision.
+	AuditEventTypePolicyDecision AuditEventType = "policy_decision"
 
-	// EventTypeInvocationStart records the start of a tool invocation.
-	EventTypeInvocationStart EventType = "invocation_start"
+	// AuditEventTypeInvocationStart records the start of a tool invocation.
+	AuditEventTypeInvocationStart AuditEventType = "invocation_start"
 
-	// EventTypeInvocationComplete records the completion of a tool invocation.
-	EventTypeInvocationComplete EventType = "invocation_complete"
+	// AuditEventTypeInvocationComplete records the completion of a tool invocation.
+	AuditEventTypeInvocationComplete AuditEventType = "invocation_complete"
 
-	// EventTypeInvocationFailed records a failed invocation (routing, policy, credential, etc.).
-	EventTypeInvocationFailed EventType = "invocation_failed"
+	// AuditEventTypeInvocationFailed records a failed invocation (routing, policy, credential, etc.).
+	AuditEventTypeInvocationFailed AuditEventType = "invocation_failed"
 
-	// EventTypeHealthTransition records a tool health state change.
-	EventTypeHealthTransition EventType = "health_transition"
+	// AuditEventTypeHealthTransition records a tool health state change.
+	AuditEventTypeHealthTransition AuditEventType = "health_transition"
 
-	// EventTypeCircuitStateChange records a circuit breaker state transition.
-	EventTypeCircuitStateChange EventType = "circuit_state_change"
+	// AuditEventTypeCircuitStateChange records a circuit breaker state transition.
+	AuditEventTypeCircuitStateChange AuditEventType = "circuit_state_change"
 )
 
-// Event is the canonical audit event schema.
+// AuditEvent is the canonical audit event schema.
 //
 // All runtime actors that produce auditable outcomes should emit events
 // conforming to this schema. The JournalActor writes events to the configured sink.
-type Event struct {
+type AuditEvent struct {
 	// Type identifies the event category.
-	Type EventType
+	Type AuditEventType
 
 	// Timestamp is when the event occurred.
 	Timestamp time.Time
@@ -91,23 +88,23 @@ type Event struct {
 	Metadata map[string]string
 }
 
-// Sink is the abstraction for durable audit storage.
+// AuditSink is the abstraction for durable audit storage.
 //
 // Implementations must be safe for concurrent use. Write may be asynchronous;
 // the JournalActor buffers and batches as needed.
-type Sink interface {
+type AuditSink interface {
 	// Write persists an audit event. Returns an error if the event cannot be stored.
-	Write(event *Event) error
+	Write(event *AuditEvent) error
 
 	// Close releases resources. No further writes should be attempted after Close.
 	Close() error
 }
 
-// HealthTransitionEvent creates an audit event for a tool health state change.
-func HealthTransitionEvent(toolID, fromState, toState string) *Event {
+// HealthTransitionAuditEvent creates an audit event for a tool health state change.
+func HealthTransitionAuditEvent(toolID, fromState, toState string) *AuditEvent {
 	meta := map[string]string{"from": fromState, "to": toState}
-	return &Event{
-		Type:      EventTypeHealthTransition,
+	return &AuditEvent{
+		Type:      AuditEventTypeHealthTransition,
 		Timestamp: time.Now(),
 		ToolID:    toolID,
 		Outcome:   toState,
@@ -115,10 +112,10 @@ func HealthTransitionEvent(toolID, fromState, toState string) *Event {
 	}
 }
 
-// CircuitStateChangeEvent creates an audit event for a circuit breaker transition.
-func CircuitStateChangeEvent(toolID, state string, metadata map[string]string) *Event {
-	return &Event{
-		Type:      EventTypeCircuitStateChange,
+// CircuitStateChangeAuditEvent creates an audit event for a circuit breaker transition.
+func CircuitStateChangeAuditEvent(toolID, state string, metadata map[string]string) *AuditEvent {
+	return &AuditEvent{
+		Type:      AuditEventTypeCircuitStateChange,
 		Timestamp: time.Now(),
 		ToolID:    toolID,
 		Outcome:   state,

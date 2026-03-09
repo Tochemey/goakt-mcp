@@ -78,11 +78,11 @@ type StdioTransportConfig struct {
 // HTTPTransportConfig holds the connection parameters for tools reached over HTTP.
 type HTTPTransportConfig struct {
 	URL string
-	TLS *EgressTLSConfig
+	TLS *TLSClientConfig
 }
 
-// EgressTLSConfig holds TLS settings for outbound HTTP connections to MCP servers.
-type EgressTLSConfig struct {
+// TLSClientConfig holds TLS settings for outbound HTTP connections to MCP servers.
+type TLSClientConfig struct {
 	CACertFile         string
 	ClientCertFile     string
 	ClientKeyFile      string

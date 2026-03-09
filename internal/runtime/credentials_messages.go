@@ -21,36 +21,9 @@
 // SOFTWARE.
 //
 
-// Package credentials provides credential resolution for tool invocations.
-//
-// The CredentialBrokerActor resolves secrets just-in-time through configured
-// providers (env, file, etc.). Credentials are not persisted in actor state
-// longer than necessary.
-package credentials
+package runtime
 
-import (
-	"context"
-	"time"
-
-	"github.com/tochemey/goakt-mcp/mcp"
-)
-
-// DefaultCredentialTTL is the default cache TTL for resolved credentials.
-const DefaultCredentialTTL = 5 * time.Minute
-
-// Provider resolves credentials for a tenant and tool.
-//
-// Implementations should avoid long-lived secret storage. The broker may cache
-// results with bounded TTL; providers are not required to implement caching.
-type Provider interface {
-	// ID returns the provider identifier (e.g., "env", "file").
-	ID() string
-
-	// Resolve returns credentials for the given tenant and tool.
-	// Returns (nil, nil) when the provider has no credentials for this combination.
-	// Returns (nil, err) when resolution fails.
-	Resolve(ctx context.Context, tenantID mcp.TenantID, toolID mcp.ToolID) (map[string]string, error)
-}
+import "github.com/tochemey/goakt-mcp/mcp"
 
 // ResolveRequest is a request to resolve credentials for an invocation.
 type ResolveRequest struct {
@@ -60,11 +33,11 @@ type ResolveRequest struct {
 
 // ResolveResult is the response to ResolveRequest.
 type ResolveResult struct {
-	Credentials map[string]string
+	Credentials *mcp.Credentials
 	Err         error
 }
 
 // Resolved returns true when credentials were successfully resolved.
 func (r *ResolveResult) Resolved() bool {
-	return r.Err == nil && len(r.Credentials) > 0
+	return r.Err == nil && r.Credentials != nil && len(r.Credentials.Values) > 0
 }

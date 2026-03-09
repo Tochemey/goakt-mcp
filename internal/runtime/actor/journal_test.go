@@ -30,10 +30,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/testkit"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 )
 
@@ -41,11 +43,12 @@ func TestJournalActor(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("starts and stops cleanly", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(extension.NewConfigExtension(cfg)))
 		defer stop()
 
-		sink := audit.NewMemorySink()
-		pid, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(sink))
+		pid, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 		assert.Equal(t, mcp.ActorNameJournal, pid.Name())
@@ -54,16 +57,18 @@ func TestJournalActor(t *testing.T) {
 	})
 
 	t.Run("records audit events", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		sink := audit.NewMemorySink()
+		cfg := testConfig()
+		cfg.Audit.Sink = sink
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(extension.NewConfigExtension(cfg)))
 		defer stop()
 
-		sink := audit.NewMemorySink()
-		pid, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(sink))
+		pid, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 		waitForActors()
 
-		ev := &audit.Event{
-			Type:     audit.EventTypeInvocationComplete,
+		ev := &mcp.AuditEvent{
+			Type:     mcp.AuditEventTypeInvocationComplete,
 			TenantID: "tenant-1",
 			ClientID: "client-1",
 			ToolID:   "tool-1",
@@ -75,16 +80,18 @@ func TestJournalActor(t *testing.T) {
 
 		events := sink.Events()
 		require.Len(t, events, 1)
-		assert.Equal(t, audit.EventTypeInvocationComplete, events[0].Type)
+		assert.Equal(t, mcp.AuditEventTypeInvocationComplete, events[0].Type)
 		assert.Equal(t, "tenant-1", events[0].TenantID)
 		assert.Equal(t, "success", events[0].Outcome)
 	})
 
 	t.Run("ignores nil event", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
-
 		sink := audit.NewMemorySink()
-		kit.Spawn(ctx, "journal-nil-event", newJournaler(sink))
+		cfg := testConfig()
+		cfg.Audit.Sink = sink
+		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(cfg)))
+
+		kit.Spawn(ctx, "journal-nil-event", newJournaler())
 		waitForActors()
 
 		probe := kit.NewProbe(ctx)
@@ -93,40 +100,30 @@ func TestJournalActor(t *testing.T) {
 		probe.Stop()
 	})
 
-	t.Run("ignores when sink is nil", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
-
-		kit.Spawn(ctx, "journal-nil-sink", newJournaler(nil))
-		waitForActors()
-
-		probe := kit.NewProbe(ctx)
-		probe.Send("journal-nil-sink", &runtime.RecordAuditEvent{
-			Event: &audit.Event{Type: audit.EventTypeInvocationComplete},
-		})
-		probe.ExpectNoMessage()
-		probe.Stop()
-	})
-
 	t.Run("handles write failure gracefully", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
-
 		failingSink := &failingAuditSink{}
-		kit.Spawn(ctx, "journal-fail", newJournaler(failingSink))
+		cfg := testConfig()
+		cfg.Audit.Sink = failingSink
+		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(cfg)))
+
+		kit.Spawn(ctx, "journal-fail", newJournaler())
 		waitForActors()
 
 		probe := kit.NewProbe(ctx)
 		probe.Send("journal-fail", &runtime.RecordAuditEvent{
-			Event: &audit.Event{Type: audit.EventTypeInvocationComplete, TenantID: "t1"},
+			Event: &mcp.AuditEvent{Type: mcp.AuditEventTypeInvocationComplete, TenantID: "t1"},
 		})
 		probe.ExpectNoMessage()
 		probe.Stop()
 	})
 
 	t.Run("unhandles unknown message", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
-
 		sink := audit.NewMemorySink()
-		pid, err := kit.ActorSystem().Spawn(ctx, "journal-unknown", newJournaler(sink))
+		cfg := testConfig()
+		cfg.Audit.Sink = sink
+		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(cfg)))
+
+		pid, err := kit.ActorSystem().Spawn(ctx, "journal-unknown", newJournaler())
 		require.NoError(t, err)
 		require.NoError(t, pid.Tell(ctx, pid, "unknown"))
 		waitForActors()

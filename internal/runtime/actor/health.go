@@ -34,8 +34,7 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
-	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
@@ -66,16 +65,15 @@ var _ goaktactor.Actor = (*healthChecker)(nil)
 // newHealthChecker creates a new HealthChecker with the given registry PID,
 // optional journal PID for audit events, and probe interval. When interval is
 // zero, config.DefaultHealthProbeInterval is used.
-func newHealthChecker(registrar, journal *goaktactor.PID, interval time.Duration) *healthChecker {
-	if interval <= 0 {
-		interval = config.DefaultHealthProbeInterval
-	}
-	return &healthChecker{registrar: registrar, journal: journal, interval: interval}
+func newHealthChecker() *healthChecker {
+	return &healthChecker{}
 }
 
 // PreStart initializes the logger.
 func (x *healthChecker) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
+	config := ctx.Extension(extension.ConfigExtensionID).(*extension.ConfigExtension).Config()
+	x.interval = config.HealthProbe.Interval
 	x.logger.Infof("actor=%s starting interval=%s", mcp.ActorNameHealth, x.interval)
 	return nil
 }
@@ -85,12 +83,44 @@ func (x *healthChecker) Receive(ctx *goaktactor.ReceiveContext) {
 	switch ctx.Message().(type) {
 	case *goaktactor.PostStart:
 		x.logger.Infof("actor=%s started", mcp.ActorNameHealth)
+		x.resolveActors(ctx)
 		x.scheduleNext(ctx)
 	case *runProbes:
 		x.runProbes(ctx)
 	default:
 		ctx.Unhandled()
 	}
+}
+
+// PostStop performs cleanup after HealthChecker has stopped.
+func (x *healthChecker) PostStop(ctx *goaktactor.Context) error {
+	x.logger.Infof("actor=%s stopped", mcp.ActorNameHealth)
+	return nil
+}
+
+// resolveActors resolves the journal and registrar actors.
+// It is called in PreStart to ensure the actors are available when the health checker starts.
+func (x *healthChecker) resolveActors(ctx *goaktactor.ReceiveContext) {
+	actorSystem := ctx.ActorSystem()
+	goCtx := ctx.Context()
+
+	// resolve the journal actor
+	journal, err := actorSystem.ActorOf(goCtx, mcp.ActorNameJournal)
+	if err != nil {
+		ctx.Err(err)
+		return
+	}
+
+	// resolve the registrar actor
+	registrar, err := actorSystem.ActorOf(goCtx, mcp.ActorNameRegistrar)
+	if err != nil {
+		ctx.Err(err)
+		return
+	}
+
+	// let us set the various required actors
+	x.journal = journal
+	x.registrar = registrar
 }
 
 // runProbes queries the registry for all tools, probes each via CanAcceptWork,
@@ -181,19 +211,10 @@ func (x *healthChecker) scheduleNext(ctx *goaktactor.ReceiveContext) {
 	}
 
 	sys := ctx.ActorSystem()
-	if sys == nil {
-		return
-	}
-
 	if err := sys.ScheduleOnce(ctx.Context(), &runProbes{}, ctx.Self(), x.interval); err != nil {
 		x.logger.Warnf("actor=%s schedule next probe failed: %v", mcp.ActorNameHealth, err)
+		ctx.Err(err)
 	}
-}
-
-// PostStop performs cleanup after HealthChecker has stopped.
-func (x *healthChecker) PostStop(ctx *goaktactor.Context) error {
-	x.logger.Infof("actor=%s stopped", mcp.ActorNameHealth)
-	return nil
 }
 
 // recordHealthTransition sends a health transition audit event to the JournalActor.
@@ -201,6 +222,6 @@ func (x *healthChecker) recordHealthTransition(toolID, fromState, toState string
 	if x.journal == nil || !x.journal.IsRunning() {
 		return
 	}
-	ev := audit.HealthTransitionEvent(toolID, fromState, toState)
+	ev := mcp.HealthTransitionAuditEvent(toolID, fromState, toState)
 	_ = goaktactor.Tell(context.Background(), x.journal, &runtime.RecordAuditEvent{Event: ev})
 }

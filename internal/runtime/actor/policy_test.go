@@ -44,7 +44,7 @@ func TestPolicyActor(t *testing.T) {
 		defer stop()
 
 		cfg := testConfig()
-		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyActor(cfg))
+		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -66,7 +66,7 @@ func TestPolicyActor(t *testing.T) {
 		defer stop()
 
 		cfg := testConfigWithTenants("allowed-tenant")
-		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyActor(cfg))
+		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -95,7 +95,7 @@ func TestPolicyActor(t *testing.T) {
 		defer stop()
 
 		cfg := testConfigWithTenants("allowed-tenant")
-		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyActor(cfg))
+		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -118,7 +118,7 @@ func TestPolicyActor(t *testing.T) {
 		kit, ctx := newTestKit(t)
 
 		cfg := testConfig()
-		pid, err := kit.ActorSystem().Spawn(ctx, "policy-unknown", newPolicyActor(cfg))
+		pid, err := kit.ActorSystem().Spawn(ctx, "policy-unknown", newPolicyMaker(cfg))
 		require.NoError(t, err)
 		require.NoError(t, pid.Tell(ctx, pid, "unknown"))
 		waitForActors()

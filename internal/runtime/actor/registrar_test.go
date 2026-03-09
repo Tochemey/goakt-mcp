@@ -212,12 +212,14 @@ func TestRegistryActor(t *testing.T) {
 	})
 
 	t.Run("get supervisor returns PID when tool has supervisor", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
 		system, stop := testActorSystem(t,
-			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
@@ -360,12 +362,14 @@ func TestRegistryActor(t *testing.T) {
 	})
 
 	t.Run("count sessions for tenant", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
 		system, stop := testActorSystem(t,
-			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())

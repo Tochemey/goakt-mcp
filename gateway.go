@@ -21,27 +21,6 @@
 // SOFTWARE.
 //
 
-// Package goaktmcp provides an MCP gateway library built on GoAkt.
-//
-// The Gateway is the sole public entry point. Users construct it with a Config
-// and options, then call Start to make the runtime operational. Tool invocations,
-// listing, and dynamic registration are performed through programmatic methods.
-//
-//	import (
-//	    "github.com/tochemey/goakt-mcp/mcp"
-//	    goaktlog "github.com/tochemey/goakt/v4/log"
-//	)
-//
-//	cfg := mcp.Config{
-//	    Tools: []mcp.Tool{
-//	        {ID: "my-tool", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-everything"}}},
-//	    },
-//	}
-//	gw, err := goaktmcp.New(cfg, goaktmcp.WithLogger(goaktlog.DebugLevel))
-//	gw.Start(ctx)
-//	defer gw.Stop(ctx)
-//
-//	result, err := gw.Invoke(ctx, &mcp.Invocation{ToolID: "my-tool", Method: "tools/call", Params: map[string]any{"name": "echo"}})
 package goaktmcp
 
 import (
@@ -50,6 +29,7 @@ import (
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 	"github.com/tochemey/goakt/v4/remote"
+	gtls "github.com/tochemey/goakt/v4/tls"
 
 	"github.com/tochemey/goakt-mcp/internal/egress"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
@@ -57,7 +37,6 @@ import (
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/cluster"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
-	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 	"github.com/tochemey/goakt-mcp/mcp"
@@ -89,7 +68,7 @@ func New(cfg mcp.Config, opts ...Option) (*Gateway, error) {
 
 	gw := &Gateway{
 		config: cfg,
-		logger: goaktlog.DefaultLogger,
+		logger: goaktlog.DiscardLogger,
 	}
 
 	for _, opt := range opts {
@@ -125,7 +104,16 @@ func (g *Gateway) Start(ctx context.Context) error {
 		telemetry.RegisterTracer()
 	}
 
-	system, err := goaktactor.NewActorSystem(gatewayActorSystemName, g.actorSystemOptions()...)
+	var tlsInfo *gtls.Info
+	if g.config.Cluster.Enabled && g.config.Cluster.TLS != nil {
+		var err error
+		tlsInfo, err = mcp.BuildRemotingTLSInfo(g.config.Cluster.TLS)
+		if err != nil {
+			return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "cluster TLS config", err)
+		}
+	}
+
+	system, err := goaktactor.NewActorSystem(gatewayActorSystemName, g.actorSystemOptions(tlsInfo)...)
 	if err != nil {
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to create actor system", err)
 	}
@@ -134,7 +122,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to start actor system", err)
 	}
 
-	if _, err := system.Spawn(ctx, mcp.ActorNameGatewayManager, actor.NewGatewayManager(g.config)); err != nil {
+	if _, err := system.Spawn(ctx, mcp.ActorNameGatewayManager, actor.NewGatewayManager()); err != nil {
 		_ = system.Stop(ctx)
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to spawn GatewayManager", err)
 	}
@@ -217,8 +205,8 @@ func (g *Gateway) remoteOptions() []remote.Option {
 			(*policy.EvaluateRequest)(nil),
 			(*policy.EvaluateResult)(nil),
 
-			(*credentials.ResolveRequest)(nil),
-			(*credentials.ResolveResult)(nil),
+			(*runtime.ResolveRequest)(nil),
+			(*runtime.ResolveResult)(nil),
 		),
 	}
 	if g.tracing {
@@ -227,7 +215,7 @@ func (g *Gateway) remoteOptions() []remote.Option {
 	return opts
 }
 
-func (g *Gateway) actorSystemOptions() []goaktactor.Option {
+func (g *Gateway) actorSystemOptions(tlsInfo *gtls.Info) []goaktactor.Option {
 	execFactory := egress.NewCompositeExecutorFactory(g.config.Runtime.StartupTimeout, nil)
 	opts := []goaktactor.Option{
 		goaktactor.WithLogger(g.logger),
@@ -235,8 +223,14 @@ func (g *Gateway) actorSystemOptions() []goaktactor.Option {
 		goaktactor.WithExtensions(
 			actorextension.NewExecutorFactoryExtension(execFactory),
 			actorextension.NewToolConfigExtension(),
+			actorextension.NewConfigExtension(g.config),
 		),
 	}
+
+	if tlsInfo != nil {
+		opts = append(opts, goaktactor.WithTLS(tlsInfo))
+	}
+
 	if clusterOpts := cluster.BuildOptions(g.config, g.remoteOptions(), actor.NewRegistrar()); len(clusterOpts) > 0 {
 		opts = append(opts, clusterOpts...)
 	}

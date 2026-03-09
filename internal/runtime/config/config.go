@@ -67,7 +67,7 @@ type ToolConfig struct {
 	Env                 map[string]string
 	WorkingDirectory    string
 	URL                 string
-	HTTPTLS             *mcp.EgressTLSConfig
+	HTTPTLS             *mcp.TLSClientConfig
 	StartupTimeout      time.Duration
 	RequestTimeout      time.Duration
 	IdleTimeout         time.Duration
@@ -134,31 +134,31 @@ func ToolConfigToTool(toolConfig ToolConfig, defaults RuntimeConfig) mcp.Tool {
 // Uses GoAkt's slog implementation. When the level is empty or invalid,
 // the GoAkt DefaultLogger is returned (InfoLevel to stdout).
 func NewLogger(level string) goaktlog.Logger {
-	parsed, err := ParseLogLevel(level)
-	if err != nil || parsed == goaktlog.InvalidLevel {
-		return goaktlog.DefaultLogger
+	parsed := ParseLogLevel(level)
+	if parsed == goaktlog.InvalidLevel {
+		return goaktlog.DiscardLogger
 	}
 	return goaktlog.NewSlog(parsed, os.Stdout)
 }
 
 // ParseLogLevel converts a log level string to a goaktlog.Level.
-func ParseLogLevel(s string) (goaktlog.Level, error) {
+func ParseLogLevel(s string) goaktlog.Level {
 	switch s {
 	case "debug":
-		return goaktlog.DebugLevel, nil
+		return goaktlog.DebugLevel
 	case "info":
-		return goaktlog.InfoLevel, nil
+		return goaktlog.InfoLevel
 	case "warning", "warn":
-		return goaktlog.WarningLevel, nil
+		return goaktlog.WarningLevel
 	case "error":
-		return goaktlog.ErrorLevel, nil
+		return goaktlog.ErrorLevel
 	case "fatal":
-		return goaktlog.FatalLevel, nil
+		return goaktlog.FatalLevel
 	case "panic":
-		return goaktlog.PanicLevel, nil
+		return goaktlog.PanicLevel
 	case "":
-		return goaktlog.InvalidLevel, nil
+		return goaktlog.InvalidLevel
 	default:
-		return goaktlog.InvalidLevel, nil
+		return goaktlog.InvalidLevel
 	}
 }

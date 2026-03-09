@@ -32,7 +32,8 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
+	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 )
 
 // credentialCacheEntry holds cached credentials with expiration.
@@ -58,7 +59,7 @@ type credentialCacheEntry struct {
 // State is protected by the actor mailbox (one message at a time); no mutex
 // is needed or allowed inside an actor.
 type credentialBroker struct {
-	providers []credentials.Provider
+	providers []mcp.CredentialsProvider
 	cache     map[string]*credentialCacheEntry
 	cacheTTL  time.Duration
 	logger    goaktlog.Logger
@@ -67,20 +68,17 @@ type credentialBroker struct {
 var _ goaktactor.Actor = (*credentialBroker)(nil)
 
 // newCredentialBroker creates a CredentialBroker with the given providers.
-func newCredentialBroker(providers []credentials.Provider, cacheTTL time.Duration) *credentialBroker {
-	if cacheTTL <= 0 {
-		cacheTTL = credentials.DefaultCredentialTTL
-	}
-	return &credentialBroker{
-		providers: providers,
-		cache:     make(map[string]*credentialCacheEntry),
-		cacheTTL:  cacheTTL,
-	}
+func newCredentialBroker() *credentialBroker {
+	return &credentialBroker{}
 }
 
 // PreStart initializes the CredentialBroker.
 func (x *credentialBroker) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
+	config := ctx.Extension(extension.ConfigExtensionID).(*extension.ConfigExtension).Config()
+	x.cacheTTL = config.Credentials.CacheTTL
+	x.providers = config.Credentials.Providers
+	x.cache = make(map[string]*credentialCacheEntry)
 	x.logger.Infof("actor=%s started", mcp.ActorNameCredentialBroker)
 	return nil
 }
@@ -90,7 +88,7 @@ func (x *credentialBroker) Receive(ctx *goaktactor.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goaktactor.PostStart:
 		x.logger.Debugf("actor=%s post-start", mcp.ActorNameCredentialBroker)
-	case *credentials.ResolveRequest:
+	case *runtime.ResolveRequest:
 		x.handleResolve(ctx, msg)
 	default:
 		ctx.Unhandled()
@@ -110,33 +108,33 @@ func (x *credentialBroker) PostStop(ctx *goaktactor.Context) error {
 // It checks the in-memory cache first; on miss or expiry it iterates through
 // configured providers in preference order and caches the first successful result.
 // Returns a defensive copy of the credential map so callers cannot mutate the cache.
-func (x *credentialBroker) handleResolve(ctx *goaktactor.ReceiveContext, msg *credentials.ResolveRequest) {
+func (x *credentialBroker) handleResolve(ctx *goaktactor.ReceiveContext, msg *runtime.ResolveRequest) {
 	cacheKey := string(msg.TenantID) + ":" + string(msg.ToolID)
 
 	if entry, ok := x.cache[cacheKey]; ok && time.Now().Before(entry.expiresAt) {
 		credsCopy := make(map[string]string, len(entry.creds))
 		maps.Copy(credsCopy, entry.creds)
-		ctx.Response(&credentials.ResolveResult{Credentials: credsCopy})
+		ctx.Response(&runtime.ResolveResult{Credentials: &mcp.Credentials{Values: credsCopy}})
 		return
 	}
 
 	goCtx := ctx.Context()
 	var resolved map[string]string
 	for _, provider := range x.providers {
-		creds, err := provider.Resolve(goCtx, msg.TenantID, msg.ToolID)
+		creds, err := provider.ResolveCredentials(goCtx, msg.TenantID, msg.ToolID)
 		if err != nil {
 			x.logger.Warnf("actor=%s provider=%s resolve failed: %v", mcp.ActorNameCredentialBroker, provider.ID(), err)
 			continue
 		}
 
-		if len(creds) > 0 {
-			resolved = creds
+		if creds != nil && len(creds.Values) > 0 {
+			resolved = creds.Values
 			break
 		}
 	}
 
 	if len(resolved) == 0 {
-		ctx.Response(&credentials.ResolveResult{
+		ctx.Response(&runtime.ResolveResult{
 			Err: mcp.NewRuntimeError(mcp.ErrCodeCredentialUnavailable, "no credentials found for tenant and tool"),
 		})
 		return
@@ -149,5 +147,9 @@ func (x *credentialBroker) handleResolve(ctx *goaktactor.ReceiveContext, msg *cr
 
 	credsCopy := make(map[string]string, len(resolved))
 	maps.Copy(credsCopy, resolved)
-	ctx.Response(&credentials.ResolveResult{Credentials: credsCopy})
+	ctx.Response(&runtime.ResolveResult{Credentials: &mcp.Credentials{
+		TenantID: msg.TenantID,
+		ToolID:   msg.ToolID,
+		Values:   credsCopy,
+	}})
 }

@@ -18,3 +18,4 @@ bench/*.txt
 .cache/
 .gomodcache/
 .local/
+bin/

@@ -143,13 +143,14 @@ func TestGetOrCreateSession(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("supervisor creates session and returns same session on reuse", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
 		system, stop := testActorSystem(t,
-			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 		defer stop()
 
-		// Journal must exist before supervisor PostStart resolves it.
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		// Use Registrar flow (matches production) so supervisor is child of Registrar.
@@ -206,10 +207,14 @@ func TestGetOrCreateSession(t *testing.T) {
 
 	t.Run("supervisor rejects GetOrCreateSession when tool ID mismatch", func(t *testing.T) {
 		tool := validStdioTool("mismatch-tool")
-		system, stop := testActorSystemWithTools(t, tool)
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		toolCfgExt := actorextension.NewToolConfigExtension()
+		toolCfgExt.Register(tool)
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		name := mcp.ToolSupervisorName(tool.ID)

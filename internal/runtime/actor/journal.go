@@ -30,7 +30,7 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
-	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
+	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 )
 
 // journaler is the Journal Actor.
@@ -49,22 +49,23 @@ import (
 //
 // All fields are unexported to enforce actor immutability rules.
 type journaler struct {
-	sink   audit.Sink
+	sink   mcp.AuditSink
 	logger goaktlog.Logger
 }
 
 // enforce that journaler satisfies the GoAkt Actor interface at compile time.
 var _ goaktactor.Actor = (*journaler)(nil)
 
-// newJournaler creates a new Journaler instance with the given sink.
-// Pass nil for sink to create a no-op journal (events are discarded).
-func newJournaler(sink audit.Sink) *journaler {
-	return &journaler{sink: sink}
+// newJournaler creates a new Journaler instance
+func newJournaler() *journaler {
+	return &journaler{}
 }
 
 // PreStart initializes Journaler before message processing begins.
 func (x *journaler) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
+	config := ctx.Extension(extension.ConfigExtensionID).(*extension.ConfigExtension).Config()
+	x.sink = createAuditSink(config.Audit)
 	x.logger.Infof("actor=%s starting", mcp.ActorNameJournal)
 	return nil
 }

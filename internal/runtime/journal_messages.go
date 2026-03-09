@@ -23,12 +23,12 @@
 
 package runtime
 
-import "github.com/tochemey/goakt-mcp/internal/runtime/audit"
+import "github.com/tochemey/goakt-mcp/mcp"
 
 // RecordAuditEvent is a request to record an audit event.
 //
 // The JournalActor writes the event to the configured audit sink asynchronously.
 // Use Tell; no response is expected.
 type RecordAuditEvent struct {
-	Event *audit.Event
+	Event *mcp.AuditEvent
 }

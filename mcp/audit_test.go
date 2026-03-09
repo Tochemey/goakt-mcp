@@ -21,7 +21,7 @@
 // SOFTWARE.
 //
 
-package audit
+package mcp
 
 import (
 	"testing"
@@ -34,15 +34,15 @@ import (
 func TestEventTypeConstants(t *testing.T) {
 	tests := []struct {
 		name     string
-		et       EventType
+		et       AuditEventType
 		expected string
 	}{
-		{"PolicyDecision", EventTypePolicyDecision, "policy_decision"},
-		{"InvocationStart", EventTypeInvocationStart, "invocation_start"},
-		{"InvocationComplete", EventTypeInvocationComplete, "invocation_complete"},
-		{"InvocationFailed", EventTypeInvocationFailed, "invocation_failed"},
-		{"HealthTransition", EventTypeHealthTransition, "health_transition"},
-		{"CircuitStateChange", EventTypeCircuitStateChange, "circuit_state_change"},
+		{"PolicyDecision", AuditEventTypePolicyDecision, "policy_decision"},
+		{"InvocationStart", AuditEventTypeInvocationStart, "invocation_start"},
+		{"InvocationComplete", AuditEventTypeInvocationComplete, "invocation_complete"},
+		{"InvocationFailed", AuditEventTypeInvocationFailed, "invocation_failed"},
+		{"HealthTransition", AuditEventTypeHealthTransition, "health_transition"},
+		{"CircuitStateChange", AuditEventTypeCircuitStateChange, "circuit_state_change"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,8 +53,8 @@ func TestEventTypeConstants(t *testing.T) {
 
 func TestEventConstruction(t *testing.T) {
 	now := time.Now()
-	event := &Event{
-		Type:      EventTypeInvocationComplete,
+	event := &AuditEvent{
+		Type:      AuditEventTypeInvocationComplete,
 		Timestamp: now,
 		TenantID:  "tenant-1",
 		ClientID:  "client-1",
@@ -67,7 +67,7 @@ func TestEventConstruction(t *testing.T) {
 		Metadata:  map[string]string{"key": "value"},
 	}
 
-	assert.Equal(t, EventTypeInvocationComplete, event.Type)
+	assert.Equal(t, AuditEventTypeInvocationComplete, event.Type)
 	assert.Equal(t, now, event.Timestamp)
 	assert.Equal(t, "tenant-1", event.TenantID)
 	assert.Equal(t, "client-1", event.ClientID)
@@ -81,8 +81,8 @@ func TestEventConstruction(t *testing.T) {
 }
 
 func TestEventZeroValue(t *testing.T) {
-	var event Event
-	assert.Equal(t, EventType(""), event.Type)
+	var event AuditEvent
+	assert.Equal(t, AuditEventType(""), event.Type)
 	assert.True(t, event.Timestamp.IsZero())
 	assert.Empty(t, event.TenantID)
 	assert.Empty(t, event.ToolID)
@@ -90,9 +90,9 @@ func TestEventZeroValue(t *testing.T) {
 }
 
 func TestHealthTransitionEvent(t *testing.T) {
-	ev := HealthTransitionEvent("tool-1", "enabled", "degraded")
+	ev := HealthTransitionAuditEvent("tool-1", "enabled", "degraded")
 	require.NotNil(t, ev)
-	assert.Equal(t, EventTypeHealthTransition, ev.Type)
+	assert.Equal(t, AuditEventTypeHealthTransition, ev.Type)
 	assert.Equal(t, "tool-1", ev.ToolID)
 	assert.Equal(t, "degraded", ev.Outcome)
 	assert.NotZero(t, ev.Timestamp)
@@ -103,15 +103,15 @@ func TestHealthTransitionEvent(t *testing.T) {
 
 func TestCircuitStateChangeEvent(t *testing.T) {
 	meta := map[string]string{"reason": "failure_threshold", "count": "5"}
-	ev := CircuitStateChangeEvent("tool-1", "open", meta)
+	ev := CircuitStateChangeAuditEvent("tool-1", "open", meta)
 	require.NotNil(t, ev)
-	assert.Equal(t, EventTypeCircuitStateChange, ev.Type)
+	assert.Equal(t, AuditEventTypeCircuitStateChange, ev.Type)
 	assert.Equal(t, "tool-1", ev.ToolID)
 	assert.Equal(t, "open", ev.Outcome)
 	assert.NotZero(t, ev.Timestamp)
 	assert.Equal(t, meta, ev.Metadata)
 
-	ev = CircuitStateChangeEvent("tool-2", "closed", nil)
+	ev = CircuitStateChangeAuditEvent("tool-2", "closed", nil)
 	require.NotNil(t, ev)
 	assert.Nil(t, ev.Metadata)
 }

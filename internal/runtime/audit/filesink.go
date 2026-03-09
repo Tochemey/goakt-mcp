@@ -29,6 +29,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 const fileSinkBufSize = 4096
@@ -66,7 +68,7 @@ func NewFileSink(dir string) (*FileSink, error) {
 // Write appends the event as a JSON line. The encoder writes JSON followed by
 // a newline into the buffered writer, which flushes to the file when full or
 // on Close.
-func (x *FileSink) Write(event *Event) error {
+func (x *FileSink) Write(event *mcp.AuditEvent) error {
 	if event == nil {
 		return nil
 	}

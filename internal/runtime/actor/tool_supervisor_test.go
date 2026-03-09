@@ -50,7 +50,7 @@ func TestToolSupervisorActor(t *testing.T) {
 		system, stop := testActorSystemWithTools(t, tool)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		name := mcp.ToolSupervisorName(tool.ID)
@@ -72,7 +72,7 @@ func TestToolSupervisorActor(t *testing.T) {
 		system, stop := testActorSystemWithTools(t, tool)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		name := mcp.ToolSupervisorName(tool.ID)
@@ -99,7 +99,7 @@ func TestToolSupervisorActor(t *testing.T) {
 		system, stop := testActorSystemWithTools(t, tool)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		name := mcp.ToolSupervisorName(tool.ID)
@@ -124,11 +124,13 @@ func TestToolSupervisorActor(t *testing.T) {
 		toolCfgExt := actorextension.NewToolConfigExtension()
 		toolCfgExt.Register(tool)
 		circuitCfgExt := actorextension.NewCircuitConfigExtension(circuitCfg)
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
 		kit, ctx := newTestKit(t,
-			testkit.WithExtensions(toolCfgExt, circuitCfgExt),
+			testkit.WithExtensions(toolCfgExt, circuitCfgExt, actorextension.NewConfigExtension(cfg)),
 		)
 
-		kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 
 		name := mcp.ToolSupervisorName(tool.ID)
 		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor())
@@ -169,11 +171,13 @@ func TestToolSupervisorActor(t *testing.T) {
 		toolCfgExt := actorextension.NewToolConfigExtension()
 		toolCfgExt.Register(tool)
 		circuitCfgExt := actorextension.NewCircuitConfigExtension(circuitCfg)
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
 		kit, ctx := newTestKit(t,
-			testkit.WithExtensions(toolCfgExt, circuitCfgExt),
+			testkit.WithExtensions(toolCfgExt, circuitCfgExt, actorextension.NewConfigExtension(cfg)),
 		)
 
-		kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 
 		name := mcp.ToolSupervisorName(tool.ID)
 		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor())
@@ -208,9 +212,11 @@ func TestToolSupervisorActor(t *testing.T) {
 		tool := validStdioTool("success-mismatch")
 		toolCfgExt := actorextension.NewToolConfigExtension()
 		toolCfgExt.Register(tool)
-		kit, ctx := newTestKit(t, testkit.WithExtensions(toolCfgExt))
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		kit, ctx := newTestKit(t, testkit.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)))
 
-		kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 
 		name := mcp.ToolSupervisorName(tool.ID)
 		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor())
@@ -245,10 +251,12 @@ func TestToolSupervisorActor(t *testing.T) {
 
 	t.Run("stops when tool config extension is absent", func(t *testing.T) {
 		// System created WITHOUT ToolConfigExtension — supervisor must stop itself.
-		system, stop := testActorSystem(t)
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		tool := validStdioTool("no-ext-tool")
@@ -262,12 +270,14 @@ func TestToolSupervisorActor(t *testing.T) {
 
 	t.Run("stops when tool is not registered in extension", func(t *testing.T) {
 		// ToolConfigExtension registered but empty (tool never registered).
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
 		system, stop := testActorSystem(t,
-			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		tool := validStdioTool("unregistered-tool")
@@ -288,10 +298,12 @@ func TestToolSupervisorActor(t *testing.T) {
 		tool := validStdioTool("metrics-circuit-tool")
 		toolCfgExt := actorextension.NewToolConfigExtension()
 		toolCfgExt.Register(tool)
-		system, stop := testActorSystem(t, goaktactor.WithExtensions(toolCfgExt))
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		name := mcp.ToolSupervisorName(tool.ID)
@@ -307,11 +319,15 @@ func TestToolSupervisorActor(t *testing.T) {
 
 	t.Run("circuit open emits audit event when journal is running", func(t *testing.T) {
 		tool := validStdioTool("circuit-audit-tool")
-		system, stop := testActorSystemWithTools(t, tool)
+		sink := audit.NewMemorySink()
+		cfg := testConfig()
+		cfg.Audit.Sink = sink
+		toolCfgExt := actorextension.NewToolConfigExtension()
+		toolCfgExt.Register(tool)
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		sink := audit.NewMemorySink()
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(sink))
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -327,9 +343,9 @@ func TestToolSupervisorActor(t *testing.T) {
 
 		events := sink.Events()
 		require.NotEmpty(t, events, "expected circuit state change audit event")
-		var circuitEvent *audit.Event
+		var circuitEvent *mcp.AuditEvent
 		for _, e := range events {
-			if e.Type == audit.EventTypeCircuitStateChange {
+			if e.Type == mcp.AuditEventTypeCircuitStateChange {
 				circuitEvent = e
 				break
 			}

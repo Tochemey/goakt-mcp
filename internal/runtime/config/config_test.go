@@ -63,7 +63,7 @@ func TestClusterConfig(t *testing.T) {
 		Enabled:       true,
 		Discovery:     "kubernetes",
 		SingletonRole: "control-plane",
-		Kubernetes: &KubernetesDiscoveryConfig{
+		Kubernetes: KubernetesDiscoveryConfig{
 			Namespace:         "default",
 			DiscoveryPortName: "gossip",
 			RemotingPortName:  "remoting",
@@ -74,27 +74,16 @@ func TestClusterConfig(t *testing.T) {
 	assert.True(t, cfg.Enabled)
 	assert.Equal(t, "kubernetes", cfg.Discovery)
 	assert.Equal(t, "control-plane", cfg.SingletonRole)
-	require.NotNil(t, cfg.Kubernetes)
 	assert.Equal(t, "default", cfg.Kubernetes.Namespace)
 	assert.Equal(t, "gossip", cfg.Kubernetes.DiscoveryPortName)
+	assert.Equal(t, "remoting", cfg.Kubernetes.RemotingPortName)
+	assert.Equal(t, "cluster", cfg.Kubernetes.PeersPortName)
+	assert.Equal(t, map[string]string{"app": "goakt-mcp"}, cfg.Kubernetes.PodLabels)
 }
 
 func TestTelemetryConfig(t *testing.T) {
 	cfg := TelemetryConfig{OTLPEndpoint: "http://otel-collector:4318"}
 	assert.Equal(t, "http://otel-collector:4318", cfg.OTLPEndpoint)
-}
-
-func TestAuditConfig(t *testing.T) {
-	cfg := AuditConfig{Backend: "s3", Bucket: "goakt-mcp-audit"}
-	assert.Equal(t, "s3", cfg.Backend)
-	assert.Equal(t, "goakt-mcp-audit", cfg.Bucket)
-}
-
-func TestCredentialsConfig(t *testing.T) {
-	cfg := CredentialsConfig{Providers: []string{"env", "vault"}}
-	require.Len(t, cfg.Providers, 2)
-	assert.Equal(t, "env", cfg.Providers[0])
-	assert.Equal(t, "vault", cfg.Providers[1])
 }
 
 func TestTenantConfig(t *testing.T) {
@@ -132,6 +121,12 @@ func TestStdioToolConfig(t *testing.T) {
 	require.Len(t, cfg.Args, 3)
 	assert.Equal(t, mcp.RoutingSticky, cfg.Routing)
 	assert.Equal(t, mcp.CredentialPolicyOptional, cfg.CredentialPolicy)
+	assert.Equal(t, mcp.AuthorizationPolicyTenantAllowlist, cfg.AuthorizationPolicy)
+	assert.Equal(t, 10*time.Second, cfg.StartupTimeout)
+	assert.Equal(t, 30*time.Second, cfg.RequestTimeout)
+	assert.Equal(t, 5*time.Minute, cfg.IdleTimeout)
+	assert.Equal(t, "/", cfg.WorkingDirectory)
+	assert.Equal(t, map[string]string{}, cfg.Env)
 }
 
 func TestHTTPToolConfig(t *testing.T) {
@@ -151,6 +146,9 @@ func TestHTTPToolConfig(t *testing.T) {
 	assert.Equal(t, "https://mcp.internal.example.com", cfg.URL)
 	assert.Equal(t, mcp.RoutingLeastLoaded, cfg.Routing)
 	assert.Equal(t, mcp.CredentialPolicyRequired, cfg.CredentialPolicy)
+	assert.Equal(t, mcp.AuthorizationPolicyTenantAllowlist, cfg.AuthorizationPolicy)
+	assert.Equal(t, 15*time.Second, cfg.RequestTimeout)
+	assert.Equal(t, 2*time.Minute, cfg.IdleTimeout)
 }
 
 func TestToolConfigToTool(t *testing.T) {
@@ -208,7 +206,7 @@ func TestToolConfigToTool(t *testing.T) {
 			ID:        mcp.ToolID("mcp-secure"),
 			Transport: mcp.TransportHTTP,
 			URL:       "https://mcp.internal.example.com",
-			HTTPTLS: &mcp.EgressTLSConfig{
+			HTTPTLS: &mcp.TLSClientConfig{
 				CACertFile:         "/etc/ca.crt",
 				ClientCertFile:     "/etc/client.crt",
 				ClientKeyFile:      "/etc/client.key",
@@ -244,8 +242,7 @@ func TestParseLogLevel(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.input, func(t *testing.T) {
-			got, err := ParseLogLevel(tc.input)
-			require.NoError(t, err)
+			got := ParseLogLevel(tc.input)
 			assert.Equal(t, tc.expected, got)
 		})
 	}
@@ -284,7 +281,7 @@ func TestFullConfig(t *testing.T) {
 			Enabled:       true,
 			Discovery:     "kubernetes",
 			SingletonRole: "control-plane",
-			Kubernetes: &KubernetesDiscoveryConfig{
+			Kubernetes: KubernetesDiscoveryConfig{
 				Namespace:         "default",
 				DiscoveryPortName: "gossip",
 				RemotingPortName:  "remoting",
@@ -292,9 +289,7 @@ func TestFullConfig(t *testing.T) {
 				PodLabels:         map[string]string{"app": "goakt-mcp"},
 			},
 		},
-		Telemetry:   TelemetryConfig{OTLPEndpoint: "http://otel-collector:4318"},
-		Audit:       AuditConfig{Backend: "s3", Bucket: "goakt-mcp-audit"},
-		Credentials: CredentialsConfig{Providers: []string{"env", "vault"}},
+		Telemetry: TelemetryConfig{OTLPEndpoint: "http://otel-collector:4318"},
 		Tenants: []TenantConfig{
 			{ID: "acme-dev", Quotas: TenantQuotaConfig{RequestsPerMinute: 1000, ConcurrentSessions: 200}},
 		},

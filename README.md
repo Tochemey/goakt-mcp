@@ -1,20 +1,15 @@
-<h2 align="center">
-  <img src="assets/logo.png" alt="Distributed MCP gateway library" width="800"/><br />
-  Distributed MCP gateway library
-</h2>
+# goakt-mcp
 
----
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Tochemey/goakt-mcp/gha-pipeline.yml)](https://github.com/Tochemey/goakt-mcp/actions/workflows/gha-pipeline.yml)
 [![codecov](https://codecov.io/gh/Tochemey/goakt-mcp/graph/badge.svg?token=EkuaJqCDZr)](https://codecov.io/gh/Tochemey/goakt-mcp)
 
-
 goakt-mcp is an MCP gateway library built in Go. It provides a resilient, observable, and scalable execution layer for tool calls through a programmatic Go API.
 
-Instead of behaving like a thin JSON-RPC proxy, goakt-mcp is designed as an operational control plane for MCP workloads. It manages tool lifecycle, session affinity, supervision, routing, credential brokering, policy enforcement, and auditability behind a single `Gateway` API.
+Instead of acting as a thin JSON-RPC proxy, goakt-mcp is designed as an operational control plane for MCP workloads. It manages tool lifecycle, session affinity, supervision, routing, credential brokering, policy enforcement, and auditability behind a single `Gateway` API.
 
 ## Status
 
-The project is in the design and buildout phase. The architecture and product direction are defined; the runtime is intended to support production-ready v1 capabilities. This repository should be read as a project in progress, not as a finished library.
+The project is in active development. The core runtime (Gateway, Router, Registrar, ToolSupervisor, CredentialBroker, Policy, Health, Journal) is implemented. Cluster mode, telemetry, and audit are supported; the API and configuration model may still evolve before a stable release.
 
 ## Why goakt-mcp
 
@@ -37,82 +32,21 @@ goakt-mcp is intended to provide:
 - Sticky session ownership per tenant + client + tool
 - Cluster-aware routing and failover
 - Dynamic tool registration and discovery
-- Credential broker integration
+- Credential broker integration (pluggable providers)
 - Tenant-aware policy enforcement, quotas, and auditing
 - OpenTelemetry traces, metrics, structured logs, and durable audit records
 
 ## Quick Start
 
-```go
-package main
+See [examples/filesystem](examples/filesystem) for a runnable example:
 
-import (
-	"context"
-	"fmt"
-	"log"
-
-	goaktmcp "github.com/tochemey/goakt-mcp"
-	"github.com/tochemey/goakt-mcp/mcp"
-)
-
-func main() {
-	cfg := mcp.Config{
-		Tools: []mcp.Tool{
-			{
-				ID:        "filesystem",
-				Transport: mcp.TransportStdio,
-				Stdio:     &mcp.StdioTransportConfig{Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"}},
-				State:     mcp.ToolStateEnabled,
-			},
-		},
-	}
-
-	gw, err := goaktmcp.New(cfg)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	ctx := context.Background()
-	if err := gw.Start(ctx); err != nil {
-		log.Fatal(err)
-	}
-	defer gw.Stop(ctx)
-
-	// List registered tools
-	tools, _ := gw.ListTools(ctx)
-	fmt.Printf("Registered tools: %d\n", len(tools))
-
-	// Invoke a tool
-	result, err := gw.Invoke(ctx, &mcp.Invocation{
-		ToolID: "filesystem",
-		Method: "tools/call",
-		Params: map[string]any{
-			"name":      "list_directory",
-			"arguments": map[string]any{"path": "/tmp"},
-		},
-		Correlation: mcp.CorrelationMeta{
-			TenantID: "acme-dev",
-			ClientID: "my-app",
-		},
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Result: %v\n", result.Status)
-
-	// Dynamically register a new tool
-	_ = gw.RegisterTool(ctx, mcp.Tool{
-		ID:        "new-tool",
-		Transport: mcp.TransportHTTP,
-		HTTP:      &mcp.HTTPTransportConfig{URL: "https://mcp.example.com"},
-		State:     mcp.ToolStateEnabled,
-	})
-}
+```bash
+go run ./examples/filesystem
 ```
 
 ## API
 
-The `Gateway` is the sole public entry point. Users construct it with a `Config` and options, then call methods:
+The `Gateway` is the sole public entry point. Construct it with a `mcp.Config` and optional options, then call methods:
 
 | Method                     | Description                                |
 |----------------------------|--------------------------------------------|
@@ -126,38 +60,61 @@ The `Gateway` is the sole public entry point. Users construct it with a `Config`
 | `DisableTool(ctx, toolID)` | Disable a tool                             |
 | `RemoveTool(ctx, toolID)`  | Remove a tool                              |
 
+### Options
+
+- `WithLogger(level goaktlog.Level)` — Set gateway log level; use `goaktlog.InvalidLevel` to suppress output (e.g. in tests).
+- `WithMetrics()` — Enable OpenTelemetry metrics (invocation latency, failures, tool availability, circuit state).
+- `WithTracing()` — Enable OpenTelemetry tracing and W3C trace-context propagation on egress.
+
 ## Configuration
 
-Configuration is constructed programmatically. Build a `Config` struct with your tools, tenants, and runtime settings:
+Build a `mcp.Config` with your tools, tenants, and runtime settings. Zero-valued fields are filled with defaults by `New`.
 
 ```go
-import "github.com/tochemey/goakt-mcp/mcp"
+import (
+ "time"
+ "github.com/tochemey/goakt-mcp/mcp"
+)
 
 cfg := mcp.Config{
-    LogLevel: "info",
-    Runtime: mcp.RuntimeConfig{
-        SessionIdleTimeout: 5 * time.Minute,
-        RequestTimeout:     30 * time.Second,
-    },
-    Tools: []mcp.Tool{
-        {
-            ID:        "filesystem",
-            Transport: mcp.TransportStdio,
-            Stdio:     &mcp.StdioTransportConfig{Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"}},
-            State:     mcp.ToolStateEnabled,
-        },
-    },
+ LogLevel: "info",
+ Runtime: mcp.RuntimeConfig{
+  SessionIdleTimeout:  5 * time.Minute,
+  RequestTimeout:     30 * time.Second,
+  StartupTimeout:     10 * time.Second,
+  HealthProbeInterval: 30 * time.Second,
+  ShutdownTimeout:    30 * time.Second,
+ },
+ Tools: []mcp.Tool{
+  {
+   ID:        "filesystem",
+   Transport: mcp.TransportStdio,
+   Stdio:     &mcp.StdioTransportConfig{Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"}},
+   State:     mcp.ToolStateEnabled,
+  },
+ },
 }
 ```
 
-Defaults are applied for zero-valued runtime fields. See `mcp.Config` and related types for the full configuration model.
+### Config sections
 
-### Cluster Discovery
+- **Runtime** — Session idle timeout, request timeout, startup timeout, health probe interval, shutdown timeout. Defaults are applied when zero.
+- **Cluster** — Multi-node mode. When `Enabled` is true, set `Discovery` to `"kubernetes"` or `"dnssd"` and supply the corresponding config (`Kubernetes` or `DNSSD`). Set `Cluster.TLS` to a `RemotingTLSConfig` to enable TLS for remoting and cluster communication (all nodes must share the same root CA).
+- **Telemetry** — OpenTelemetry export (e.g. `OTLPEndpoint`).
+- **Audit** — Set `Audit.Sink` to an implementation of `mcp.AuditSink` for durable audit events. Omit for in-memory (testing).
+- **Credentials** — Set `Credentials.Providers` to a slice of `mcp.CredentialsProvider` and optionally `Credentials.CacheTTL`. Used by the credential broker when tools require credentials.
+- **Tenants** — Per-tenant config and quotas (e.g. `RequestsPerMinute`, `ConcurrentSessions`) for policy and rate limiting.
+- **HealthProbe** — Health probe interval for the health actor (`HealthProbe.Interval`).
+- **Tools** — Tool definitions to register at startup.
 
-goakt-mcp supports multi-node clustering with:
+See `mcp.Config` and related types in the `mcp` package for the full configuration model.
 
-- **Kubernetes**: In-cluster pod discovery using labels and port names
-- **DNS-SD**: DNS-based service discovery for local development
+### Cluster discovery
+
+When `Cluster.Enabled` is true, discovery can be:
+
+- **Kubernetes** — In-cluster pod discovery via `KubernetesDiscoveryConfig` (namespace, port names, pod labels).
+- **DNS-SD** — DNS-based service discovery via `DNSSDDiscoveryConfig` (domain name, optional IPv6) for local development.
 
 ## License
 

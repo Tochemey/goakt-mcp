@@ -37,7 +37,7 @@ func TestIsClusterConfigured(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = false
 		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = &config.DNSSDDiscoveryConfig{DomainName: "goakt-mcp.local"}
+		cfg.Cluster.DNSSD = config.DNSSDDiscoveryConfig{DomainName: "goakt-mcp.local"}
 		assert.False(t, IsClusterConfigured(cfg))
 	})
 
@@ -52,7 +52,7 @@ func TestIsClusterConfigured(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Discovery = "kubernetes"
-		cfg.Cluster.Kubernetes = nil
+		cfg.Cluster.Kubernetes = config.KubernetesDiscoveryConfig{}
 		assert.False(t, IsClusterConfigured(cfg))
 	})
 
@@ -60,7 +60,7 @@ func TestIsClusterConfigured(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Discovery = "kubernetes"
-		cfg.Cluster.Kubernetes = &config.KubernetesDiscoveryConfig{
+		cfg.Cluster.Kubernetes = config.KubernetesDiscoveryConfig{
 			Namespace: "default",
 			// missing DiscoveryPortName, RemotingPortName, PeersPortName, PodLabels
 		}
@@ -71,7 +71,7 @@ func TestIsClusterConfigured(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Discovery = "kubernetes"
-		cfg.Cluster.Kubernetes = &config.KubernetesDiscoveryConfig{
+		cfg.Cluster.Kubernetes = config.KubernetesDiscoveryConfig{
 			Namespace:         "default",
 			DiscoveryPortName: "gossip",
 			RemotingPortName:  "remoting",
@@ -85,7 +85,7 @@ func TestIsClusterConfigured(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = nil
+		cfg.Cluster.DNSSD = config.DNSSDDiscoveryConfig{}
 		assert.False(t, IsClusterConfigured(cfg))
 	})
 
@@ -93,7 +93,7 @@ func TestIsClusterConfigured(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = &config.DNSSDDiscoveryConfig{DomainName: ""}
+		cfg.Cluster.DNSSD = config.DNSSDDiscoveryConfig{DomainName: ""}
 		assert.False(t, IsClusterConfigured(cfg))
 	})
 
@@ -101,7 +101,7 @@ func TestIsClusterConfigured(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = &config.DNSSDDiscoveryConfig{DomainName: "goakt-mcp.default.svc.cluster.local"}
+		cfg.Cluster.DNSSD = config.DNSSDDiscoveryConfig{DomainName: "goakt-mcp.default.svc.cluster.local"}
 		assert.True(t, IsClusterConfigured(cfg))
 	})
 }
@@ -118,7 +118,7 @@ func TestBuildOptions(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Discovery = "kubernetes"
-		cfg.Cluster.Kubernetes = nil
+		cfg.Cluster.Kubernetes = config.KubernetesDiscoveryConfig{}
 		opts := BuildOptions(cfg, nil)
 		require.NotNil(t, opts)
 		// Should have WithRemote but not WithCluster (cluster requires valid discovery)
@@ -129,7 +129,7 @@ func TestBuildOptions(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Discovery = "kubernetes"
-		cfg.Cluster.Kubernetes = &config.KubernetesDiscoveryConfig{
+		cfg.Cluster.Kubernetes = config.KubernetesDiscoveryConfig{
 			Namespace:         "default",
 			DiscoveryPortName: "gossip",
 			RemotingPortName:  "remoting",
@@ -145,7 +145,7 @@ func TestBuildOptions(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = &config.DNSSDDiscoveryConfig{DomainName: "goakt-mcp.local"}
+		cfg.Cluster.DNSSD = config.DNSSDDiscoveryConfig{DomainName: "goakt-mcp.local"}
 		opts := BuildOptions(cfg, nil)
 		require.NotNil(t, opts)
 		assert.GreaterOrEqual(t, len(opts), 2, "expect WithRemote and WithCluster")

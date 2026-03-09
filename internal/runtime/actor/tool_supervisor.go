@@ -37,7 +37,6 @@ import (
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
-	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
@@ -347,6 +346,6 @@ func (x *toolSupervisor) recordCircuitStateChange(state string, metadata map[str
 	if x.journal == nil || !x.journal.IsRunning() {
 		return
 	}
-	ev := audit.CircuitStateChangeEvent(string(x.tool.ID), state, metadata)
+	ev := mcp.CircuitStateChangeAuditEvent(string(x.tool.ID), state, metadata)
 	_ = goaktactor.Tell(context.Background(), x.journal, &runtime.RecordAuditEvent{Event: ev})
 }

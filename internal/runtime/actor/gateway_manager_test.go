@@ -24,35 +24,41 @@
 package actor
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	goaktactor "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/testkit"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
+	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 )
 
 func TestGatewayManager(t *testing.T) {
-	ctx := context.Background()
-
 	t.Run("spawns as a top-level actor successfully", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		ctx := t.Context()
+		config := testConfig()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(extension.NewConfigExtension(config)))
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameGatewayManager, NewGatewayManager(testConfig()))
+		pid, err := system.Spawn(ctx, mcp.ActorNameGatewayManager, NewGatewayManager())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 		assert.Equal(t, mcp.ActorNameGatewayManager, pid.Name())
 	})
 
 	t.Run("spawns foundational children on PostStart", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		ctx := t.Context()
+		config := testConfig()
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(extension.NewConfigExtension(config)))
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameGatewayManager, NewGatewayManager(testConfig()))
+		pid, err := system.Spawn(ctx, mcp.ActorNameGatewayManager, NewGatewayManager())
 		require.NoError(t, err)
 
 		waitForActors()
@@ -67,30 +73,27 @@ func TestGatewayManager(t *testing.T) {
 		assert.True(t, childNames[mcp.ActorNameHealth], "HealthActor must be spawned")
 		assert.True(t, childNames[mcp.ActorNameJournal], "JournalActor must be spawned")
 		assert.True(t, childNames[mcp.ActorNamePolicy], "PolicyActor must be spawned")
+		assert.True(t, childNames[mcp.ActorNameCredentialBroker], "CredentialBrokerActor must be spawned")
 		assert.True(t, childNames[mcp.ActorNameRouter], "RouterActor must be spawned")
-		assert.Len(t, children, 5, "GatewayManager must spawn exactly five foundational actors")
+		assert.Len(t, children, 6, "GatewayManager must spawn exactly six foundational actors")
 	})
 
 	t.Run("unhandles unknown message", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
+		config := testConfig()
+		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(config)))
 
-		cfg := testConfig()
-		pid, err := kit.ActorSystem().Spawn(ctx, mcp.ActorNameGatewayManager, NewGatewayManager(cfg))
+		pid, err := kit.ActorSystem().Spawn(ctx, mcp.ActorNameGatewayManager, NewGatewayManager())
 		require.NoError(t, err)
 		waitForActors()
 		require.NoError(t, pid.Tell(ctx, pid, "unknown"))
 		waitForActors()
 	})
 
-	t.Run("createAuditSink returns MemorySink for s3 backend", func(t *testing.T) {
-		cfg := config.AuditConfig{Backend: "s3", Bucket: "test"}
+	t.Run("createAuditSink returns sink when configured", func(t *testing.T) {
+		memSink := audit.NewMemorySink()
+		cfg := config.AuditConfig{Sink: memSink}
 		sink := createAuditSink(cfg)
 		require.NotNil(t, sink)
 		_ = sink.Close()
-	})
-
-	t.Run("buildCredentialProviders skips unknown provider", func(t *testing.T) {
-		providers := buildCredentialProviders([]string{"vault", "env"})
-		assert.Len(t, providers, 1)
 	})
 }
