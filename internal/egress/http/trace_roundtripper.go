@@ -21,30 +21,21 @@
 // SOFTWARE.
 //
 
-package runtime
+package http
 
 import (
-	"testing"
+	"net/http"
 
-	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
-	"github.com/tochemey/goakt-mcp/mcp"
+	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
-// TestRuntimePackageContracts verifies that the mcp package exports the
-// expected top-level symbols and that their zero values are coherent.
-func TestRuntimePackageContracts(t *testing.T) {
-	// identity types are string-based; zero values must be empty
-	require.True(t, mcp.TenantID("").IsZero())
-	require.True(t, mcp.ClientID("").IsZero())
-	require.True(t, mcp.ToolID("").IsZero())
-	require.True(t, mcp.SessionID("").IsZero())
-	require.True(t, mcp.RequestID("").IsZero())
-	require.True(t, mcp.TraceID("").IsZero())
-
-	// a zero CorrelationMeta is fully empty
-	require.True(t, mcp.CorrelationMeta{}.IsZero())
-
-	// a zero Tool is not available (zero ToolState is not enabled or degraded)
-	require.False(t, mcp.Tool{}.IsAvailable())
+// wrapTransport returns an otelhttp-instrumented transport when tracing is
+// enabled, or the base transport unchanged when it is not.
+func wrapTransport(base http.RoundTripper) http.RoundTripper {
+	if !telemetry.TracingEnabled() {
+		return base
+	}
+	return otelhttp.NewTransport(base)
 }

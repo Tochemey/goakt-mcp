@@ -21,30 +21,44 @@
 // SOFTWARE.
 //
 
-package runtime
+package http
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-func TestCircuitState(t *testing.T) {
-	t.Run("CanAccept", func(t *testing.T) {
-		assert.True(t, mcp.CircuitClosed.CanAccept())
-		assert.True(t, mcp.CircuitHalfOpen.CanAccept())
-		assert.False(t, mcp.CircuitOpen.CanAccept())
-	})
-	t.Run("IsOpen", func(t *testing.T) {
-		assert.False(t, mcp.CircuitClosed.IsOpen())
-		assert.False(t, mcp.CircuitHalfOpen.IsOpen())
-		assert.True(t, mcp.CircuitOpen.IsOpen())
-	})
+func TestHTTPExecutorFactory_NonHTTPTool(t *testing.T) {
+	factory := NewHTTPExecutorFactory(nil, time.Second)
+	tool := mcp.Tool{
+		ID:        "stdio-tool",
+		Transport: mcp.TransportStdio,
+		Stdio:     &mcp.StdioTransportConfig{Command: "echo"},
+	}
+	exec, err := factory.Create(context.Background(), tool, nil)
+	require.NoError(t, err)
+	assert.Nil(t, exec)
 }
 
-func TestCircuitConfigDefaults(t *testing.T) {
-	assert.Equal(t, 5, mcp.DefaultCircuitFailureThreshold)
-	assert.Equal(t, 1, mcp.DefaultCircuitHalfOpenMaxRequests)
+func TestHTTPExecutorFactory_NilHTTPConfig(t *testing.T) {
+	factory := NewHTTPExecutorFactory(nil, time.Second)
+	tool := mcp.Tool{
+		ID:        "http-tool",
+		Transport: mcp.TransportHTTP,
+		HTTP:      nil,
+	}
+	exec, err := factory.Create(context.Background(), tool, nil)
+	require.NoError(t, err)
+	assert.Nil(t, exec)
+}
+
+func TestHTTPExecutorFactory_DefaultTimeout(t *testing.T) {
+	factory := NewHTTPExecutorFactory(nil, 0)
+	assert.NotNil(t, factory)
 }

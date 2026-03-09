@@ -48,3 +48,26 @@ func WithLogger(level LogLevel) Option {
 		}
 	}
 }
+
+// WithMetrics enables OpenTelemetry metrics for the gateway. When set, the
+// gateway registers goakt-mcp instruments (tool availability, invocation
+// latency, failures, circuit state) at Start. Metrics are exported only when
+// the OpenTelemetry SDK is initialized and a MeterProvider/exporter is
+// configured before Start, similar to GoAkt's WithMetrics().
+func WithMetrics() Option {
+	return func(g *Gateway) {
+		g.metrics = true
+	}
+}
+
+// WithTracing enables OpenTelemetry tracing for the gateway. When set, the
+// gateway registers a Tracer at Start and instruments egress HTTP calls with
+// otelhttp for automatic W3C trace-context propagation and span creation.
+// Traces are exported only when the OpenTelemetry SDK is initialized and a
+// TracerProvider/exporter is configured before Start, similar to GoAkt's
+// WithTracing().
+func WithTracing() Option {
+	return func(g *Gateway) {
+		g.tracing = true
+	}
+}

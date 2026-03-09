@@ -95,11 +95,8 @@ func (g *GatewayManager) PostStop(ctx *goaktactor.Context) error {
 
 // spawnFoundationalActors spawns RegistryActor, HealthActor, and JournalActor as
 // children of GatewayManager. They are spawned in dependency order so that the
-// registry is always available before health and journal actors start.
-//
-// After spawning RegistryActor, GatewayManager sends BootstrapTools with tools
-// from the static configuration so the registry is populated before other
-// actors depend on it.
+// journal is running before BootstrapTools triggers ToolSupervisorActor spawns.
+// Each supervisor resolves the journal by name from the actor system in PreStart.
 //
 // If any child cannot be spawned, the error is recorded on the ReceiveContext and
 // the GatewayManager will surface it to the supervision layer.
@@ -109,12 +106,12 @@ func (g *GatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext)
 	// spawn the registrar
 	registrar := g.spawnRegistrar(ctx)
 
-	// spawn the health actor
-	ctx.Spawn(mcp.ActorNameHealth, newHealthChecker(registrar, g.config.Runtime.HealthProbeInterval))
-
-	// spawn the journal actor
+	// spawn the journal actor (before health and router so they can use it)
 	auditSink := createAuditSink(g.config.Audit)
 	journaler := ctx.Spawn(mcp.ActorNameJournal, newJournaler(auditSink))
+
+	// spawn the health actor with journal for health transition audit events
+	ctx.Spawn(mcp.ActorNameHealth, newHealthChecker(registrar, journaler, g.config.Runtime.HealthProbeInterval))
 
 	// spawn the policy actor
 	policyPID := ctx.Spawn(mcp.ActorNamePolicy, newPolicyActor(g.config))
@@ -127,7 +124,7 @@ func (g *GatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext)
 		ctx.Spawn(mcp.ActorNameRouter, newRouterActor(registrar, policyPID, credentialBroker, journaler))
 	}
 
-	// bootstrap the tools
+	// bootstrap the tools after journal is running so supervisors can resolve it
 	if registrar != nil && len(g.config.Tools) > 0 {
 		ctx.Tell(registrar, &runtime.BootstrapTools{Tools: g.config.Tools})
 	}

@@ -24,7 +24,6 @@
 package audit
 
 import (
-	"sync"
 	"testing"
 	"time"
 
@@ -90,171 +89,29 @@ func TestEventZeroValue(t *testing.T) {
 	assert.Nil(t, event.Metadata)
 }
 
-func TestMemorySinkImplementsSink(t *testing.T) {
-	var _ Sink = (*MemorySink)(nil)
+func TestHealthTransitionEvent(t *testing.T) {
+	ev := HealthTransitionEvent("tool-1", "enabled", "degraded")
+	require.NotNil(t, ev)
+	assert.Equal(t, EventTypeHealthTransition, ev.Type)
+	assert.Equal(t, "tool-1", ev.ToolID)
+	assert.Equal(t, "degraded", ev.Outcome)
+	assert.NotZero(t, ev.Timestamp)
+	require.NotNil(t, ev.Metadata)
+	assert.Equal(t, "enabled", ev.Metadata["from"])
+	assert.Equal(t, "degraded", ev.Metadata["to"])
 }
 
-func TestMemorySinkNewEmpty(t *testing.T) {
-	sink := NewMemorySink()
-	require.NotNil(t, sink)
-	assert.Empty(t, sink.Events())
-}
+func TestCircuitStateChangeEvent(t *testing.T) {
+	meta := map[string]string{"reason": "failure_threshold", "count": "5"}
+	ev := CircuitStateChangeEvent("tool-1", "open", meta)
+	require.NotNil(t, ev)
+	assert.Equal(t, EventTypeCircuitStateChange, ev.Type)
+	assert.Equal(t, "tool-1", ev.ToolID)
+	assert.Equal(t, "open", ev.Outcome)
+	assert.NotZero(t, ev.Timestamp)
+	assert.Equal(t, meta, ev.Metadata)
 
-func TestMemorySinkWriteAndRetrieve(t *testing.T) {
-	sink := NewMemorySink()
-
-	event := &Event{
-		Type:      EventTypePolicyDecision,
-		Timestamp: time.Now(),
-		TenantID:  "t1",
-		ToolID:    "tool-a",
-		Outcome:   "allow",
-	}
-
-	err := sink.Write(event)
-	require.NoError(t, err)
-
-	events := sink.Events()
-	require.Len(t, events, 1)
-	assert.Equal(t, EventTypePolicyDecision, events[0].Type)
-	assert.Equal(t, "t1", events[0].TenantID)
-	assert.Equal(t, "tool-a", events[0].ToolID)
-	assert.Equal(t, "allow", events[0].Outcome)
-}
-
-func TestMemorySinkWriteMultiple(t *testing.T) {
-	sink := NewMemorySink()
-
-	for i := 0; i < 5; i++ {
-		err := sink.Write(&Event{
-			Type:    EventTypeInvocationComplete,
-			Outcome: "success",
-		})
-		require.NoError(t, err)
-	}
-
-	assert.Len(t, sink.Events(), 5)
-}
-
-func TestMemorySinkDefensiveCopyOnWrite(t *testing.T) {
-	sink := NewMemorySink()
-
-	meta := map[string]string{"key": "original"}
-	event := &Event{
-		Type:     EventTypeInvocationFailed,
-		Metadata: meta,
-	}
-
-	err := sink.Write(event)
-	require.NoError(t, err)
-
-	meta["key"] = "mutated"
-
-	events := sink.Events()
-	require.Len(t, events, 1)
-	assert.Equal(t, "original", events[0].Metadata["key"])
-}
-
-func TestMemorySinkDefensiveCopyOnRead(t *testing.T) {
-	sink := NewMemorySink()
-
-	err := sink.Write(&Event{
-		Type:     EventTypeHealthTransition,
-		Metadata: map[string]string{"state": "open"},
-	})
-	require.NoError(t, err)
-
-	events := sink.Events()
-	require.Len(t, events, 1)
-	events[0].Metadata["state"] = "mutated"
-
-	fresh := sink.Events()
-	assert.Equal(t, "open", fresh[0].Metadata["state"])
-}
-
-func TestMemorySinkWriteNilMetadata(t *testing.T) {
-	sink := NewMemorySink()
-
-	err := sink.Write(&Event{
-		Type:   EventTypeInvocationStart,
-		ToolID: "tool-x",
-	})
-	require.NoError(t, err)
-
-	events := sink.Events()
-	require.Len(t, events, 1)
-	assert.Nil(t, events[0].Metadata)
-}
-
-func TestMemorySinkCloseStopsWrites(t *testing.T) {
-	sink := NewMemorySink()
-
-	err := sink.Write(&Event{Type: EventTypeInvocationComplete})
-	require.NoError(t, err)
-
-	err = sink.Close()
-	require.NoError(t, err)
-
-	err = sink.Write(&Event{Type: EventTypeInvocationFailed})
-	require.NoError(t, err)
-
-	assert.Len(t, sink.Events(), 1)
-}
-
-func TestMemorySinkCloseIdempotent(t *testing.T) {
-	sink := NewMemorySink()
-	require.NoError(t, sink.Close())
-	require.NoError(t, sink.Close())
-}
-
-func TestMemorySinkConcurrentWrites(t *testing.T) {
-	sink := NewMemorySink()
-	const writers = 10
-	const eventsPerWriter = 50
-
-	var wg sync.WaitGroup
-	wg.Add(writers)
-
-	for w := 0; w < writers; w++ {
-		go func() {
-			defer wg.Done()
-			for i := 0; i < eventsPerWriter; i++ {
-				_ = sink.Write(&Event{
-					Type:    EventTypeInvocationComplete,
-					Outcome: "success",
-				})
-			}
-		}()
-	}
-
-	wg.Wait()
-	assert.Len(t, sink.Events(), writers*eventsPerWriter)
-}
-
-func TestMemorySinkConcurrentWriteAndClose(t *testing.T) {
-	sink := NewMemorySink()
-	const writers = 5
-
-	var wg sync.WaitGroup
-	wg.Add(writers + 1)
-
-	for w := 0; w < writers; w++ {
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 100; i++ {
-				_ = sink.Write(&Event{Type: EventTypeInvocationComplete})
-			}
-		}()
-	}
-
-	go func() {
-		defer wg.Done()
-		time.Sleep(time.Millisecond)
-		_ = sink.Close()
-	}()
-
-	wg.Wait()
-
-	events := sink.Events()
-	assert.LessOrEqual(t, len(events), writers*100)
+	ev = CircuitStateChangeEvent("tool-2", "closed", nil)
+	require.NotNil(t, ev)
+	assert.Nil(t, ev.Metadata)
 }

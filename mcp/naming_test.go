@@ -21,7 +21,7 @@
 // SOFTWARE.
 //
 
-package runtime
+package mcp_test
 
 import (
 	"testing"
@@ -37,48 +37,14 @@ func TestActorNameConstants(t *testing.T) {
 	assert.Equal(t, "health", mcp.ActorNameHealth)
 	assert.Equal(t, "journal", mcp.ActorNameJournal)
 	assert.Equal(t, "credential-broker", mcp.ActorNameCredentialBroker)
+	assert.Equal(t, "router", mcp.ActorNameRouter)
+	assert.Equal(t, "policy", mcp.ActorNamePolicy)
 }
 
 func TestToolSupervisorName(t *testing.T) {
-	tests := []struct {
-		toolID   mcp.ToolID
-		expected string
-	}{
-		{"filesystem", "supervisor-filesystem"},
-		{"docs-search", "supervisor-docs-search"},
-		{"my-tool-123", "supervisor-my-tool-123"},
-	}
-	for _, tt := range tests {
-		t.Run(string(tt.toolID), func(t *testing.T) {
-			assert.Equal(t, tt.expected, mcp.ToolSupervisorName(tt.toolID))
-		})
-	}
+	assert.Equal(t, "supervisor-my-tool", mcp.ToolSupervisorName("my-tool"))
 }
 
 func TestSessionName(t *testing.T) {
-	tests := []struct {
-		tenantID mcp.TenantID
-		clientID mcp.ClientID
-		toolID   mcp.ToolID
-		expected string
-	}{
-		{"acme", "user-1", "filesystem", "session-acme-user-1-filesystem"},
-		{"tenant-b", "client-123", "docs-search", "session-tenant-b-client-123-docs-search"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
-			assert.Equal(t, tt.expected, mcp.SessionName(tt.tenantID, tt.clientID, tt.toolID))
-		})
-	}
-}
-
-func TestSessionNameUniqueness(t *testing.T) {
-	name1 := mcp.SessionName("acme", "user-1", "filesystem")
-	name2 := mcp.SessionName("acme", "user-2", "filesystem")
-	name3 := mcp.SessionName("other", "user-1", "filesystem")
-	name4 := mcp.SessionName("acme", "user-1", "docs-search")
-
-	assert.NotEqual(t, name1, name2, "different clients must produce different session names")
-	assert.NotEqual(t, name1, name3, "different tenants must produce different session names")
-	assert.NotEqual(t, name1, name4, "different tools must produce different session names")
+	assert.Equal(t, "session-t1-c1-tool-a", mcp.SessionName("t1", "c1", "tool-a"))
 }

@@ -31,23 +31,29 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/testkit"
+	noopmetric "go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
+	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
+	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestToolSupervisorActor(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("spawns with tool dependency and accepts work when circuit closed", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+	t.Run("resolves tool from extension and accepts work when circuit closed", func(t *testing.T) {
+		tool := validStdioTool("supervisor-tool")
+		system, stop := testActorSystemWithTools(t, tool)
 		defer stop()
 
-		tool := validStdioTool("supervisor-tool")
-		dep := actorextension.NewToolDependency(tool)
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
+
 		name := mcp.ToolSupervisorName(tool.ID)
-		pid, err := system.Spawn(ctx, name, newToolSupervisor(), goaktactor.WithDependencies(dep))
+		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
@@ -61,13 +67,15 @@ func TestToolSupervisorActor(t *testing.T) {
 	})
 
 	t.Run("rejects work when circuit opened after failures", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		tool := validStdioTool("circuit-tool")
+		system, stop := testActorSystemWithTools(t, tool)
 		defer stop()
 
-		tool := validStdioTool("circuit-tool")
-		dep := actorextension.NewToolDependency(tool)
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
+
 		name := mcp.ToolSupervisorName(tool.ID)
-		pid, err := system.Spawn(ctx, name, newToolSupervisor(), goaktactor.WithDependencies(dep))
+		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -86,13 +94,15 @@ func TestToolSupervisorActor(t *testing.T) {
 	})
 
 	t.Run("rejects work when tool ID mismatch", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		tool := validStdioTool("mismatch-tool")
+		system, stop := testActorSystemWithTools(t, tool)
 		defer stop()
 
-		tool := validStdioTool("mismatch-tool")
-		dep := actorextension.NewToolDependency(tool)
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
+
 		name := mcp.ToolSupervisorName(tool.ID)
-		pid, err := system.Spawn(ctx, name, newToolSupervisor(), goaktactor.WithDependencies(dep))
+		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -104,19 +114,23 @@ func TestToolSupervisorActor(t *testing.T) {
 	})
 
 	t.Run("report success closes circuit from half-open", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
-
 		tool := validStdioTool("halfopen-tool")
 		circuitCfg := mcp.CircuitConfig{
 			FailureThreshold:    mcp.DefaultCircuitFailureThreshold,
 			OpenDuration:        100 * time.Millisecond,
 			HalfOpenMaxRequests: mcp.DefaultCircuitHalfOpenMaxRequests,
 		}
-		dep := actorextension.NewToolDependency(tool)
-		cfgDep := actorextension.NewCircuitConfigDependency(circuitCfg)
+		toolCfgExt := actorextension.NewToolConfigExtension()
+		toolCfgExt.Register(tool)
+		circuitCfgExt := actorextension.NewCircuitConfigExtension(circuitCfg)
+		kit, ctx := newTestKit(t,
+			testkit.WithExtensions(toolCfgExt, circuitCfgExt),
+		)
+
+		kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+
 		name := mcp.ToolSupervisorName(tool.ID)
-		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor(),
-			goaktactor.WithDependencies(dep, cfgDep))
+		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor())
 		waitForActors()
 
 		probe := kit.NewProbe(ctx)
@@ -145,19 +159,23 @@ func TestToolSupervisorActor(t *testing.T) {
 	})
 
 	t.Run("report failure in half-open reopens circuit", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
-
 		tool := validStdioTool("reopen-tool")
 		circuitCfg := mcp.CircuitConfig{
 			FailureThreshold:    mcp.DefaultCircuitFailureThreshold,
 			OpenDuration:        100 * time.Millisecond,
 			HalfOpenMaxRequests: mcp.DefaultCircuitHalfOpenMaxRequests,
 		}
-		dep := actorextension.NewToolDependency(tool)
-		cfgDep := actorextension.NewCircuitConfigDependency(circuitCfg)
+		toolCfgExt := actorextension.NewToolConfigExtension()
+		toolCfgExt.Register(tool)
+		circuitCfgExt := actorextension.NewCircuitConfigExtension(circuitCfg)
+		kit, ctx := newTestKit(t,
+			testkit.WithExtensions(toolCfgExt, circuitCfgExt),
+		)
+
+		kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+
 		name := mcp.ToolSupervisorName(tool.ID)
-		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor(),
-			goaktactor.WithDependencies(dep, cfgDep))
+		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor())
 		waitForActors()
 
 		pid, err := kit.ActorSystem().ActorOf(ctx, name)
@@ -186,12 +204,15 @@ func TestToolSupervisorActor(t *testing.T) {
 	})
 
 	t.Run("report success with wrong tool ID is ignored", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
-
 		tool := validStdioTool("success-mismatch")
-		dep := actorextension.NewToolDependency(tool)
+		toolCfgExt := actorextension.NewToolConfigExtension()
+		toolCfgExt.Register(tool)
+		kit, ctx := newTestKit(t, testkit.WithExtensions(toolCfgExt))
+
+		kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+
 		name := mcp.ToolSupervisorName(tool.ID)
-		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor(), goaktactor.WithDependencies(dep))
+		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor())
 		waitForActors()
 
 		pid, _ := kit.ActorSystem().ActorOf(ctx, name)
@@ -205,5 +226,115 @@ func TestToolSupervisorActor(t *testing.T) {
 		require.True(t, ok)
 		assert.True(t, result.Accept)
 		probe.Stop()
+	})
+
+	t.Run("stops when journal is not running at PostStart", func(t *testing.T) {
+		tool := validStdioTool("no-journal-tool")
+		system, stop := testActorSystemWithTools(t, tool)
+		defer stop()
+
+		// No journal spawned — supervisor must stop itself during PostStart.
+		name := mcp.ToolSupervisorName(tool.ID)
+		pid, err := system.Spawn(ctx, name, newToolSupervisor())
+		require.NoError(t, err)
+		waitForActors()
+
+		assert.False(t, pid.IsRunning())
+	})
+
+	t.Run("stops when tool config extension is absent", func(t *testing.T) {
+		// System created WITHOUT ToolConfigExtension — supervisor must stop itself.
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
+
+		tool := validStdioTool("no-ext-tool")
+		name := mcp.ToolSupervisorName(tool.ID)
+		pid, err := system.Spawn(ctx, name, newToolSupervisor())
+		require.NoError(t, err)
+		waitForActors()
+
+		assert.False(t, pid.IsRunning())
+	})
+
+	t.Run("stops when tool is not registered in extension", func(t *testing.T) {
+		// ToolConfigExtension registered but empty (tool never registered).
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
+
+		tool := validStdioTool("unregistered-tool")
+		name := mcp.ToolSupervisorName(tool.ID)
+		pid, err := system.Spawn(ctx, name, newToolSupervisor())
+		require.NoError(t, err)
+		waitForActors()
+
+		assert.False(t, pid.IsRunning())
+	})
+
+	t.Run("circuit open records CircuitState metric when metrics are registered", func(t *testing.T) {
+		meter := noopmetric.NewMeterProvider().Meter("test")
+		_, err := telemetry.RegisterMetrics(meter)
+		require.NoError(t, err)
+		t.Cleanup(telemetry.UnregisterMetrics)
+
+		tool := validStdioTool("metrics-circuit-tool")
+		toolCfgExt := actorextension.NewToolConfigExtension()
+		toolCfgExt.Register(tool)
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(toolCfgExt))
+		defer stop()
+
+		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
+
+		name := mcp.ToolSupervisorName(tool.ID)
+		pid, err := system.Spawn(ctx, name, newToolSupervisor())
+		require.NoError(t, err)
+		waitForActors()
+
+		for i := 0; i < mcp.DefaultCircuitFailureThreshold; i++ {
+			require.NoError(t, goaktactor.Tell(ctx, pid, &runtime.ReportFailure{ToolID: tool.ID}))
+		}
+		waitForActors()
+	})
+
+	t.Run("circuit open emits audit event when journal is running", func(t *testing.T) {
+		tool := validStdioTool("circuit-audit-tool")
+		system, stop := testActorSystemWithTools(t, tool)
+		defer stop()
+
+		sink := audit.NewMemorySink()
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(sink))
+		require.NoError(t, err)
+		waitForActors()
+
+		name := mcp.ToolSupervisorName(tool.ID)
+		pid, err := system.Spawn(ctx, name, newToolSupervisor())
+		require.NoError(t, err)
+		waitForActors()
+
+		for i := 0; i < mcp.DefaultCircuitFailureThreshold; i++ {
+			require.NoError(t, goaktactor.Tell(ctx, pid, &runtime.ReportFailure{ToolID: tool.ID}))
+		}
+		waitForActors()
+
+		events := sink.Events()
+		require.NotEmpty(t, events, "expected circuit state change audit event")
+		var circuitEvent *audit.Event
+		for _, e := range events {
+			if e.Type == audit.EventTypeCircuitStateChange {
+				circuitEvent = e
+				break
+			}
+		}
+		require.NotNil(t, circuitEvent)
+		assert.Equal(t, string(tool.ID), circuitEvent.ToolID)
+		assert.Equal(t, string(mcp.CircuitOpen), circuitEvent.Outcome)
 	})
 }

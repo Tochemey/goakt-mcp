@@ -35,6 +35,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
+	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -141,10 +142,16 @@ func TestGetOrCreateSession(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("supervisor creates session and returns same session on reuse", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
 		defer stop()
 
-		// Use Registrar flow (matches production) so supervisor is child of Registrar
+		// Journal must exist before supervisor PostStart resolves it.
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
+
+		// Use Registrar flow (matches production) so supervisor is child of Registrar.
 		regPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
@@ -197,13 +204,15 @@ func TestGetOrCreateSession(t *testing.T) {
 	})
 
 	t.Run("supervisor rejects GetOrCreateSession when tool ID mismatch", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		tool := validStdioTool("mismatch-tool")
+		system, stop := testActorSystemWithTools(t, tool)
 		defer stop()
 
-		tool := validStdioTool("mismatch-tool")
-		dep := actorextension.NewToolDependency(tool)
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
+
 		name := mcp.ToolSupervisorName(tool.ID)
-		supPID, err := system.Spawn(ctx, name, newToolSupervisor(), goaktactor.WithDependencies(dep))
+		supPID, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -235,35 +244,4 @@ func TestSessionDependencyMarshalUnmarshal(t *testing.T) {
 	assert.Equal(t, "tenant-1", string(dep2.TenantID()))
 	assert.Equal(t, "client-1", string(dep2.ClientID()))
 	assert.Equal(t, "marshal-tool", string(dep2.ToolID()))
-}
-
-func TestToolDependencyMarshalUnmarshal(t *testing.T) {
-	tool := validStdioTool("tool-marshal")
-	dep := actorextension.NewToolDependency(tool)
-
-	data, err := dep.MarshalBinary()
-	require.NoError(t, err)
-	require.NotEmpty(t, data)
-
-	dep2 := &actorextension.ToolDependency{}
-	err = dep2.UnmarshalBinary(data)
-	require.NoError(t, err)
-	assert.Equal(t, tool.ID, dep2.Tool().ID)
-}
-
-func TestCircuitConfigDependencyMarshalUnmarshal(t *testing.T) {
-	cfg := mcp.CircuitConfig{
-		FailureThreshold:    5,
-		OpenDuration:        30 * time.Second,
-		HalfOpenMaxRequests: 3,
-	}
-	dep := actorextension.NewCircuitConfigDependency(cfg)
-
-	data, err := dep.MarshalBinary()
-	require.NoError(t, err)
-	assert.Nil(t, data)
-
-	err = dep.UnmarshalBinary([]byte{1, 2, 3})
-	require.NoError(t, err)
-	assert.Equal(t, cfg, dep.Config())
 }

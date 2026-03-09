@@ -39,7 +39,7 @@ type MemorySink struct {
 
 // NewMemorySink creates a MemorySink.
 func NewMemorySink() *MemorySink {
-	return &MemorySink{events: make([]*Event, 0)}
+	return &MemorySink{events: make([]*Event, 0, 16)}
 }
 
 // Write appends the event to the in-memory buffer.

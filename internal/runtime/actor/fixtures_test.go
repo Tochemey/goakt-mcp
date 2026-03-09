@@ -34,6 +34,7 @@ import (
 	goaktlog "github.com/tochemey/goakt/v4/log"
 	"github.com/tochemey/goakt/v4/testkit"
 
+	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
@@ -66,13 +67,14 @@ func validHTTPTool(id mcp.ToolID) mcp.Tool {
 // testActorSystem creates and starts a minimal GoAkt actor system for use in tests.
 // The returned stop function must be called to clean up the system after the test.
 // Uses the discard logger to suppress all log output during tests.
-func testActorSystem(t *testing.T) (goaktactor.ActorSystem, func()) {
+func testActorSystem(t *testing.T, extras ...goaktactor.Option) (goaktactor.ActorSystem, func()) {
 	t.Helper()
 	ctx := context.Background()
-	system, err := goaktactor.NewActorSystem(
-		"test-goakt-mcp",
+	opts := []goaktactor.Option{
 		goaktactor.WithLogger(goaktlog.DiscardLogger),
-	)
+	}
+	opts = append(opts, extras...)
+	system, err := goaktactor.NewActorSystem("test-goakt-mcp", opts...)
 	require.NoError(t, err)
 	require.NoError(t, system.Start(ctx))
 
@@ -80,6 +82,18 @@ func testActorSystem(t *testing.T) (goaktactor.ActorSystem, func()) {
 		require.NoError(t, system.Stop(ctx))
 	}
 	return system, stop
+}
+
+// testActorSystemWithTools creates and starts an actor system pre-loaded with a
+// ToolConfigExtension containing the given tools. Convenience wrapper over
+// testActorSystem for supervisor tests.
+func testActorSystemWithTools(t *testing.T, tools ...mcp.Tool) (goaktactor.ActorSystem, func()) {
+	t.Helper()
+	toolCfgExt := actorextension.NewToolConfigExtension()
+	for _, tool := range tools {
+		toolCfgExt.Register(tool)
+	}
+	return testActorSystem(t, goaktactor.WithExtensions(toolCfgExt))
 }
 
 // testConfig returns a minimal Config suitable for use in tests.
@@ -124,10 +138,11 @@ func sessionInvocation(toolID mcp.ToolID, tenantID, clientID string) *mcp.Invoca
 }
 
 // newTestKit creates a testkit for use in tests. The returned kit is cleaned up via t.Cleanup.
-func newTestKit(t *testing.T) (*testkit.TestKit, context.Context) {
+// Optional testkit options (e.g. testkit.WithExtensions) can be passed to configure the system.
+func newTestKit(t *testing.T, opts ...testkit.Option) (*testkit.TestKit, context.Context) {
 	t.Helper()
 	ctx := context.Background()
-	kit := testkit.New(ctx, t)
+	kit := testkit.New(ctx, t, opts...)
 	t.Cleanup(func() {
 		kit.Shutdown(ctx)
 	})

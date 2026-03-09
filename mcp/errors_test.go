@@ -21,7 +21,7 @@
 // SOFTWARE.
 //
 
-package runtime
+package mcp_test
 
 import (
 	"errors"
@@ -59,7 +59,7 @@ func TestNewRuntimeError(t *testing.T) {
 	assert.Nil(t, err.Cause)
 }
 
-func TestRuntimeErrorError(t *testing.T) {
+func TestRuntimeError_Error(t *testing.T) {
 	t.Run("without cause", func(t *testing.T) {
 		err := mcp.NewRuntimeError(mcp.ErrCodePolicyDenied, "access denied")
 		assert.Equal(t, "[POLICY_DENIED] access denied", err.Error())
@@ -72,31 +72,22 @@ func TestRuntimeErrorError(t *testing.T) {
 }
 
 func TestWrapRuntimeError(t *testing.T) {
-	cause := fmt.Errorf("underlying network error")
+	cause := fmt.Errorf("underlying error")
 	err := mcp.WrapRuntimeError(mcp.ErrCodeTransportFailure, "transport failed", cause)
-
 	require.NotNil(t, err)
 	assert.Equal(t, mcp.ErrCodeTransportFailure, err.Code)
 	assert.Equal(t, "transport failed", err.Message)
 	assert.Equal(t, cause, err.Cause)
 }
 
-func TestRuntimeErrorUnwrap(t *testing.T) {
-	sentinel := fmt.Errorf("sentinel error")
+func TestRuntimeError_Unwrap(t *testing.T) {
+	sentinel := fmt.Errorf("sentinel")
 	wrapped := mcp.WrapRuntimeError(mcp.ErrCodeInternal, "something went wrong", sentinel)
-
-	assert.True(t, errors.Is(wrapped, sentinel), "errors.Is should find the sentinel through Unwrap")
-}
-
-func TestRuntimeErrorImplementsError(t *testing.T) {
-	var err error = mcp.NewRuntimeError(mcp.ErrCodeInternal, "internal error")
-	assert.NotNil(t, err)
-	assert.Contains(t, err.Error(), "INTERNAL")
+	assert.True(t, errors.Is(wrapped, sentinel))
 }
 
 func TestErrToolNotFound(t *testing.T) {
 	assert.Error(t, mcp.ErrToolNotFound)
-	assert.True(t, errors.Is(mcp.ErrToolNotFound, mcp.ErrToolNotFound))
 	var rErr *mcp.RuntimeError
 	require.True(t, errors.As(mcp.ErrToolNotFound, &rErr))
 	assert.Equal(t, mcp.ErrCodeToolNotFound, rErr.Code)

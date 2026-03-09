@@ -21,48 +21,34 @@
 // SOFTWARE.
 //
 
-package credentials
+package telemetry
 
 import (
 	"context"
-	"os"
-	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-const envProviderID = "env"
+func TestRecordFunctions_NoPanicWhenUnregistered(t *testing.T) {
+	ctx := context.Background()
+	UnregisterMetrics()
 
-// EnvProvider resolves credentials from environment variables.
-//
-// Looks for MCP_CRED_{TOOL_ID}_{KEY} (e.g., MCP_CRED_my-tool_API_KEY).
-// Keys are uppercased and sanitized. Tenant is not used for env lookup;
-// use a tenant-specific prefix in the key name if needed.
-type EnvProvider struct{}
-
-// NewEnvProvider creates an EnvProvider.
-func NewEnvProvider() *EnvProvider {
-	return &EnvProvider{}
+	// Record* should be no-ops when metrics are not registered
+	assert.NotPanics(t, func() { RecordToolAvailability(ctx, mcp.ToolID("tool1"), true) })
+	assert.NotPanics(t, func() { RecordInvocationLatency(ctx, mcp.ToolID("tool1"), mcp.TenantID("tenant1"), 42.5) })
+	assert.NotPanics(t, func() { RecordInvocationFailure(ctx, mcp.ToolID("tool1"), mcp.TenantID("tenant1"), "timeout") })
+	assert.NotPanics(t, func() { RecordCircuitState(ctx, mcp.ToolID("tool1"), "open") })
 }
 
-// ID returns the provider identifier.
-func (e *EnvProvider) ID() string {
-	return envProviderID
-}
-
-// Resolve returns credentials from environment variables.
-func (e *EnvProvider) Resolve(ctx context.Context, tenantID mcp.TenantID, toolID mcp.ToolID) (map[string]string, error) {
-	prefix := "MCP_CRED_" + strings.ToUpper(strings.ReplaceAll(string(toolID), "-", "_")) + "_"
-	creds := make(map[string]string, 8)
-	for _, env := range os.Environ() {
-		if idx := strings.Index(env, "="); idx > 0 && strings.HasPrefix(env, prefix) {
-			key := env[len(prefix):idx]
-			key = strings.ToLower(strings.ReplaceAll(key, "_", "-"))
-			creds[key] = env[idx+1:]
-		}
-	}
-	if len(creds) == 0 {
-		return nil, nil
-	}
-	return creds, nil
+func TestRegisterMetrics(t *testing.T) {
+	t.Run("creates instruments from meter", func(t *testing.T) {
+		m, err := RegisterMetrics(nil)
+		require.NoError(t, err)
+		require.NotNil(t, m)
+		t.Cleanup(UnregisterMetrics)
+	})
 }

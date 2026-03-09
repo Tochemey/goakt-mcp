@@ -31,11 +31,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/testkit"
+	noopmetric "go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
+	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
+	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -43,8 +47,13 @@ func TestRouterActor(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("successful route and execute", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
 		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
 
 		registryPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
@@ -93,8 +102,13 @@ func TestRouterActor(t *testing.T) {
 	})
 
 	t.Run("circuit open rejects work", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
 		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
 
 		tool := validStdioTool("circuit-tool")
 		registryPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
@@ -135,8 +149,13 @@ func TestRouterActor(t *testing.T) {
 	})
 
 	t.Run("tool disabled", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
 		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
 
 		tool := validStdioTool("disabled-tool")
 		tool.State = mcp.ToolStateDisabled
@@ -209,8 +228,13 @@ func TestRouterActor(t *testing.T) {
 	})
 
 	t.Run("policy denies tenant not in allowlist", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
 		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
 
 		cfg := testConfigWithTenants("allowed-tenant")
 		policyPID, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyActor(cfg))
@@ -242,10 +266,15 @@ func TestRouterActor(t *testing.T) {
 	})
 
 	t.Run("successful route with journal records audit event", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
+		kit, ctx := newTestKit(t,
+			testkit.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
 
 		sink := audit.NewMemorySink()
-		journalPID, err := kit.ActorSystem().Spawn(ctx, "journal-audit", newJournaler(sink))
+		_, err := kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler(sink))
+		require.NoError(t, err)
+
+		journalPID, err := kit.ActorSystem().ActorOf(ctx, mcp.ActorNameJournal)
 		require.NoError(t, err)
 
 		registryPID, err := kit.ActorSystem().Spawn(ctx, "registry-journal", newRegistrar())
@@ -279,7 +308,12 @@ func TestRouterActor(t *testing.T) {
 	})
 
 	t.Run("route with CredentialPolicyRequired resolves credentials", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
+		kit, ctx := newTestKit(t,
+			testkit.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
+
+		_, err := kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
 
 		provider := &mockCredentialProvider{creds: map[string]string{"api_key": "secret123"}}
 		broker := newCredentialBroker([]credentials.Provider{provider}, time.Minute)
@@ -312,7 +346,12 @@ func TestRouterActor(t *testing.T) {
 	})
 
 	t.Run("route with CredentialPolicyRequired and unavailable credentials fails", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
+		kit, ctx := newTestKit(t,
+			testkit.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
+
+		_, err := kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
 
 		provider := &mockCredentialProvider{creds: nil}
 		broker := newCredentialBroker([]credentials.Provider{provider}, time.Minute)
@@ -347,7 +386,12 @@ func TestRouterActor(t *testing.T) {
 	})
 
 	t.Run("policy rate limit produces throttle outcome", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
+		kit, ctx := newTestKit(t,
+			testkit.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
+
+		_, err := kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
 
 		cfg := testConfig()
 		cfg.Tenants = []config.TenantConfig{{
@@ -391,5 +435,66 @@ func TestRouterActor(t *testing.T) {
 		require.True(t, assert.ErrorAs(t, result2.Err, &rErr))
 		assert.Equal(t, mcp.ErrCodeRateLimited, rErr.Code)
 		probe.Stop()
+	})
+
+	t.Run("records InvocationLatency metric on success when metrics are registered", func(t *testing.T) {
+		meter := noopmetric.NewMeterProvider().Meter("test")
+		_, err := telemetry.RegisterMetrics(meter)
+		require.NoError(t, err)
+		t.Cleanup(telemetry.UnregisterMetrics)
+
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewToolConfigExtension()))
+		defer stop()
+
+		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
+
+		registryPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("metrics-route-tool")
+		_, err = goaktactor.Ask(ctx, registryPID, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := sessionInvocation("metrics-route-tool", "tenant1", "client1")
+		resp, err := goaktactor.Ask(ctx, routerPID, &runtime.RouteInvocation{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.RouteResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+	})
+
+	t.Run("records InvocationFailure metric on tool-not-found when metrics are registered", func(t *testing.T) {
+		meter := noopmetric.NewMeterProvider().Meter("test")
+		_, err := telemetry.RegisterMetrics(meter)
+		require.NoError(t, err)
+		t.Cleanup(telemetry.UnregisterMetrics)
+
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewToolConfigExtension()))
+		defer stop()
+
+		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
+
+		registryPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		routerPID, err := system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor(registryPID, nil, nil, nil))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := sessionInvocation("nonexistent-tool", "tenant1", "client1")
+		resp, err := goaktactor.Ask(ctx, routerPID, &runtime.RouteInvocation{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.RouteResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
 	})
 }

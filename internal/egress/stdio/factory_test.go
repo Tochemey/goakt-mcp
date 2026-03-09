@@ -21,16 +21,44 @@
 // SOFTWARE.
 //
 
-package telemetry
+package stdio
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-// TestPackageCompiles verifies that the telemetry package compiles and can be used.
-// Phase 0 placeholder; real telemetry logic and tests will be added in Phase 9.
-func TestPackageCompiles(t *testing.T) {
-	require.True(t, true, "testify should be available for assertions")
+func TestStdioExecutorFactory_NonStdioTool(t *testing.T) {
+	factory := NewStdioExecutorFactory(time.Second)
+	tool := mcp.Tool{
+		ID:        "http-tool",
+		Transport: mcp.TransportHTTP,
+		HTTP:      &mcp.HTTPTransportConfig{URL: "http://localhost"},
+	}
+	exec, err := factory.Create(context.Background(), tool, nil)
+	require.NoError(t, err)
+	assert.Nil(t, exec)
+}
+
+func TestStdioExecutorFactory_NilStdioConfig(t *testing.T) {
+	factory := NewStdioExecutorFactory(time.Second)
+	tool := mcp.Tool{
+		ID:        "stdio-tool",
+		Transport: mcp.TransportStdio,
+		Stdio:     nil,
+	}
+	exec, err := factory.Create(context.Background(), tool, nil)
+	require.NoError(t, err)
+	assert.Nil(t, exec)
+}
+
+func TestStdioExecutorFactory_DefaultTimeout(t *testing.T) {
+	factory := NewStdioExecutorFactory(0)
+	assert.NotNil(t, factory)
 }

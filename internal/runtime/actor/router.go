@@ -36,6 +36,7 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
+	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -126,12 +127,26 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 	}
 	inv := msg.Invocation
 	tenantID, clientID := x.resolveTenantClient(inv)
+	corr := &telemetry.CorrelationFields{
+		TenantID:  inv.Correlation.TenantID,
+		ClientID:  inv.Correlation.ClientID,
+		RequestID: inv.Correlation.RequestID,
+		TraceID:   inv.Correlation.TraceID,
+		ToolID:    inv.ToolID,
+	}
+	log := x.logger
+	if kvs := corr.LogKeyValues(); len(kvs) > 0 {
+		log = x.logger.With(kvs...)
+	}
+	log.Debugf("actor=%s routing tool=%s", mcp.ActorNameRouter, inv.ToolID)
+	start := time.Now()
 
 	goCtx, cancel := context.WithTimeout(ctx.Context(), routingTimeout)
 	defer cancel()
 
 	tool, err := x.lookupTool(goCtx, inv.ToolID)
 	if err != nil {
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeToolNotFound))
 		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "error", string(mcp.ErrCodeToolNotFound), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
@@ -142,6 +157,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 		if re := (*mcp.RuntimeError)(nil); errors.As(err, &re) {
 			code = re.Code
 		}
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(code))
 		x.recordAuditEvent(invocationEvent(inv, audit.EventTypePolicyDecision, outcomeFromError(err), string(code), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
@@ -149,6 +165,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 
 	supervisorPID, err := x.lookupSupervisor(goCtx, inv.ToolID)
 	if err != nil {
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeInternal))
 		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "error", string(mcp.ErrCodeInternal), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
@@ -159,6 +176,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 		if re := (*mcp.RuntimeError)(nil); errors.As(err, &re) {
 			code = re.Code
 		}
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(code))
 		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "unavailable", string(code), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
@@ -166,6 +184,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 
 	invToUse, err := x.resolveCredentials(goCtx, inv, tool, tenantID)
 	if err != nil {
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeCredentialUnavailable))
 		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "credential_unavailable", string(mcp.ErrCodeCredentialUnavailable), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
@@ -173,6 +192,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 
 	sessionPID, err := x.resolveSession(goCtx, supervisorPID, tenantID, clientID, inv.ToolID, invToUse.Credentials)
 	if err != nil {
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeInternal))
 		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "session_error", string(mcp.ErrCodeInternal), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
@@ -184,10 +204,12 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 		if re := (*mcp.RuntimeError)(nil); errors.As(err, &re) {
 			code = re.Code
 		}
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(code))
 		x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationFailed, "execution_error", string(code), err.Error()))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
+	telemetry.RecordInvocationLatency(goCtx, inv.ToolID, tenantID, float64(time.Since(start).Milliseconds()))
 	x.recordAuditEvent(invocationEvent(inv, audit.EventTypeInvocationComplete, string(result.Status), "", ""))
 	ctx.Response(&runtime.RouteResult{Result: result})
 }

@@ -32,6 +32,11 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
+func init() {
+	gob.Register(&mcp.StdioTransportConfig{})
+	gob.Register(&mcp.HTTPTransportConfig{})
+}
+
 // SessionDependencyID is the fixed identifier for the session dependency.
 const SessionDependencyID = "session"
 

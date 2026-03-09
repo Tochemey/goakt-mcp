@@ -33,6 +33,7 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -138,6 +139,18 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 		return
 	}
 
+	corr := &telemetry.CorrelationFields{
+		TenantID:  msg.Invocation.Correlation.TenantID,
+		ClientID:  msg.Invocation.Correlation.ClientID,
+		RequestID: msg.Invocation.Correlation.RequestID,
+		TraceID:   msg.Invocation.Correlation.TraceID,
+		ToolID:    msg.Invocation.ToolID,
+	}
+	log := x.logger
+	if kvs := corr.LogKeyValues(); len(kvs) > 0 {
+		log = x.logger.With(kvs...)
+	}
+
 	// Pause passivation during invocation so we are not passivated while
 	// waiting for transport or during processing.
 	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.PausePassivation{})
@@ -159,6 +172,7 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 		result, err = x.executor.Execute(execCtx, msg.Invocation)
 		duration := time.Since(start)
 		if err != nil {
+			log.Warnf("actor session:%s-%s-%s execution failed: %v", x.tenantID, x.clientID, x.toolID, err)
 			result = &mcp.ExecutionResult{
 				Status:      mcp.ExecutionStatusFailure,
 				Err:         mcp.WrapRuntimeError(mcp.ErrCodeInternal, "execution failed", err),

@@ -23,7 +23,7 @@
 
 package mcp
 
-import "fmt"
+import "strings"
 
 // Actor name constants for well-known singleton actors.
 const (
@@ -39,11 +39,18 @@ const (
 // ToolSupervisorName returns the deterministic actor name for the tool supervisor
 // responsible for the given tool.
 func ToolSupervisorName(toolID ToolID) string {
-	return fmt.Sprintf("supervisor-%s", toolID)
+	return "supervisor-" + string(toolID)
+}
+
+// ToolIDFromSupervisorName derives the ToolID from an actor name produced by
+// ToolSupervisorName. Returns an empty ToolID when the name does not carry the
+// expected "supervisor-" prefix.
+func ToolIDFromSupervisorName(name string) ToolID {
+	return ToolID(strings.TrimPrefix(name, "supervisor-"))
 }
 
 // SessionName returns the deterministic actor name for the session owned by the
 // given tenant, client, and tool combination.
 func SessionName(tenantID TenantID, clientID ClientID, toolID ToolID) string {
-	return fmt.Sprintf("session-%s-%s-%s", tenantID, clientID, toolID)
+	return "session-" + string(tenantID) + "-" + string(clientID) + "-" + string(toolID)
 }

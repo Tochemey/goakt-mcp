@@ -29,6 +29,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	goaktlog "github.com/tochemey/goakt/v4/log"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 )
@@ -223,6 +224,52 @@ func TestToolConfigToTool(t *testing.T) {
 		assert.Equal(t, "/etc/client.crt", tool.HTTP.TLS.ClientCertFile)
 		assert.Equal(t, "/etc/client.key", tool.HTTP.TLS.ClientKeyFile)
 		assert.False(t, tool.HTTP.TLS.InsecureSkipVerify)
+	})
+}
+
+func TestParseLogLevel(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected goaktlog.Level
+	}{
+		{"debug", goaktlog.DebugLevel},
+		{"info", goaktlog.InfoLevel},
+		{"warning", goaktlog.WarningLevel},
+		{"warn", goaktlog.WarningLevel},
+		{"error", goaktlog.ErrorLevel},
+		{"fatal", goaktlog.FatalLevel},
+		{"panic", goaktlog.PanicLevel},
+		{"", goaktlog.InvalidLevel},
+		{"unknown", goaktlog.InvalidLevel},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			got, err := ParseLogLevel(tc.input)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+}
+
+func TestNewLogger(t *testing.T) {
+	t.Run("empty level returns default logger", func(t *testing.T) {
+		l := NewLogger("")
+		require.NotNil(t, l)
+	})
+
+	t.Run("invalid level returns default logger", func(t *testing.T) {
+		l := NewLogger("nonsense")
+		require.NotNil(t, l)
+	})
+
+	t.Run("valid level returns slog logger", func(t *testing.T) {
+		l := NewLogger("info")
+		require.NotNil(t, l)
+	})
+
+	t.Run("debug level returns slog logger", func(t *testing.T) {
+		l := NewLogger("debug")
+		require.NotNil(t, l)
 	})
 }
 

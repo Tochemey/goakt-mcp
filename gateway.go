@@ -59,6 +59,7 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/credentials"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
+	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -72,9 +73,11 @@ const gatewayActorSystemName = "goakt-mcp"
 //
 // Create a Gateway with New, start it with Start, and stop it with Stop.
 type Gateway struct {
-	config mcp.Config
-	logger goaktlog.Logger
-	system goaktactor.ActorSystem
+	config  mcp.Config
+	logger  goaktlog.Logger
+	metrics bool
+	tracing bool
+	system  goaktactor.ActorSystem
 }
 
 // New creates a new Gateway with the provided configuration and options.
@@ -110,6 +113,16 @@ func New(cfg mcp.Config, opts ...Option) (*Gateway, error) {
 func (g *Gateway) Start(ctx context.Context) error {
 	if err := g.validateClusterConfig(); err != nil {
 		return err
+	}
+
+	if g.metrics {
+		if _, err := telemetry.RegisterMetrics(nil); err != nil {
+			return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to register metrics", err)
+		}
+	}
+
+	if g.tracing {
+		telemetry.RegisterTracer()
 	}
 
 	system, err := goaktactor.NewActorSystem(gatewayActorSystemName, g.actorSystemOptions()...)
@@ -162,7 +175,7 @@ func (g *Gateway) validateClusterConfig() error {
 }
 
 func (g *Gateway) remoteOptions() []remote.Option {
-	return []remote.Option{
+	opts := []remote.Option{
 		remote.WithSerializables(
 			(*runtime.CanAcceptWork)(nil),
 			(*runtime.CanAcceptWorkResult)(nil),
@@ -204,6 +217,10 @@ func (g *Gateway) remoteOptions() []remote.Option {
 			(*credentials.ResolveResult)(nil),
 		),
 	}
+	if g.tracing {
+		opts = append(opts, remote.WithContextPropagator(telemetry.NewOTelContextPropagator()))
+	}
+	return opts
 }
 
 func (g *Gateway) actorSystemOptions() []goaktactor.Option {
@@ -211,7 +228,10 @@ func (g *Gateway) actorSystemOptions() []goaktactor.Option {
 	opts := []goaktactor.Option{
 		goaktactor.WithLogger(g.logger),
 		goaktactor.WithActorInitMaxRetries(3),
-		goaktactor.WithExtensions(actorextension.NewExecutorFactoryExtension(execFactory)),
+		goaktactor.WithExtensions(
+			actorextension.NewExecutorFactoryExtension(execFactory),
+			actorextension.NewToolConfigExtension(),
+		),
 	}
 	if clusterOpts := cluster.BuildOptions(g.config, g.remoteOptions(), actor.NewRegistrar()); len(clusterOpts) > 0 {
 		opts = append(opts, clusterOpts...)

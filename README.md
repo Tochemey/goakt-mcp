@@ -1,6 +1,6 @@
 <h2 align="center">
-  <img src="assets/logo.png" alt="GoAkt - Distributed Actor framework for Go" width="800"/><br />
-  Distributed MCP gateway library built in Go using the actor model
+  <img src="assets/logo.png" alt="Distributed MCP gateway library built on the actor model" width="800"/><br />
+  Distributed MCP gateway library built on the actor model
 </h2>
 
 ---
@@ -8,7 +8,7 @@
 [![codecov](https://codecov.io/gh/Tochemey/goakt-mcp/graph/badge.svg?token=EkuaJqCDZr)](https://codecov.io/gh/Tochemey/goakt-mcp)
 
 
-goakt-mcp is a production-oriented MCP gateway library built in Go. It provides a resilient, observable, and scalable execution layer for tool calls through a programmatic Go API.
+goakt-mcp is an MCP gateway library built in Go. It provides a resilient, observable, and scalable execution layer for tool calls through a programmatic Go API.
 
 Instead of behaving like a thin JSON-RPC proxy, goakt-mcp is designed as an operational control plane for MCP workloads. It manages tool lifecycle, session affinity, supervision, routing, credential brokering, policy enforcement, and auditability behind a single `Gateway` API.
 

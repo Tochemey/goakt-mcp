@@ -102,3 +102,26 @@ type Sink interface {
 	// Close releases resources. No further writes should be attempted after Close.
 	Close() error
 }
+
+// HealthTransitionEvent creates an audit event for a tool health state change.
+func HealthTransitionEvent(toolID, fromState, toState string) *Event {
+	meta := map[string]string{"from": fromState, "to": toState}
+	return &Event{
+		Type:      EventTypeHealthTransition,
+		Timestamp: time.Now(),
+		ToolID:    toolID,
+		Outcome:   toState,
+		Metadata:  meta,
+	}
+}
+
+// CircuitStateChangeEvent creates an audit event for a circuit breaker transition.
+func CircuitStateChangeEvent(toolID, state string, metadata map[string]string) *Event {
+	return &Event{
+		Type:      EventTypeCircuitStateChange,
+		Timestamp: time.Now(),
+		ToolID:    toolID,
+		Outcome:   state,
+		Metadata:  metadata,
+	}
+}

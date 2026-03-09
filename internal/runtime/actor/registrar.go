@@ -257,26 +257,29 @@ func (x *registrar) handleListTools(ctx *goaktactor.ReceiveContext) {
 }
 
 // spawnSupervisor creates a ToolSupervisorActor as a child of the registry for
-// the given tool. The tool is injected via WithDependencies. Returns nil on error.
+// the given tool. The tool is registered in the ToolConfigExtension system extension
+// before spawning so the supervisor can resolve it in PostStart. Returns nil on error.
 // Uses a supervisor strategy that resumes (does not suspend) when child sessions fail,
 // so the tool supervisor remains available for subsequent GetOrCreateSession requests.
 func (x *registrar) spawnSupervisor(ctx *goaktactor.ReceiveContext, tool mcp.Tool) *goaktactor.PID {
+	if toolExt, ok := ctx.Extension(actorextension.ToolConfigExtensionID).(*actorextension.ToolConfigExtension); ok && toolExt != nil {
+		toolExt.Register(tool)
+	}
 	name := mcp.ToolSupervisorName(tool.ID)
-	dep := actorextension.NewToolDependency(tool)
 	toolSupervisor := supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective))
-
-	pid := ctx.Spawn(name, newToolSupervisor(),
-		goaktactor.WithDependencies(dep),
-		goaktactor.WithSupervisor(toolSupervisor))
-	return pid
+	return ctx.Spawn(name, newToolSupervisor(), goaktactor.WithSupervisor(toolSupervisor))
 }
 
-// stopSupervisorIfExists stops and removes the supervisor for the given tool
-// if one is currently tracked. No-op when no supervisor exists.
+// stopSupervisorIfExists stops the supervisor for the given tool if one is
+// currently tracked and removes its config from the ToolConfigExtension.
+// No-op when no supervisor exists.
 func (x *registrar) stopSupervisorIfExists(ctx *goaktactor.ReceiveContext, toolID mcp.ToolID) {
 	if pid, ok := x.supervisors[toolID]; ok {
 		ctx.Stop(pid)
 		delete(x.supervisors, toolID)
+	}
+	if toolExt, ok := ctx.Extension(actorextension.ToolConfigExtensionID).(*actorextension.ToolConfigExtension); ok && toolExt != nil {
+		toolExt.Remove(toolID)
 	}
 }
 

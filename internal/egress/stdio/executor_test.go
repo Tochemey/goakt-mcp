@@ -21,7 +21,7 @@
 // SOFTWARE.
 //
 
-package http
+package stdio
 
 import (
 	"context"
@@ -34,9 +34,9 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-func TestNewHTTPExecutor_Validation(t *testing.T) {
+func TestNewStdioExecutor_Validation(t *testing.T) {
 	t.Run("nil config returns error", func(t *testing.T) {
-		exec, err := NewHTTPExecutor(nil, nil, time.Second)
+		exec, err := NewStdioExecutor(nil, time.Second)
 		assert.Nil(t, exec)
 		require.Error(t, err)
 		var rErr *mcp.RuntimeError
@@ -44,9 +44,9 @@ func TestNewHTTPExecutor_Validation(t *testing.T) {
 		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
 	})
 
-	t.Run("empty URL returns error", func(t *testing.T) {
-		cfg := &mcp.HTTPTransportConfig{URL: ""}
-		exec, err := NewHTTPExecutor(cfg, nil, time.Second)
+	t.Run("empty command returns error", func(t *testing.T) {
+		cfg := &mcp.StdioTransportConfig{Command: ""}
+		exec, err := NewStdioExecutor(cfg, time.Second)
 		assert.Nil(t, exec)
 		require.Error(t, err)
 		var rErr *mcp.RuntimeError
@@ -54,9 +54,9 @@ func TestNewHTTPExecutor_Validation(t *testing.T) {
 		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
 	})
 
-	t.Run("unreachable endpoint returns transport failure", func(t *testing.T) {
-		cfg := &mcp.HTTPTransportConfig{URL: "http://127.0.0.1:1/unreachable"}
-		exec, err := NewHTTPExecutor(cfg, nil, 500*time.Millisecond)
+	t.Run("non-existent command returns transport failure", func(t *testing.T) {
+		cfg := &mcp.StdioTransportConfig{Command: "/nonexistent/binary/xyz"}
+		exec, err := NewStdioExecutor(cfg, 500*time.Millisecond)
 		assert.Nil(t, exec)
 		require.Error(t, err)
 		var rErr *mcp.RuntimeError
@@ -65,8 +65,8 @@ func TestNewHTTPExecutor_Validation(t *testing.T) {
 	})
 }
 
-func TestHTTPExecutor_Execute_NilSession(t *testing.T) {
-	e := &HTTPExecutor{}
+func TestStdioExecutor_Execute_NilSession(t *testing.T) {
+	e := &StdioExecutor{}
 	inv := &mcp.Invocation{
 		ToolID: "test",
 		Correlation: mcp.CorrelationMeta{
@@ -80,37 +80,46 @@ func TestHTTPExecutor_Execute_NilSession(t *testing.T) {
 	assert.Equal(t, mcp.ErrCodeTransportFailure, result.Err.Code)
 }
 
-func TestHTTPExecutor_Close_Idempotent(t *testing.T) {
-	e := &HTTPExecutor{}
+func TestStdioExecutor_Close_Idempotent(t *testing.T) {
+	e := &StdioExecutor{}
 	require.NoError(t, e.Close())
 	require.NoError(t, e.Close())
 }
 
-func TestHTTPExecutorFactory_NonHTTPTool(t *testing.T) {
-	factory := NewHTTPExecutorFactory(nil, time.Second)
-	tool := mcp.Tool{
-		ID:        "stdio-tool",
-		Transport: mcp.TransportStdio,
-		Stdio:     &mcp.StdioTransportConfig{Command: "echo"},
-	}
-	exec, err := factory.Create(context.Background(), tool, nil)
-	require.NoError(t, err)
-	assert.Nil(t, exec)
-}
+func TestEnvSlice(t *testing.T) {
+	t.Run("nil extra returns base", func(t *testing.T) {
+		result := envSlice(nil)
+		assert.NotEmpty(t, result)
+	})
 
-func TestHTTPExecutorFactory_NilHTTPConfig(t *testing.T) {
-	factory := NewHTTPExecutorFactory(nil, time.Second)
-	tool := mcp.Tool{
-		ID:        "http-tool",
-		Transport: mcp.TransportHTTP,
-		HTTP:      nil,
-	}
-	exec, err := factory.Create(context.Background(), tool, nil)
-	require.NoError(t, err)
-	assert.Nil(t, exec)
-}
+	t.Run("empty extra returns base", func(t *testing.T) {
+		result := envSlice(map[string]string{})
+		assert.NotEmpty(t, result)
+	})
 
-func TestHTTPExecutorFactory_DefaultTimeout(t *testing.T) {
-	factory := NewHTTPExecutorFactory(nil, 0)
-	assert.NotNil(t, factory)
+	t.Run("overrides existing variable", func(t *testing.T) {
+		extra := map[string]string{"PATH": "/custom/path"}
+		result := envSlice(extra)
+		found := false
+		for _, e := range result {
+			if e == "PATH=/custom/path" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "PATH should be overridden")
+	})
+
+	t.Run("adds new variable", func(t *testing.T) {
+		extra := map[string]string{"MY_CUSTOM_VAR_XYZ_TEST": "value123"}
+		result := envSlice(extra)
+		found := false
+		for _, e := range result {
+			if e == "MY_CUSTOM_VAR_XYZ_TEST=value123" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "new variable should be added")
+	})
 }

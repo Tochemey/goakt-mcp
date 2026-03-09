@@ -26,10 +26,17 @@ package actor
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	goaktactor "github.com/tochemey/goakt/v4/actor"
+	noopmetric "go.opentelemetry.io/otel/metric/noop"
 
+	"github.com/tochemey/goakt-mcp/internal/runtime"
+	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
+	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
+	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -40,7 +47,7 @@ func TestHealthActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(nil, 0))
+		pid, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(nil, nil, 0))
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 		assert.Equal(t, mcp.ActorNameHealth, pid.Name())
@@ -51,7 +58,7 @@ func TestHealthActor(t *testing.T) {
 	t.Run("unhandles non-PostStart messages", func(t *testing.T) {
 		kit, ctx := newTestKit(t)
 
-		kit.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(nil, 0))
+		kit.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(nil, nil, 0))
 		waitForActors()
 
 		pid, err := kit.ActorSystem().ActorOf(ctx, mcp.ActorNameHealth)
@@ -59,5 +66,134 @@ func TestHealthActor(t *testing.T) {
 		require.NotNil(t, pid)
 		require.NoError(t, pid.Tell(ctx, pid, "unknown-message"))
 		waitForActors()
+	})
+
+	t.Run("runProbes with nil registrar is a no-op", func(t *testing.T) {
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(nil, nil, time.Hour))
+		require.NoError(t, err)
+		waitForActors()
+
+		require.NoError(t, pid.Tell(ctx, pid, &runProbes{}))
+		waitForActors()
+	})
+
+	t.Run("runProbes probes a healthy tool and skips disabled tools", func(t *testing.T) {
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
+		defer stop()
+
+		// Journal must exist before supervisor PostStart resolves it.
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
+
+		registrarPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("health-probe-tool")
+		resp, err := goaktactor.Ask(ctx, registrarPID, &runtime.RegisterTool{Tool: tool}, 5*time.Second)
+		require.NoError(t, err)
+		regResult, ok := resp.(*runtime.RegisterToolResult)
+		require.True(t, ok)
+		require.NoError(t, regResult.Err)
+		waitForActors()
+
+		disabledTool := validStdioTool("disabled-probe-tool")
+		disabledTool.State = mcp.ToolStateDisabled
+		resp, err = goaktactor.Ask(ctx, registrarPID, &runtime.RegisterTool{Tool: disabledTool}, 5*time.Second)
+		require.NoError(t, err)
+		disabledResult, ok := resp.(*runtime.RegisterToolResult)
+		require.True(t, ok)
+		require.NoError(t, disabledResult.Err)
+		waitForActors()
+
+		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(registrarPID, nil, time.Hour))
+		require.NoError(t, err)
+		waitForActors()
+
+		require.NoError(t, healthPID.Tell(ctx, healthPID, &runProbes{}))
+		time.Sleep(300 * time.Millisecond)
+	})
+
+	t.Run("runProbes with dead registrar schedules next", func(t *testing.T) {
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		registrarPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+		require.NoError(t, system.Kill(ctx, mcp.ActorNameRegistrar))
+		waitForActors()
+
+		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(registrarPID, nil, time.Hour))
+		require.NoError(t, err)
+		waitForActors()
+
+		require.NoError(t, healthPID.Tell(ctx, healthPID, &runProbes{}))
+		waitForActors()
+	})
+
+	t.Run("runProbes records ToolAvailability metric when metrics are registered", func(t *testing.T) {
+		meter := noopmetric.NewMeterProvider().Meter("test")
+		_, err := telemetry.RegisterMetrics(meter)
+		require.NoError(t, err)
+		t.Cleanup(telemetry.UnregisterMetrics)
+
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewToolConfigExtension()))
+		defer stop()
+
+		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
+
+		registrarPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("metrics-health-tool")
+		_, err = goaktactor.Ask(ctx, registrarPID, &runtime.RegisterTool{Tool: tool}, 5*time.Second)
+		require.NoError(t, err)
+		waitForActors()
+
+		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(registrarPID, nil, time.Hour))
+		require.NoError(t, err)
+		waitForActors()
+
+		require.NoError(t, healthPID.Tell(ctx, healthPID, &runProbes{}))
+		time.Sleep(300 * time.Millisecond)
+	})
+
+	t.Run("runProbes records health transition to journal when state changes", func(t *testing.T) {
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
+		defer stop()
+
+		sink := audit.NewMemorySink()
+		journalPID, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(sink))
+		require.NoError(t, err)
+		waitForActors()
+
+		registrarPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("health-audit-tool")
+		_, err = goaktactor.Ask(ctx, registrarPID, &runtime.RegisterTool{Tool: tool}, 5*time.Second)
+		require.NoError(t, err)
+		waitForActors()
+
+		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker(registrarPID, journalPID, time.Hour))
+		require.NoError(t, err)
+		waitForActors()
+
+		require.NoError(t, healthPID.Tell(ctx, healthPID, &runProbes{}))
+		time.Sleep(300 * time.Millisecond)
+
+		// The journal is wired; verify no panic occurred.
+		assert.NotNil(t, sink.Events())
 	})
 }

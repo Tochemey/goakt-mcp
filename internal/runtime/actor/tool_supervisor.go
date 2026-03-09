@@ -24,16 +24,21 @@
 package actor
 
 import (
+	"context"
+	"strconv"
 	"time"
 
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 	"github.com/tochemey/goakt/v4/passivation"
 
+	"github.com/tochemey/goakt-mcp/mcp"
+
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
+	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
-	"github.com/tochemey/goakt-mcp/mcp"
+	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
 // toolSupervisor is the ToolSupervisor Actor.
@@ -44,17 +49,17 @@ import (
 // administrative disable status.
 //
 // Spawn: Registrar spawns ToolSupervisor in spawnSupervisor via
-// ctx.Spawn(mcp.ToolSupervisorName(tool.ID), newToolSupervisor(),
-// WithDependencies(extension.NewToolDependency(tool))) as a child of Registrar. One supervisor
-// per registered tool; spawned on RegisterTool or BootstrapTools.
+// ctx.Spawn(mcp.ToolSupervisorName(tool.ID), newToolSupervisor()) as a child of Registrar.
+// One supervisor per registered tool; spawned on RegisterTool or BootstrapTools.
 //
 // Relocation: Follows Registrar. In single-node mode, runs on the local node.
-// In cluster mode, Registrar is a cluster singleton, so ToolSupervisor
-// runs on whichever node hosts the Registrar singleton. If the Registrar relocates,
-// its children (including all supervisors) are recreated on the new node.
+// In cluster mode, Registrar is a cluster singleton, so ToolSupervisor runs on
+// whichever node hosts the Registrar singleton. If the Registrar relocates, its
+// children (including all supervisors) are recreated on the new node.
 //
-// The tool definition is resolved from dependencies in PreStart. Circuit
-// parameters use runtime defaults when not overridden.
+// The tool definition is resolved from the ToolConfigExtension system extension in
+// PostStart, using the tool ID derived from the actor name. Circuit parameters use
+// runtime defaults unless overridden by a CircuitConfigExtension system extension.
 //
 // All fields are unexported to enforce actor immutability rules.
 type toolSupervisor struct {
@@ -64,6 +69,7 @@ type toolSupervisor struct {
 	openAt           time.Time
 	halfOpenRequests int
 	circuitConfig    mcp.CircuitConfig
+	journal          *goaktactor.PID
 	logger           goaktlog.Logger
 	self             *goaktactor.PID
 }
@@ -72,41 +78,21 @@ type toolSupervisor struct {
 var _ goaktactor.Actor = (*toolSupervisor)(nil)
 
 // newToolSupervisor creates a ToolSupervisor Actor instance.
-// The tool is injected via WithDependencies when spawning.
+// Tool config is resolved from ToolConfigExtension at PostStart.
 func newToolSupervisor() *toolSupervisor {
 	return &toolSupervisor{}
 }
 
-// PreStart resolves the tool dependency and initializes circuit state.
+// PreStart initializes the logger and circuit defaults. Tool config is resolved
+// later in PostStart once the actor is fully registered in the actor system.
 func (x *toolSupervisor) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
-
-	dependency := ctx.Dependency(actorextension.ToolDependencyID)
-	if dependency != nil {
-		if toolDep, ok := dependency.(*actorextension.ToolDependency); ok {
-			x.tool = toolDep.Tool()
-		}
-	}
-
-	if x.tool.ID.IsZero() {
-		return mcp.NewRuntimeError(mcp.ErrCodeInternal, "tool dependency not found")
-	}
-
 	x.circuitState = mcp.CircuitClosed
 	x.circuitConfig = mcp.CircuitConfig{
 		FailureThreshold:    mcp.DefaultCircuitFailureThreshold,
 		OpenDuration:        mcp.DefaultCircuitOpenDuration,
 		HalfOpenMaxRequests: mcp.DefaultCircuitHalfOpenMaxRequests,
 	}
-
-	circuitDependency := ctx.Dependency(actorextension.CircuitConfigDependencyID)
-	if circuitDependency != nil {
-		if config, ok := circuitDependency.(*actorextension.CircuitConfigDependency); ok {
-			x.circuitConfig = config.Config()
-		}
-	}
-
-	x.logger.Infof("actor supervisor:%s started circuit=closed", x.tool.ID)
 	return nil
 }
 
@@ -114,8 +100,43 @@ func (x *toolSupervisor) PreStart(ctx *goaktactor.Context) error {
 func (x *toolSupervisor) Receive(ctx *goaktactor.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goaktactor.PostStart:
-		x.logger.Debugf("actor supervisor:%s post-start", x.tool.ID)
 		x.self = ctx.Self()
+
+		// Resolve the journal by name. PostStart runs once the actor is registered
+		// in the system, so ActorOf reliably finds sibling actors.
+		pid, err := ctx.ActorSystem().ActorOf(ctx.Context(), mcp.ActorNameJournal)
+		if err != nil {
+			x.logger.Warnf("actor supervisor failed to resolve journal: %v", err)
+			ctx.Err(err)
+			return
+		}
+		x.journal = pid
+
+		// Resolve tool config from the system-level ToolConfigExtension. The Registrar
+		// registers the tool there before spawning the supervisor, so it is always
+		// present at PostStart time. The tool ID is derived from the actor name.
+		toolID := mcp.ToolIDFromSupervisorName(ctx.Self().Name())
+		toolExt, ok := ctx.Extension(actorextension.ToolConfigExtensionID).(*actorextension.ToolConfigExtension)
+		if !ok || toolExt == nil {
+			x.logger.Warnf("actor supervisor:%s tool config extension not found", toolID)
+			ctx.Err(mcp.NewRuntimeError(mcp.ErrCodeInternal, "tool config extension not found"))
+			return
+		}
+		tool, found := toolExt.Get(toolID)
+		if !found {
+			x.logger.Warnf("actor supervisor:%s tool not registered in extension", toolID)
+			ctx.Err(mcp.NewRuntimeError(mcp.ErrCodeInternal, "tool config not found"))
+			return
+		}
+		x.tool = tool
+
+		// Optionally override circuit config from the system-level extension.
+		// Used in tests to reduce OpenDuration without per-actor injection.
+		if circuitExt, ok := ctx.Extension(actorextension.CircuitConfigExtensionID).(*actorextension.CircuitConfigExtension); ok && circuitExt != nil {
+			x.circuitConfig = circuitExt.Config()
+		}
+
+		x.logger.Infof("actor supervisor:%s started circuit=closed", x.tool.ID)
 	case *runtime.CanAcceptWork:
 		x.handleCanAcceptWork(ctx, msg)
 	case *runtime.GetOrCreateSession:
@@ -131,7 +152,11 @@ func (x *toolSupervisor) Receive(ctx *goaktactor.ReceiveContext) {
 
 // PostStop performs cleanup after ToolSupervisor has stopped.
 func (x *toolSupervisor) PostStop(ctx *goaktactor.Context) error {
-	x.logger.Infof("actor supervisor:%s stopped", x.tool.ID)
+	if x.tool.ID.IsZero() {
+		x.logger.Infof("actor supervisor stopped before tool resolved")
+	} else {
+		x.logger.Infof("actor supervisor:%s stopped", x.tool.ID)
+	}
 	return nil
 }
 
@@ -238,6 +263,7 @@ func (x *toolSupervisor) handleReportFailure(_ *goaktactor.ReceiveContext, msg *
 		x.openAt = time.Now()
 		x.halfOpenRequests = 0
 		x.logger.Warnf("actor supervisor:%s circuit reopened after probe failure", x.tool.ID)
+		x.recordCircuitStateChange(string(mcp.CircuitOpen), map[string]string{"reason": "half_open_probe_failed"})
 		return
 	}
 
@@ -245,6 +271,7 @@ func (x *toolSupervisor) handleReportFailure(_ *goaktactor.ReceiveContext, msg *
 		x.circuitState = mcp.CircuitOpen
 		x.openAt = time.Now()
 		x.logger.Warnf("actor supervisor:%s circuit opened after %d failures", x.tool.ID, x.failureCount)
+		x.recordCircuitStateChange(string(mcp.CircuitOpen), map[string]string{"failure_count": strconv.Itoa(x.failureCount)})
 	}
 }
 
@@ -260,6 +287,7 @@ func (x *toolSupervisor) handleReportSuccess(_ *goaktactor.ReceiveContext, msg *
 		x.failureCount = 0
 		x.halfOpenRequests = 0
 		x.logger.Infof("actor supervisor:%s circuit closed after successful probe", x.tool.ID)
+		x.recordCircuitStateChange(string(mcp.CircuitClosed), map[string]string{"reason": "half_open_probe_success"})
 		return
 	}
 
@@ -278,5 +306,17 @@ func (x *toolSupervisor) maybeTransitionFromOpen() {
 		x.circuitState = mcp.CircuitHalfOpen
 		x.halfOpenRequests = 0
 		x.logger.Infof("actor supervisor:%s circuit half-open for recovery probe", x.tool.ID)
+		x.recordCircuitStateChange(string(mcp.CircuitHalfOpen), map[string]string{"reason": "open_duration_elapsed"})
 	}
+}
+
+// recordCircuitStateChange sends a circuit state change audit event to the
+// JournalActor and records a CircuitState metric when metrics are registered.
+func (x *toolSupervisor) recordCircuitStateChange(state string, metadata map[string]string) {
+	telemetry.RecordCircuitState(context.Background(), x.tool.ID, state)
+	if x.journal == nil || !x.journal.IsRunning() {
+		return
+	}
+	ev := audit.CircuitStateChangeEvent(string(x.tool.ID), state, metadata)
+	_ = goaktactor.Tell(context.Background(), x.journal, &runtime.RecordAuditEvent{Event: ev})
 }

@@ -32,7 +32,9 @@ import (
 	goaktlog "github.com/tochemey/goakt/v4/log"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
+	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -53,22 +55,24 @@ type runProbes struct{}
 // Relocation: No. HealthActor runs on the local node and does not relocate.
 type healthChecker struct {
 	registrar *goaktactor.PID
+	journal   *goaktactor.PID
 	interval  time.Duration
 	logger    goaktlog.Logger
 }
 
 var _ goaktactor.Actor = (*healthChecker)(nil)
 
-// newHealthChecker creates a new HealthChecker with the given registry PID and
-// probe interval. When interval is zero, config.DefaultHealthProbeInterval is used.
-func newHealthChecker(registrar *goaktactor.PID, interval time.Duration) *healthChecker {
+// newHealthChecker creates a new HealthChecker with the given registry PID,
+// optional journal PID for audit events, and probe interval. When interval is
+// zero, config.DefaultHealthProbeInterval is used.
+func newHealthChecker(registrar, journal *goaktactor.PID, interval time.Duration) *healthChecker {
 	if interval <= 0 {
 		interval = config.DefaultHealthProbeInterval
 	}
-	return &healthChecker{registrar: registrar, interval: interval}
+	return &healthChecker{registrar: registrar, journal: journal, interval: interval}
 }
 
-// PreStart initializes the logger. Dependencies are already set via the constructor.
+// PreStart initializes the logger.
 func (x *healthChecker) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
 	x.logger.Infof("actor=%s starting interval=%s", mcp.ActorNameHealth, x.interval)
@@ -119,6 +123,8 @@ func (x *healthChecker) runProbes(ctx *goaktactor.ReceiveContext) {
 		state := x.probeTool(probeCtx, tool)
 		if state != tool.State {
 			_ = goaktactor.Tell(ctx.Context(), x.registrar, &runtime.UpdateToolHealth{ToolID: tool.ID, State: state})
+			telemetry.RecordToolAvailability(ctx.Context(), tool.ID, state == mcp.ToolStateEnabled)
+			x.recordHealthTransition(string(tool.ID), string(tool.State), string(state))
 		}
 	}
 
@@ -187,4 +193,13 @@ func (x *healthChecker) scheduleNext(ctx *goaktactor.ReceiveContext) {
 func (x *healthChecker) PostStop(ctx *goaktactor.Context) error {
 	x.logger.Infof("actor=%s stopped", mcp.ActorNameHealth)
 	return nil
+}
+
+// recordHealthTransition sends a health transition audit event to the JournalActor.
+func (x *healthChecker) recordHealthTransition(toolID, fromState, toState string) {
+	if x.journal == nil || !x.journal.IsRunning() {
+		return
+	}
+	ev := audit.HealthTransitionEvent(toolID, fromState, toState)
+	_ = goaktactor.Tell(context.Background(), x.journal, &runtime.RecordAuditEvent{Event: ev})
 }

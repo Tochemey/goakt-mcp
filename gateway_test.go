@@ -57,6 +57,13 @@ func TestNew(t *testing.T) {
 		assert.Nil(t, gw.System(), "system must be nil before Start")
 	})
 
+	t.Run("WithMetrics enables metrics", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel), WithMetrics())
+		require.NoError(t, err)
+		require.NotNil(t, gw)
+		assert.True(t, gw.metrics)
+	})
+
 	t.Run("returns Gateway with default logger when none provided", func(t *testing.T) {
 		gw, err := New(testConfig())
 		require.NoError(t, err)
@@ -298,6 +305,34 @@ func TestGatewayAPI(t *testing.T) {
 				RequestID: "req-1",
 			},
 		})
+		require.Error(t, err)
+	})
+
+	t.Run("UpdateTool updates a registered tool", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Tools = []mcp.Tool{
+			{ID: "to-update", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "echo"}, State: mcp.ToolStateEnabled},
+		}
+		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+		defer func() { _ = gw.Stop(ctx) }()
+
+		updated := mcp.Tool{
+			ID:        "to-update",
+			Transport: mcp.TransportStdio,
+			Stdio:     &mcp.StdioTransportConfig{Command: "cat"},
+			State:     mcp.ToolStateEnabled,
+		}
+		err = gw.UpdateTool(ctx, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("UpdateTool returns error when gateway not started", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		err = gw.UpdateTool(ctx, mcp.Tool{ID: "x"})
 		require.Error(t, err)
 	})
 }

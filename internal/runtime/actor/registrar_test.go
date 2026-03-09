@@ -33,6 +33,8 @@ import (
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
+	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
+	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -209,8 +211,13 @@ func TestRegistryActor(t *testing.T) {
 	})
 
 	t.Run("get supervisor returns PID when tool has supervisor", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension()),
+		)
 		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler(audit.NewMemorySink()))
+		require.NoError(t, err)
 
 		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
