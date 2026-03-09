@@ -151,11 +151,14 @@ func (x *toolSupervisor) Receive(ctx *goaktactor.ReceiveContext) {
 }
 
 // PostStop performs cleanup after ToolSupervisor has stopped.
+// It derives the tool ID from the actor name instead of reading x.tool,
+// because PostStop runs in a different goroutine than Receive.
 func (x *toolSupervisor) PostStop(ctx *goaktactor.Context) error {
-	if x.tool.ID.IsZero() {
+	toolID := mcp.ToolIDFromSupervisorName(ctx.ActorName())
+	if toolID.IsZero() {
 		x.logger.Infof("actor supervisor stopped before tool resolved")
 	} else {
-		x.logger.Infof("actor supervisor:%s stopped", x.tool.ID)
+		x.logger.Infof("actor supervisor:%s stopped", toolID)
 	}
 	return nil
 }

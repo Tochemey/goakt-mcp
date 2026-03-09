@@ -1,6 +1,6 @@
 <h2 align="center">
-  <img src="assets/logo.png" alt="Distributed MCP gateway library built on the actor model" width="800"/><br />
-  Distributed MCP gateway library built on the actor model
+  <img src="assets/logo.png" alt="Distributed MCP gateway library" width="800"/><br />
+  Distributed MCP gateway library
 </h2>
 
 ---
