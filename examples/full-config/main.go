@@ -21,22 +21,26 @@
 // SOFTWARE.
 //
 
-// Package main runs the goakt-mcp audit + HTTP example.
+// Package main runs the goakt-mcp full-config example.
 //
-// This example demonstrates:
-//  1. Durable audit via FileSink — invocation events are written to audit.log.
-//  2. HTTP-based egress — an MCP tool reached over HTTP (server-everything).
-//  3. Mixed transports — one stdio tool (filesystem) and one HTTP tool (everything).
+// This example demonstrates the majority of the gateway configuration:
+//   - Runtime: session idle timeout, request timeout, startup/shutdown timeouts, health probe interval
+//   - Telemetry: OpenTelemetry OTLP endpoint (optional)
+//   - Audit: durable FileSink for invocation events
+//   - Credentials: pluggable credential provider (env-based example)
+//   - Tenants: per-tenant quotas (requests per minute, concurrent sessions)
+//   - HealthProbe: health probe interval
+//   - Gateway options: WithMetrics(), WithTracing()
+//   - Tools: mixed stdio and HTTP transports
 //
 // Prerequisites:
 //   - Node.js and npx
-//   - Run the HTTP MCP server in a separate terminal:
-//     npx -y @modelcontextprotocol/server-everything streamableHttp
+//   - For HTTP tool: npx -y @modelcontextprotocol/server-everything streamableHttp
 //
-// Run from repo root:  go run ./examples/audit-http
-// Run from anywhere:   go run github.com/tochemey/goakt-mcp/examples/audit-http
+// Run from repo root:  go run ./examples/full-config
+// Run from anywhere:   go run github.com/tochemey/goakt-mcp/examples/full-config
 //
-// See examples/audit-http/README.md for a full walkthrough.
+// See examples/full-config/README.md for a full walkthrough.
 package main
 
 import (
@@ -54,14 +58,31 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
+// envCredProvider is a simple credentials provider that reads from environment variables.
+// For demo purposes it returns credentials when MCP_DEMO_API_KEY is set.
+type envCredProvider struct{}
+
+func (e *envCredProvider) ID() string { return "env" }
+
+func (e *envCredProvider) ResolveCredentials(_ context.Context, tenantID mcp.TenantID, toolID mcp.ToolID) (*mcp.Credentials, error) {
+	apiKey := os.Getenv("MCP_DEMO_API_KEY")
+	if apiKey == "" {
+		return nil, nil
+	}
+	return &mcp.Credentials{
+		TenantID: tenantID,
+		ToolID:   toolID,
+		Values:   map[string]string{"api_key": apiKey},
+	}, nil
+}
+
 func main() {
-	// --- 1. Configure paths and URLs ---
+	// --- 1. Configure paths and URLs from environment ---
 	root := os.Getenv("MCP_FS_ROOT")
 	if root == "" {
 		root = "."
 	}
 	httpURL := os.Getenv("MCP_HTTP_URL")
-	// server-everything streamableHttp serves at /mcp on port 3001
 	if httpURL == "" {
 		httpURL = "http://localhost:3001/mcp"
 	}
@@ -69,15 +90,15 @@ func main() {
 	if auditDir == "" {
 		auditDir = filepath.Join(os.TempDir(), "goakt-mcp-audit")
 	}
+	otlpEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 
 	// --- 2. Create durable audit sink ---
-	// FileSink writes invocation events as NDJSON to audit.log.
 	fileSink, err := audit.NewFileSink(auditDir)
 	if err != nil {
 		log.Fatalf("create audit sink: %v", err)
 	}
 
-	// --- 3. Build config: filesystem (stdio) + everything (HTTP) + audit ---
+	// --- 3. Build tools: stdio + optional HTTP ---
 	tools := []mcp.Tool{
 		{
 			ID:        "filesystem",
@@ -98,12 +119,71 @@ func main() {
 		})
 	}
 
+	// --- 4. Build comprehensive config ---
 	config := mcp.Config{
+		// Runtime: core tuning parameters
+		Runtime: mcp.RuntimeConfig{
+			SessionIdleTimeout:  5 * time.Minute,
+			RequestTimeout:      30 * time.Second,
+			StartupTimeout:      10 * time.Second,
+			HealthProbeInterval: 30 * time.Second,
+			ShutdownTimeout:     30 * time.Second,
+		},
+
+		// Cluster: multi-node mode (disabled for this example; structure shown for reference)
+		// Cluster: mcp.ClusterConfig{
+		// 	Enabled:       true,
+		// 	Discovery:     "kubernetes", // or "dnssd"
+		// 	SingletonRole: "gateway",
+		// 	PeersPort:     7946,
+		// 	RemotingPort:  8555,
+		// 	Kubernetes: mcp.KubernetesDiscoveryConfig{
+		// 		Namespace:         "default",
+		// 		DiscoveryPortName: "discovery",
+		// 		RemotingPortName:  "remoting",
+		// 		PeersPortName:     "peers",
+		// 		PodLabels:         map[string]string{"app": "goakt-mcp"},
+		// 	},
+		// },
+
+		// Telemetry: OpenTelemetry OTLP export
+		Telemetry: mcp.TelemetryConfig{
+			OTLPEndpoint: otlpEndpoint,
+		},
+
+		// Audit: durable sink for invocation events
 		Audit: mcp.AuditConfig{Sink: fileSink},
+
+		// Credentials: pluggable providers (env-based example)
+		Credentials: mcp.CredentialsConfig{
+			Providers: []mcp.CredentialsProvider{&envCredProvider{}},
+			CacheTTL:  5 * time.Minute,
+		},
+
+		// Tenants: per-tenant quotas for policy and rate limiting
+		Tenants: []mcp.TenantConfig{
+			{
+				ID: "example-tenant",
+				Quotas: mcp.TenantQuotaConfig{
+					RequestsPerMinute:  60,
+					ConcurrentSessions: 10,
+				},
+			},
+		},
+
+		// HealthProbe: health actor probe interval
+		HealthProbe: mcp.HealthProbeConfig{
+			Interval: 30 * time.Second,
+		},
+
 		Tools: tools,
 	}
 
-	gw, err := goaktmcp.New(config)
+	// --- 5. Create gateway with options (metrics + tracing) ---
+	gw, err := goaktmcp.New(config,
+		goaktmcp.WithMetrics(),
+		goaktmcp.WithTracing(),
+	)
 	if err != nil {
 		log.Fatalf("create gateway: %v", err)
 	}
@@ -112,14 +192,29 @@ func main() {
 	if err := gw.Start(ctx); err != nil {
 		log.Fatalf("start gateway: %v", err)
 	}
-	time.Sleep(200 * time.Millisecond)
 
-	fmt.Println("=== goakt-mcp audit + HTTP example ===")
-	fmt.Printf("Audit log: %s/audit.log\n", auditDir)
+	time.Sleep(200 * time.Millisecond)
+	defer func() {
+		if err := gw.Stop(ctx); err != nil {
+			log.Printf("stop gateway: %v", err)
+		}
+	}()
+
+	fmt.Println("=== goakt-mcp full-config example ===")
+	fmt.Printf("Runtime: session_idle=%v, request=%v, startup=%v\n",
+		config.Runtime.SessionIdleTimeout, config.Runtime.RequestTimeout, config.Runtime.StartupTimeout)
+	fmt.Printf("Audit: %s/audit.log\n", auditDir)
+	fmt.Printf("Tenants: %d (quotas: rpm=%d, concurrent=%d)\n",
+		len(config.Tenants),
+		config.Tenants[0].Quotas.RequestsPerMinute,
+		config.Tenants[0].Quotas.ConcurrentSessions)
+	if otlpEndpoint != "" {
+		fmt.Printf("Telemetry: OTLP endpoint=%s\n", otlpEndpoint)
+	}
 	fmt.Printf("Filesystem root: %s\n", root)
 	fmt.Printf("HTTP tool URL: %s\n\n", httpURL)
 
-	// --- 4. List tools ---
+	// --- 6. List tools ---
 	toolsList, err := gw.ListTools(ctx)
 	if err != nil {
 		log.Fatalf("list tools: %v", err)
@@ -131,12 +226,12 @@ func main() {
 	fmt.Println()
 
 	corr := mcp.CorrelationMeta{
-		TenantID:  "audit-http-tenant",
-		ClientID:  "audit-http-client",
+		TenantID:  "example-tenant",
+		ClientID:  "full-config-client",
 		RequestID: "req-1",
 	}
 
-	// --- 5. Invoke filesystem (stdio) ---
+	// --- 7. Invoke filesystem (stdio) ---
 	fmt.Println("--- Invoking filesystem (stdio) ---")
 	fsResult, err := gw.Invoke(ctx, &mcp.Invocation{
 		ToolID: "filesystem",
@@ -157,7 +252,7 @@ func main() {
 	}
 	fmt.Println()
 
-	// --- 6. Invoke everything (HTTP) if registered ---
+	// --- 8. Invoke everything (HTTP) if registered ---
 	if httpURL != "" {
 		fmt.Println("--- Invoking everything (HTTP) ---")
 		evResult, err := gw.Invoke(ctx, &mcp.Invocation{
@@ -188,7 +283,7 @@ func main() {
 		fmt.Println()
 	}
 
-	// --- 7. Stop gateway, flush audit sink, then print audit log ---
+	// --- 9. Stop and flush audit ---
 	if err := gw.Stop(ctx); err != nil {
 		log.Printf("stop gateway: %v", err)
 	}
@@ -196,7 +291,7 @@ func main() {
 		log.Printf("close audit sink: %v", err)
 	}
 
-	fmt.Println("--- Audit log (last 20 events) ---")
+	fmt.Println("--- Audit log (last 10 events) ---")
 	auditPath := filepath.Join(auditDir, "audit.log")
 	f, err := os.Open(auditPath)
 	if err != nil {
@@ -216,8 +311,8 @@ func main() {
 	}
 
 	start := 0
-	if len(lines) > 20 {
-		start = len(lines) - 20
+	if len(lines) > 10 {
+		start = len(lines) - 10
 	}
 	for i := start; i < len(lines); i++ {
 		var ev mcp.AuditEvent

@@ -41,10 +41,16 @@ goakt-mcp is intended to provide:
 
 ## Quick Start
 
-See [examples/filesystem](examples/filesystem) for a runnable example:
+See [examples/filesystem](examples/filesystem) for a minimal runnable example:
 
 ```bash
 go run ./examples/filesystem
+```
+
+For a comprehensive example covering the majority of configuration (Runtime, Telemetry, Audit, Credentials, Tenants, HealthProbe, metrics, tracing), see [examples/full-config](examples/full-config):
+
+```bash
+go run ./examples/full-config
 ```
 
 ## API

@@ -134,13 +134,16 @@ func (g *Gateway) Start(ctx context.Context) error {
 // Stop gracefully shuts down the actor system.
 //
 // Stop blocks until shutdown has completed or the provided context is cancelled.
-// Calling Stop on a Gateway that was never started is a no-op.
+// Calling Stop on a Gateway that was never started or already stopped is a no-op.
 func (g *Gateway) Stop(ctx context.Context) error {
 	if g.system == nil {
 		return nil
 	}
 
-	if err := g.system.Stop(ctx); err != nil {
+	system := g.system
+	g.system = nil
+	if err := system.Stop(ctx); err != nil {
+		g.system = system // restore on failure so caller can retry
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to stop actor system", err)
 	}
 	return nil

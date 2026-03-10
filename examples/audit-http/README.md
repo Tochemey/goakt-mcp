@@ -65,7 +65,7 @@ go run github.com/tochemey/goakt-mcp/examples/audit-http
 1. **Log output** from the gateway.
 2. **Registered tools** — `filesystem (stdio)` and `everything (http)`.
 3. **Filesystem invocation** — Status and result of `list_directory`.
-4. **HTTP invocation** — Status and result of `get_sum` (if the HTTP server is running).
+4. **HTTP invocation** — Status and result of `get-sum` (if the HTTP server is running).
 5. **Audit log** — The last 20 audit events (type, tenant, tool, outcome, timestamp).
 
 ## Code Flow
