@@ -25,9 +25,12 @@ package http
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -61,4 +64,25 @@ func TestHTTPExecutorFactory_NilHTTPConfig(t *testing.T) {
 func TestHTTPExecutorFactory_DefaultTimeout(t *testing.T) {
 	factory := NewHTTPExecutorFactory(nil, 0)
 	assert.NotNil(t, factory)
+}
+
+func TestHTTPExecutorFactory_Create_Success(t *testing.T) {
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "test", Version: "v0.1.0"}, nil)
+	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "echo"}, func(ctx context.Context, req *sdkmcp.CallToolRequest, args map[string]any) (*sdkmcp.CallToolResult, any, error) {
+		return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "ok"}}}, nil, nil
+	})
+	handler := sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, nil)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	factory := NewHTTPExecutorFactory(nil, 5*time.Second)
+	tool := mcp.Tool{
+		ID:        "http-tool",
+		Transport: mcp.TransportHTTP,
+		HTTP:      &mcp.HTTPTransportConfig{URL: srv.URL},
+	}
+	exec, err := factory.Create(context.Background(), tool, nil)
+	require.NoError(t, err)
+	require.NotNil(t, exec)
+	defer exec.Close()
 }

@@ -188,6 +188,24 @@ func TestGatewayStartStop(t *testing.T) {
 		require.ErrorAs(t, err, &rErr)
 		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
 	})
+
+	t.Run("Start with WithMetrics succeeds", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel), WithMetrics())
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+		assert.NotNil(t, gw.System())
+		require.NoError(t, gw.Stop(ctx))
+	})
+
+	t.Run("Start with WithTracing succeeds", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel), WithTracing())
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+		assert.NotNil(t, gw.System())
+		require.NoError(t, gw.Stop(ctx))
+	})
 }
 
 func TestGatewayAPI(t *testing.T) {

@@ -33,11 +33,13 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -94,6 +96,135 @@ func TestHTTPExecutor_Close_Idempotent(t *testing.T) {
 	e := &HTTPExecutor{}
 	require.NoError(t, e.Close())
 	require.NoError(t, e.Close())
+}
+
+// startMCPHTTPServer starts an in-process MCP HTTP server with an echo tool.
+// Returns the server URL and a cleanup function.
+func startMCPHTTPServer(t *testing.T) (url string, cleanup func()) {
+	t.Helper()
+	echoTool := func(ctx context.Context, req *sdkmcp.CallToolRequest, args map[string]any) (*sdkmcp.CallToolResult, any, error) {
+		msg := "ok"
+		if v, ok := args["message"].(string); ok && v != "" {
+			msg = v
+		}
+		return &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: msg}},
+		}, nil, nil
+	}
+	errorTool := func(ctx context.Context, req *sdkmcp.CallToolRequest, args map[string]any) (*sdkmcp.CallToolResult, any, error) {
+		return &sdkmcp.CallToolResult{
+			IsError: true,
+			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "tool error"}},
+		}, nil, nil
+	}
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "test", Version: "v0.1.0"}, nil)
+	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "echo", Description: "echo"}, echoTool)
+	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "error_tool", Description: "returns error"}, errorTool)
+	handler := sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, nil)
+	srv := httptest.NewServer(handler)
+	return srv.URL, srv.Close
+}
+
+func TestHTTPExecutor_Execute_Success(t *testing.T) {
+	url, cleanup := startMCPHTTPServer(t)
+	defer cleanup()
+
+	cfg := &mcp.HTTPTransportConfig{URL: url}
+	exec, err := NewHTTPExecutor(cfg, nil, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	inv := &mcp.Invocation{
+		ToolID: "echo",
+		Method: "tools/call",
+		Params: map[string]any{
+			"name":      "echo",
+			"arguments": map[string]any{"message": "hello"},
+		},
+		Correlation: mcp.CorrelationMeta{RequestID: "req-1"},
+	}
+	result, err := exec.Execute(context.Background(), inv)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, mcp.ExecutionStatusSuccess, result.Status)
+	assert.Nil(t, result.Err)
+	require.NotNil(t, result.Output)
+	content, ok := result.Output["content"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, content, 1)
+	assert.Equal(t, "hello", content[0]["text"])
+}
+
+func TestHTTPExecutor_Execute_IsError(t *testing.T) {
+	url, cleanup := startMCPHTTPServer(t)
+	defer cleanup()
+
+	cfg := &mcp.HTTPTransportConfig{URL: url}
+	exec, err := NewHTTPExecutor(cfg, nil, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	inv := &mcp.Invocation{
+		ToolID:      "error_tool",
+		Method:      "tools/call",
+		Params:      map[string]any{"name": "error_tool", "arguments": map[string]any{}},
+		Correlation: mcp.CorrelationMeta{RequestID: "req-1"},
+	}
+	result, err := exec.Execute(context.Background(), inv)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, mcp.ExecutionStatusFailure, result.Status)
+	require.NotNil(t, result.Err)
+	assert.Equal(t, mcp.ErrCodeInternal, result.Err.Code)
+	assert.Contains(t, result.Err.Message, "tool error")
+}
+
+func TestHTTPExecutor_Execute_Timeout(t *testing.T) {
+	url, cleanup := startMCPHTTPServer(t)
+	defer cleanup()
+
+	cfg := &mcp.HTTPTransportConfig{URL: url}
+	exec, err := NewHTTPExecutor(cfg, nil, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately to simulate timeout
+
+	inv := &mcp.Invocation{
+		ToolID:      "echo",
+		Method:      "tools/call",
+		Params:      map[string]any{"name": "echo", "arguments": map[string]any{}},
+		Correlation: mcp.CorrelationMeta{RequestID: "req-1"},
+	}
+	result, err := exec.Execute(ctx, inv)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, mcp.ExecutionStatusTimeout, result.Status)
+	require.NotNil(t, result.Err)
+	assert.Equal(t, mcp.ErrCodeInvocationTimeout, result.Err.Code)
+}
+
+func TestHTTPExecutor_Close_WithSession(t *testing.T) {
+	url, cleanup := startMCPHTTPServer(t)
+	defer cleanup()
+
+	cfg := &mcp.HTTPTransportConfig{URL: url}
+	exec, err := NewHTTPExecutor(cfg, nil, 5*time.Second)
+	require.NoError(t, err)
+
+	// Execute once to ensure session is established
+	inv := &mcp.Invocation{
+		ToolID:      "echo",
+		Method:      "tools/call",
+		Params:      map[string]any{"name": "echo", "arguments": map[string]any{}},
+		Correlation: mcp.CorrelationMeta{RequestID: "req-1"},
+	}
+	_, err = exec.Execute(context.Background(), inv)
+	require.NoError(t, err)
+
+	require.NoError(t, exec.Close())
+	require.NoError(t, exec.Close())
 }
 
 // customRoundTripper is a non-*http.Transport RoundTripper used to test the

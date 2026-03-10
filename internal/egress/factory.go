@@ -28,10 +28,11 @@ import (
 	"net/http"
 	"time"
 
-	egresshttp "github.com/tochemey/goakt-mcp/internal/egress/http"
-	"github.com/tochemey/goakt-mcp/internal/egress/stdio"
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
+
+	egresshttp "github.com/tochemey/goakt-mcp/internal/egress/http"
+	"github.com/tochemey/goakt-mcp/internal/egress/stdio"
 )
 
 // CompositeExecutorFactory creates ToolExecutor instances by delegating to
