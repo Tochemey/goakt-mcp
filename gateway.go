@@ -52,11 +52,12 @@ const gatewayActorSystemName = "goakt-mcp"
 //
 // Create a Gateway with New, start it with Start, and stop it with Stop.
 type Gateway struct {
-	config  mcp.Config
-	logger  goaktlog.Logger
-	metrics bool
-	tracing bool
-	system  goaktactor.ActorSystem
+	config           mcp.Config
+	logger           goaktlog.Logger
+	metrics          bool
+	tracing          bool
+	system           goaktactor.ActorSystem
+	systemForTesting goaktactor.ActorSystem
 }
 
 // New creates a new Gateway with the provided configuration and options.
@@ -92,6 +93,11 @@ func New(cfg mcp.Config, opts ...Option) (*Gateway, error) {
 func (g *Gateway) Start(ctx context.Context) error {
 	if err := g.validateClusterConfig(); err != nil {
 		return err
+	}
+
+	if g.systemForTesting != nil {
+		g.system = g.systemForTesting
+		return nil
 	}
 
 	if g.metrics {

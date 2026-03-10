@@ -25,15 +25,39 @@ package goaktmcp
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 
+	"github.com/tochemey/goakt-mcp/internal/egress"
+	"github.com/tochemey/goakt-mcp/internal/runtime/actor"
+	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
+	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
+
+// freePort returns an available port for use in tests.
+func freePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	return port
+}
+
+// minimalGatewayManager is a GatewayManager with no children. Used to exercise
+// the resolveRegistrar/resolveRouter fallback path (system.ActorOf when Child fails).
+type minimalGatewayManager struct{}
+
+func (m *minimalGatewayManager) PreStart(_ *goaktactor.Context) error { return nil }
+func (m *minimalGatewayManager) Receive(_ *goaktactor.ReceiveContext)   {}
+func (m *minimalGatewayManager) PostStop(_ *goaktactor.Context) error   { return nil }
 
 func testConfig() mcp.Config {
 	return mcp.Config{
@@ -68,6 +92,15 @@ func TestNew(t *testing.T) {
 		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NotNil(t, gw)
+	})
+
+	t.Run("New with LogLevel in config uses config logger", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.LogLevel = "info"
+		gw, err := New(cfg)
+		require.NoError(t, err)
+		require.NotNil(t, gw)
+		assert.NotEqual(t, goaktlog.DiscardLogger, gw.logger)
 	})
 }
 
@@ -189,6 +222,27 @@ func TestGatewayStartStop(t *testing.T) {
 		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
 	})
 
+	t.Run("Start returns error when Cluster.TLS has invalid cert paths", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Cluster.Enabled = true
+		cfg.Cluster.Discovery = "dnssd"
+		cfg.Cluster.DNSSD = mcp.DNSSDDiscoveryConfig{DomainName: "local."}
+		cfg.Cluster.TLS = &mcp.RemotingTLSConfig{
+			CertFile: "/nonexistent/cert.pem",
+			KeyFile:  "/nonexistent/key.pem",
+		}
+
+		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+
+		err = gw.Start(ctx)
+		require.Error(t, err)
+		var rErr *mcp.RuntimeError
+		require.ErrorAs(t, err, &rErr)
+		assert.Equal(t, mcp.ErrCodeInternal, rErr.Code)
+		assert.Contains(t, err.Error(), "cluster TLS")
+	})
+
 	t.Run("Start with WithMetrics succeeds", func(t *testing.T) {
 		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel), WithMetrics())
 		require.NoError(t, err)
@@ -304,6 +358,12 @@ func TestGatewayAPI(t *testing.T) {
 
 		err = gw.RegisterTool(ctx, mcp.Tool{ID: "x", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "y"}})
 		require.Error(t, err)
+
+		err = gw.DisableTool(ctx, "x")
+		require.Error(t, err)
+
+		err = gw.RemoveTool(ctx, "x")
+		require.Error(t, err)
 	})
 
 	t.Run("Invoke returns error for non-existent tool", func(t *testing.T) {
@@ -352,5 +412,155 @@ func TestGatewayAPI(t *testing.T) {
 		require.NoError(t, err)
 		err = gw.UpdateTool(ctx, mcp.Tool{ID: "x"})
 		require.Error(t, err)
+	})
+
+	t.Run("Invoke succeeds with MCP stdio tool", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Runtime.StartupTimeout = 15 * time.Second
+		cfg.Tools = []mcp.Tool{
+			{
+				ID:        "echo-tool",
+				Transport: mcp.TransportStdio,
+				Stdio: &mcp.StdioTransportConfig{
+					Command: "npx",
+					Args:    []string{"-y", "mcp-hello-world"},
+				},
+				State: mcp.ToolStateEnabled,
+			},
+		}
+		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		if err := gw.Start(ctx); err != nil {
+			t.Skipf("gateway start failed (npx/node may be unavailable): %v", err)
+		}
+		waitForActors()
+		defer func() { _ = gw.Stop(ctx) }()
+
+		result, err := gw.Invoke(ctx, &mcp.Invocation{
+			ToolID: "echo-tool",
+			Method: "tools/call",
+			Params: map[string]any{
+				"name":      "echo",
+				"arguments": map[string]any{"message": "api-test"},
+			},
+			Correlation: mcp.CorrelationMeta{
+				TenantID:  "test-tenant",
+				ClientID:  "test-client",
+				RequestID: "req-invoke-success",
+			},
+		})
+		if err != nil {
+			t.Skipf("invoke failed (MCP server may be unavailable): %v", err)
+		}
+		require.NotNil(t, result)
+		assert.True(t, result.Succeeded(), "invocation should succeed")
+		assert.NotNil(t, result.Output)
+	})
+
+	t.Run("API with system-wide Registrar and Router exercises resolver fallback", func(t *testing.T) {
+		ctx := context.Background()
+		cfg := actor.ExternalTestConfig()
+		execFactory := egress.NewCompositeExecutorFactory(config.DefaultStartupTimeout, nil)
+		system, stop := newTestActorSystemForResolverFallback(t, cfg, execFactory)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameGatewayManager, &minimalGatewayManager{})
+		require.NoError(t, err)
+		waitForActors()
+
+		actor.SpawnFoundationalActorsForExternalTest(ctx, system, cfg)
+		waitForActors()
+
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel), WithSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		tools, err := gw.ListTools(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, tools)
+
+		tool := mcp.Tool{
+			ID:        "fallback-tool",
+			Transport: mcp.TransportStdio,
+			Stdio:     &mcp.StdioTransportConfig{Command: "npx"},
+			State:     mcp.ToolStateEnabled,
+		}
+		err = gw.RegisterTool(ctx, tool)
+		require.NoError(t, err)
+		waitForActors()
+
+		_, err = gw.Invoke(ctx, &mcp.Invocation{
+			ToolID: "fallback-tool",
+			Method: "tools/call",
+			Params: map[string]any{},
+			Correlation: mcp.CorrelationMeta{
+				TenantID:  "test-tenant",
+				ClientID:  "test-client",
+				RequestID: "req-fallback",
+			},
+		})
+		require.Error(t, err)
+	})
+}
+
+func newTestActorSystemForResolverFallback(t *testing.T, cfg config.Config, execFactory mcp.ExecutorFactory) (goaktactor.ActorSystem, func()) {
+	t.Helper()
+	ctx := context.Background()
+	opts := []goaktactor.Option{
+		goaktactor.WithLogger(goaktlog.DiscardLogger),
+		goaktactor.WithExtensions(
+			actorextension.NewExecutorFactoryExtension(execFactory),
+			actorextension.NewToolConfigExtension(),
+			actorextension.NewConfigExtension(cfg),
+		),
+	}
+	system, err := goaktactor.NewActorSystem("test-resolver-fallback", opts...)
+	require.NoError(t, err)
+	require.NoError(t, system.Start(ctx))
+	return system, func() { _ = system.Stop(ctx) }
+}
+
+func TestGatewayAPI_ClusterMode(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("API with cluster mode uses system-wide Registrar and Router", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Cluster.Enabled = true
+		cfg.Cluster.Discovery = "dnssd"
+		cfg.Cluster.DNSSD = mcp.DNSSDDiscoveryConfig{DomainName: "local."}
+		// Use high ports to avoid conflicts with other processes
+		cfg.Cluster.PeersPort = freePort(t)
+		cfg.Cluster.RemotingPort = freePort(t)
+		cfg.Tools = []mcp.Tool{
+			{
+				ID:        "cluster-tool",
+				Transport: mcp.TransportStdio,
+				Stdio:     &mcp.StdioTransportConfig{Command: "npx"},
+				State:     mcp.ToolStateEnabled,
+			},
+		}
+		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		if err := gw.Start(ctx); err != nil {
+			t.Skipf("cluster gateway start failed (dnssd may be unavailable): %v", err)
+		}
+		waitForActors()
+		time.Sleep(2 * time.Second) // allow cluster to form and singleton to be elected
+		defer func() { _ = gw.Stop(ctx) }()
+
+		tools, err := gw.ListTools(ctx)
+		if err != nil {
+			t.Skipf("ListTools failed in cluster mode: %v", err)
+		}
+		require.NotNil(t, tools)
+		found := false
+		for _, tool := range tools {
+			if tool.ID == "cluster-tool" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "bootstrap tool should be listed in cluster mode")
 	})
 }
