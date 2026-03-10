@@ -81,7 +81,9 @@ jobs:
           version: v2.9.0
           args: --timeout 10m --config .golangci.yml
       - name: Run tests
-        run: go test $(go list ./... | grep -v '/examples/') -mod=vendor -p 1 -race -v -coverprofile=coverage.out -covermode=atomic -timeout 15m
+        run: |
+          COVERPKG=$(go list ./... | grep -v '/examples/' | paste -sd, -)
+          go test $(go list ./... | grep -v '/examples/') -mod=vendor -p 1 -race -v -coverprofile=coverage.out -covermode=atomic -coverpkg="$COVERPKG" -timeout 15m
       - name: Upload coverage to Codecov
         if: matrix.os == 'linux'
         uses: codecov/codecov-action@v5
