@@ -31,8 +31,9 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tochemey/goakt-mcp/internal/egress/mcpconv"
 	"github.com/tochemey/goakt-mcp/mcp"
+
+	"github.com/tochemey/goakt-mcp/internal/egress/mcpconv"
 )
 
 // HTTPExecutor executes MCP tool invocations over HTTP using the streamable transport.

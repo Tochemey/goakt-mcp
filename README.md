@@ -1,4 +1,7 @@
-# goakt-mcp
+<h2 align="center">
+  <img src="assets/logo.png" alt="Distributed MCP gateway library" width="800"/><br />
+  Distributed MCP gateway library
+</h2>
 
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Tochemey/goakt-mcp/gha-pipeline.yml)](https://github.com/Tochemey/goakt-mcp/actions/workflows/gha-pipeline.yml)
 [![codecov](https://codecov.io/gh/Tochemey/goakt-mcp/graph/badge.svg?token=EkuaJqCDZr)](https://codecov.io/gh/Tochemey/goakt-mcp)
