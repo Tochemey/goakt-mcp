@@ -56,8 +56,8 @@ func freePort(t *testing.T) int {
 type minimalGatewayManager struct{}
 
 func (m *minimalGatewayManager) PreStart(_ *goaktactor.Context) error { return nil }
-func (m *minimalGatewayManager) Receive(_ *goaktactor.ReceiveContext)   {}
-func (m *minimalGatewayManager) PostStop(_ *goaktactor.Context) error   { return nil }
+func (m *minimalGatewayManager) Receive(_ *goaktactor.ReceiveContext) {}
+func (m *minimalGatewayManager) PostStop(_ *goaktactor.Context) error { return nil }
 
 func testConfig() mcp.Config {
 	return mcp.Config{
