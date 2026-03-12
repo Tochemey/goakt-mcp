@@ -99,6 +99,18 @@ func TestRequestToInvocation(t *testing.T) {
 		assert.Nil(t, inv.Params["arguments"])
 	})
 
+	t.Run("nil request returns error", func(t *testing.T) {
+		_, err := requestToInvocation(nil, "t", "c")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "request and params are required")
+	})
+
+	t.Run("nil params returns error", func(t *testing.T) {
+		_, err := requestToInvocation(&sdkmcp.CallToolRequest{}, "t", "c")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "request and params are required")
+	})
+
 	t.Run("invalid JSON arguments returns error", func(t *testing.T) {
 		req := &sdkmcp.CallToolRequest{
 			Params: &sdkmcp.CallToolParamsRaw{

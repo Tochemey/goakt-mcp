@@ -26,7 +26,6 @@ package goaktmcp
 import (
 	"os"
 
-	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 )
 
@@ -70,13 +69,5 @@ func WithMetrics() Option {
 func WithTracing() Option {
 	return func(g *Gateway) {
 		g.tracing = true
-	}
-}
-
-// withSystemForTesting injects a pre-built actor system for testing. When set,
-// Start uses this system instead of creating one.
-func withSystemForTesting(system goaktactor.ActorSystem) Option {
-	return func(g *Gateway) {
-		g.testSystem = system // TODO: revisit this
 	}
 }

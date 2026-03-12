@@ -38,6 +38,10 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
+// minProbeAskTimeout is the floor for derived Ask timeouts to prevent integer
+// truncation from producing a zero duration.
+const minProbeAskTimeout = 100 * time.Millisecond
+
 // runProbes is an internal message the HealthActor sends to itself to trigger a probe run.
 type runProbes struct{}
 
@@ -139,7 +143,7 @@ func (x *healthChecker) runProbes(ctx *goaktactor.ReceiveContext) {
 	probeCtx, cancel := context.WithTimeout(ctx.Context(), x.probeTimeout)
 	defer cancel()
 
-	listResp, err := goaktactor.Ask(probeCtx, x.registrar, &runtime.ListTools{}, x.probeTimeout/2)
+	listResp, err := goaktactor.Ask(probeCtx, x.registrar, &runtime.ListTools{}, max(x.probeTimeout/2, minProbeAskTimeout))
 	if err != nil {
 		x.logger.Warnf("actor=%s list tools failed: %v", mcp.ActorNameHealth, err)
 		x.scheduleNext(ctx)
@@ -169,7 +173,7 @@ func (x *healthChecker) runProbes(ctx *goaktactor.ReceiveContext) {
 
 // probeTool asks the tool supervisor CanAcceptWork and maps the result to ToolState.
 func (x *healthChecker) probeTool(ctx context.Context, tool mcp.Tool) mcp.ToolState {
-	supResp, err := goaktactor.Ask(ctx, x.registrar, &runtime.GetSupervisor{ToolID: tool.ID}, x.probeTimeout/3)
+	supResp, err := goaktactor.Ask(ctx, x.registrar, &runtime.GetSupervisor{ToolID: tool.ID}, max(x.probeTimeout/3, minProbeAskTimeout))
 	if err != nil {
 		return mcp.ToolStateUnavailable
 	}
@@ -184,7 +188,7 @@ func (x *healthChecker) probeTool(ctx context.Context, tool mcp.Tool) mcp.ToolSt
 		return mcp.ToolStateUnavailable
 	}
 
-	acceptResp, err := goaktactor.Ask(ctx, supervisor, &runtime.CanAcceptWork{ToolID: tool.ID}, x.probeTimeout/3)
+	acceptResp, err := goaktactor.Ask(ctx, supervisor, &runtime.CanAcceptWork{ToolID: tool.ID}, max(x.probeTimeout/3, minProbeAskTimeout))
 	if err != nil {
 		return mcp.ToolStateUnavailable
 	}

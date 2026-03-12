@@ -185,7 +185,7 @@ type CredentialsConfig struct {
 	CacheTTL time.Duration
 	// MaxCacheEntries is the maximum number of entries in the credential cache.
 	// When the cache exceeds this limit, expired entries are evicted first,
-	// then the entry closest to expiration is removed. Zero means use
+	// then the least-recently-accessed entry is removed (LRU). Zero means use
 	// DefaultMaxCacheEntries.
 	MaxCacheEntries int
 }

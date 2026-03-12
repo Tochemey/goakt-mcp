@@ -28,10 +28,19 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 )
+
+// withSystemForTesting injects a pre-built actor system for testing. When set,
+// Start uses this system instead of creating one.
+func withSystemForTesting(system goaktactor.ActorSystem) Option {
+	return func(g *Gateway) {
+		g.testSystem = system
+	}
+}
 
 func TestWithLogger(t *testing.T) {
 	t.Run("InvalidLevel sets DiscardLogger", func(t *testing.T) {

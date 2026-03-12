@@ -28,6 +28,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -83,6 +84,10 @@ func requestToInvocation(
 	tenantID mcp.TenantID,
 	clientID mcp.ClientID,
 ) (*mcp.Invocation, error) {
+	if req == nil || req.Params == nil {
+		return nil, fmt.Errorf("invalid tool call request: request and params are required")
+	}
+
 	var args map[string]any
 	if len(req.Params.Arguments) > 0 {
 		if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
@@ -214,10 +219,18 @@ func outputToCallToolResult(output map[string]any) *sdkmcp.CallToolResult {
 	return result
 }
 
+// requestIDCounter is the fallback counter used when crypto/rand fails.
+var requestIDCounter atomic.Uint64
+
 // newRequestID generates a cryptographically random 16-hex-character request
-// identifier. Uses a stack-allocated [8]byte to avoid heap allocation.
+// identifier. If crypto/rand fails, it falls back to a time+counter based ID
+// to ensure uniqueness.
 func newRequestID() mcp.RequestID {
 	var b [8]byte
-	_, _ = rand.Read(b[:])
+	if _, err := rand.Read(b[:]); err != nil {
+		ts := uint64(time.Now().UnixNano())
+		seq := requestIDCounter.Add(1)
+		return mcp.RequestID(fmt.Sprintf("%08x%08x", ts, seq))
+	}
 	return mcp.RequestID(fmt.Sprintf("%x", b))
 }
