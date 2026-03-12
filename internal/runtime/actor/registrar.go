@@ -381,9 +381,13 @@ func (x *registrar) notifySupervisor(ctx *goaktactor.ReceiveContext, toolID mcp.
 // handleGetToolStatus relays GetToolStatus to the tool's supervisor and returns
 // the result. Returns ErrToolNotFound when no supervisor exists for the tool.
 func (x *registrar) handleGetToolStatus(ctx *goaktactor.ReceiveContext, msg *runtime.GetToolStatus) {
+	if _, registered := x.tools[msg.ToolID]; !registered {
+		x.respondIfAsk(ctx, &runtime.GetToolStatusResult{Err: mcp.ErrToolNotFound})
+		return
+	}
 	pid, ok := x.supervisors[msg.ToolID]
 	if !ok || pid == nil || !pid.IsRunning() {
-		x.respondIfAsk(ctx, &runtime.GetToolStatusResult{Err: mcp.ErrToolNotFound})
+		x.respondIfAsk(ctx, &runtime.GetToolStatusResult{Err: mcp.NewRuntimeError(mcp.ErrCodeToolUnavailable, "tool supervisor is not running")})
 		return
 	}
 	resp, err := goaktactor.Ask(ctx.Context(), pid, msg, config.DefaultRequestTimeout)
@@ -400,11 +404,16 @@ func (x *registrar) handleGetToolStatus(ctx *goaktactor.ReceiveContext, msg *run
 }
 
 // handleResetCircuit relays ResetCircuit to the tool's supervisor.
-// Returns ErrToolNotFound when no supervisor exists for the tool.
+// Returns ErrToolNotFound when the tool is not registered, or
+// ErrCodeToolUnavailable when the supervisor is not running.
 func (x *registrar) handleResetCircuit(ctx *goaktactor.ReceiveContext, msg *runtime.ResetCircuit) {
+	if _, registered := x.tools[msg.ToolID]; !registered {
+		x.respondIfAsk(ctx, &runtime.ResetCircuitResult{Err: mcp.ErrToolNotFound})
+		return
+	}
 	pid, ok := x.supervisors[msg.ToolID]
 	if !ok || pid == nil || !pid.IsRunning() {
-		x.respondIfAsk(ctx, &runtime.ResetCircuitResult{Err: mcp.ErrToolNotFound})
+		x.respondIfAsk(ctx, &runtime.ResetCircuitResult{Err: mcp.NewRuntimeError(mcp.ErrCodeToolUnavailable, "tool supervisor is not running")})
 		return
 	}
 	resp, err := goaktactor.Ask(ctx.Context(), pid, msg, config.DefaultRequestTimeout)
@@ -421,11 +430,16 @@ func (x *registrar) handleResetCircuit(ctx *goaktactor.ReceiveContext, msg *runt
 }
 
 // handleDrainTool relays DrainTool to the tool's supervisor.
-// Returns ErrToolNotFound when no supervisor exists for the tool.
+// Returns ErrToolNotFound when the tool is not registered, or
+// ErrCodeToolUnavailable when the supervisor is not running.
 func (x *registrar) handleDrainTool(ctx *goaktactor.ReceiveContext, msg *runtime.DrainTool) {
+	if _, registered := x.tools[msg.ToolID]; !registered {
+		x.respondIfAsk(ctx, &runtime.DrainToolResult{Err: mcp.ErrToolNotFound})
+		return
+	}
 	pid, ok := x.supervisors[msg.ToolID]
 	if !ok || pid == nil || !pid.IsRunning() {
-		x.respondIfAsk(ctx, &runtime.DrainToolResult{Err: mcp.ErrToolNotFound})
+		x.respondIfAsk(ctx, &runtime.DrainToolResult{Err: mcp.NewRuntimeError(mcp.ErrCodeToolUnavailable, "tool supervisor is not running")})
 		return
 	}
 	resp, err := goaktactor.Ask(ctx.Context(), pid, msg, config.DefaultRequestTimeout)

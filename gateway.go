@@ -88,7 +88,7 @@ func New(cfg mcp.Config, opts ...Option) (*Gateway, error) {
 		gw.logger = config.NewLogger(gw.config.LogLevel)
 	}
 
-	if err := validateTenants(cfg.Tenants); err != nil {
+	if err := validateTenants(gw.config.Tenants); err != nil {
 		return nil, err
 	}
 
