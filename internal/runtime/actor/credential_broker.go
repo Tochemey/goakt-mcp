@@ -115,14 +115,17 @@ func (x *credentialBroker) PostStop(ctx *goaktactor.Context) error {
 // configured providers in preference order and caches the first successful result.
 // Returns a defensive copy of the credential map so callers cannot mutate the cache.
 func (x *credentialBroker) handleResolve(ctx *goaktactor.ReceiveContext, msg *runtime.ResolveRequest) {
+	cachingEnabled := x.cacheTTL > 0
 	cacheKey := string(msg.TenantID) + ":" + string(msg.ToolID)
 
-	if entry, ok := x.cache[cacheKey]; ok && time.Now().Before(entry.expiresAt) {
-		entry.lastAccess = time.Now()
-		credsCopy := make(map[string]string, len(entry.creds))
-		maps.Copy(credsCopy, entry.creds)
-		ctx.Response(&runtime.ResolveResult{Credentials: &mcp.Credentials{Values: credsCopy}})
-		return
+	if cachingEnabled {
+		if entry, ok := x.cache[cacheKey]; ok && time.Now().Before(entry.expiresAt) {
+			entry.lastAccess = time.Now()
+			credsCopy := make(map[string]string, len(entry.creds))
+			maps.Copy(credsCopy, entry.creds)
+			ctx.Response(&runtime.ResolveResult{Credentials: &mcp.Credentials{Values: credsCopy}})
+			return
+		}
 	}
 
 	goCtx := ctx.Context()
@@ -147,12 +150,14 @@ func (x *credentialBroker) handleResolve(ctx *goaktactor.ReceiveContext, msg *ru
 		return
 	}
 
-	x.evictIfNeeded()
-	now := time.Now()
-	x.cache[cacheKey] = &credentialCacheEntry{
-		creds:      resolved,
-		expiresAt:  now.Add(x.cacheTTL),
-		lastAccess: now,
+	if cachingEnabled {
+		x.evictIfNeeded()
+		now := time.Now()
+		x.cache[cacheKey] = &credentialCacheEntry{
+			creds:      resolved,
+			expiresAt:  now.Add(x.cacheTTL),
+			lastAccess: now,
+		}
 	}
 
 	credsCopy := make(map[string]string, len(resolved))
