@@ -366,7 +366,10 @@ func (x *toolSupervisor) handleRefreshToolConfig(ctx *goaktactor.ReceiveContext,
 		return
 	}
 	x.tool = tool
-	x.logger.Infof("actor supervisor:%s refreshed tool config state=%s", msg.ToolID, tool.State)
+	if tool.State == mcp.ToolStateEnabled {
+		x.draining = false
+	}
+	x.logger.Infof("actor supervisor:%s refreshed tool config state=%s draining=%v", msg.ToolID, tool.State, x.draining)
 }
 
 // handleGetToolStatus returns the current operational status of the tool:

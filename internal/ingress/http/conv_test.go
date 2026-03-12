@@ -224,6 +224,27 @@ func TestOutputToCallToolResult(t *testing.T) {
 		require.True(t, ok)
 		assert.Contains(t, txt.Text, "42")
 	})
+
+	t.Run("JSON-decoded content ([]any) is reconstructed correctly", func(t *testing.T) {
+		// Simulate the output after a JSON round-trip: json.Unmarshal produces
+		// []any for arrays, not []map[string]any. Both paths must work.
+		raw := map[string]any{
+			"content": []map[string]any{
+				{"type": "text", "text": "before"},
+			},
+		}
+		// Round-trip through JSON to get []any.
+		encoded, err := json.Marshal(raw)
+		require.NoError(t, err)
+		var decoded map[string]any
+		require.NoError(t, json.Unmarshal(encoded, &decoded))
+
+		r := outputToCallToolResult(decoded)
+		require.Len(t, r.Content, 1)
+		txt, ok := r.Content[0].(*sdkmcp.TextContent)
+		require.True(t, ok)
+		assert.Equal(t, "before", txt.Text)
+	})
 }
 
 // --- dispatchToolCall --------------------------------------------------------

@@ -208,10 +208,8 @@ func main() {
 	fmt.Println()
 	fmt.Println("── Pluggable Policy Engine ───────────────────────────────")
 
-	// Re-enable the tool (drain blocks new sessions; re-registering is not needed,
-	// but we can simply use EnableTool to lift the drain via a gateway method —
-	// here we demonstrate the admin UpdateTool/Enable path by re-enabling the tool
-	// which resets the drain flag as a side-effect of restarting the supervisor).
+	// EnableTool lifts the drain: it sets the tool state back to enabled and
+	// sends RefreshToolConfig to the supervisor, which resets the draining flag.
 	if err := gw.EnableTool(ctx, "filesystem"); err != nil {
 		log.Printf("EnableTool: %v (tool may already be enabled)", err)
 	}

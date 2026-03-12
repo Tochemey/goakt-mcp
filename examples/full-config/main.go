@@ -292,8 +292,8 @@ func main() {
 	}
 
 	fmt.Println("--- Audit log (last 10 events) ---")
-	auditPath := filepath.Join(auditDir, "audit.log")
-	f, err := os.Open(auditPath)
+	auditPath := filepath.Clean(filepath.Join(auditDir, "audit.log"))
+	f, err := os.Open(auditPath) //nolint:gosec // auditPath is constructed from a trusted config value
 	if err != nil {
 		log.Printf("open audit log: %v", err)
 		return

@@ -170,7 +170,22 @@ func outputToCallToolResult(output map[string]any) *sdkmcp.CallToolResult {
 	// by mcpconv.CallResultToOutput. Only text items are reconstructed; image,
 	// audio, and embedded resource items fall through to JSON serialization.
 	if rawContent, ok := output["content"]; ok {
-		if items, ok := rawContent.([]map[string]any); ok {
+		// json.Unmarshal into interface{} produces []any for arrays, not
+		// []map[string]any, so we must handle both the in-memory path (direct
+		// []map[string]any from contentToSlice) and the JSON-decoded path ([]any).
+		var items []map[string]any
+		switch v := rawContent.(type) {
+		case []map[string]any:
+			items = v
+		case []any:
+			items = make([]map[string]any, 0, len(v))
+			for _, raw := range v {
+				if m, ok := raw.(map[string]any); ok {
+					items = append(items, m)
+				}
+			}
+		}
+		if len(items) > 0 {
 			content := make([]sdkmcp.Content, 0, len(items))
 			for _, item := range items {
 				if typ, _ := item["type"].(string); typ == "text" {

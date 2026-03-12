@@ -562,6 +562,54 @@ func TestToolSupervisorDrainTool(t *testing.T) {
 		require.True(t, ok)
 		require.Error(t, result.Err)
 	})
+
+	t.Run("EnableTool via RefreshToolConfig lifts the drain", func(t *testing.T) {
+		tool := validStdioTool("drain-then-enable-tool")
+		toolCfgExt := actorextension.NewToolConfigExtension()
+		toolCfgExt.Register(tool)
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ToolSupervisorName(tool.ID), newToolSupervisor())
+		require.NoError(t, err)
+		waitForActors()
+
+		// Drain the tool.
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.DrainTool{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		drainResult, ok := resp.(*runtime.DrainToolResult)
+		require.True(t, ok)
+		assert.Nil(t, drainResult.Err)
+
+		// Confirm it is draining.
+		resp, err = goaktactor.Ask(ctx, pid, &runtime.CanAcceptWork{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		canAccept, ok := resp.(*runtime.CanAcceptWorkResult)
+		require.True(t, ok)
+		assert.False(t, canAccept.Accept)
+
+		// Simulate EnableTool: update extension to enabled state and send RefreshToolConfig.
+		enabledTool := tool
+		enabledTool.State = mcp.ToolStateEnabled
+		toolCfgExt.Register(enabledTool)
+		err = goaktactor.Tell(ctx, pid, &runtime.RefreshToolConfig{ToolID: tool.ID})
+		require.NoError(t, err)
+		waitForActors()
+
+		// Drain must be lifted.
+		resp, err = goaktactor.Ask(ctx, pid, &runtime.CanAcceptWork{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		canAccept, ok = resp.(*runtime.CanAcceptWorkResult)
+		require.True(t, ok)
+		assert.True(t, canAccept.Accept)
+	})
 }
 
 func TestToolSupervisorListSupervisorSessions(t *testing.T) {
