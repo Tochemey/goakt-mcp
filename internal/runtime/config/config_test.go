@@ -201,6 +201,21 @@ func TestToolConfigToTool(t *testing.T) {
 		assert.Equal(t, mcp.ToolStateEnabled, tool.State)
 	})
 
+	t.Run("negative tool timeouts are replaced with defaults", func(t *testing.T) {
+		cfg := ToolConfig{
+			ID:             mcp.ToolID("neg-tool"),
+			Transport:      mcp.TransportStdio,
+			Command:        "echo",
+			StartupTimeout: -5 * time.Second,
+			RequestTimeout: -10 * time.Second,
+			IdleTimeout:    -1 * time.Minute,
+		}
+		tool := ToolConfigToTool(cfg, defaults)
+		assert.Equal(t, DefaultStartupTimeout, tool.StartupTimeout)
+		assert.Equal(t, DefaultRequestTimeout, tool.RequestTimeout)
+		assert.Equal(t, DefaultSessionIdleTimeout, tool.IdleTimeout)
+	})
+
 	t.Run("http tool with HTTPTLS maps to runtime", func(t *testing.T) {
 		cfg := ToolConfig{
 			ID:        mcp.ToolID("mcp-secure"),

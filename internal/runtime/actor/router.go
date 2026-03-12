@@ -160,7 +160,9 @@ func (x *router) resolveActors(ctx *goaktactor.ReceiveContext) {
 func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runtime.RouteInvocation) {
 	if err := x.validateInvocation(msg); err != nil {
 		if msg.Invocation != nil {
-			x.logAuditError(x.recordAuditEvent(ctx.Context(), invocationEvent(msg.Invocation, mcp.AuditEventTypeInvocationFailed, "invalid", string(mcp.ErrCodeInvalidRequest), err.Error())))
+			auditCtx, auditCancel := context.WithTimeout(ctx.Context(), x.requestTimeout)
+			x.logAuditError(x.recordAuditEvent(auditCtx, invocationEvent(msg.Invocation, mcp.AuditEventTypeInvocationFailed, "invalid", string(mcp.ErrCodeInvalidRequest), err.Error())))
+			auditCancel()
 		}
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return

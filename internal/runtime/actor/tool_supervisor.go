@@ -428,7 +428,7 @@ func (x *toolSupervisor) handleListSupervisorSessions(ctx *goaktactor.ReceiveCon
 		if child == nil || !child.IsRunning() {
 			continue
 		}
-		resp, err := goaktactor.Ask(ctx.Context(), child, &runtime.GetSessionIdentity{}, x.circuitConfig.OpenDuration)
+		resp, err := goaktactor.Ask(ctx.Context(), child, &runtime.GetSessionIdentity{}, config.DefaultRequestTimeout)
 		if err != nil {
 			continue
 		}

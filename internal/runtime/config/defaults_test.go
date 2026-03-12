@@ -74,6 +74,30 @@ func TestApplyDefaults(t *testing.T) {
 		assert.Equal(t, 256, cfg.Audit.MailboxSize)
 	})
 
+	t.Run("negative values are treated as zero and replaced with defaults", func(t *testing.T) {
+		cfg := Config{
+			Runtime: RuntimeConfig{
+				SessionIdleTimeout:  -1 * time.Minute,
+				RequestTimeout:      -1 * time.Second,
+				StartupTimeout:      -1 * time.Second,
+				HealthProbeInterval: -1 * time.Minute,
+				ShutdownTimeout:     -1 * time.Second,
+			},
+			HealthProbe: mcp.HealthProbeConfig{Timeout: -5 * time.Second},
+			Credentials: mcp.CredentialsConfig{MaxCacheEntries: -100},
+			Audit:       mcp.AuditConfig{MailboxSize: -512},
+		}
+		ApplyDefaults(&cfg)
+		assert.Equal(t, DefaultSessionIdleTimeout, cfg.Runtime.SessionIdleTimeout)
+		assert.Equal(t, DefaultRequestTimeout, cfg.Runtime.RequestTimeout)
+		assert.Equal(t, DefaultStartupTimeout, cfg.Runtime.StartupTimeout)
+		assert.Equal(t, DefaultHealthProbeInterval, cfg.Runtime.HealthProbeInterval)
+		assert.Equal(t, DefaultShutdownTimeout, cfg.Runtime.ShutdownTimeout)
+		assert.Equal(t, mcp.DefaultHealthProbeTimeout, cfg.HealthProbe.Timeout)
+		assert.Equal(t, mcp.DefaultMaxCacheEntries, cfg.Credentials.MaxCacheEntries)
+		assert.Equal(t, mcp.DefaultAuditMailboxSize, cfg.Audit.MailboxSize)
+	})
+
 	t.Run("preserves explicit values", func(t *testing.T) {
 		cfg := Config{
 			Runtime: RuntimeConfig{

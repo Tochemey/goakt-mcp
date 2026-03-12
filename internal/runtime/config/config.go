@@ -94,23 +94,23 @@ func ToolConfigToTool(toolConfig ToolConfig, defaults RuntimeConfig) mcp.Tool {
 		State:               mcp.ToolStateEnabled,
 	}
 
-	if toolConfig.StartupTimeout == 0 {
+	if toolConfig.StartupTimeout <= 0 {
 		tool.StartupTimeout = defaults.StartupTimeout
-		if tool.StartupTimeout == 0 {
+		if tool.StartupTimeout <= 0 {
 			tool.StartupTimeout = DefaultStartupTimeout
 		}
 	}
 
-	if toolConfig.RequestTimeout == 0 {
+	if toolConfig.RequestTimeout <= 0 {
 		tool.RequestTimeout = defaults.RequestTimeout
-		if tool.RequestTimeout == 0 {
+		if tool.RequestTimeout <= 0 {
 			tool.RequestTimeout = DefaultRequestTimeout
 		}
 	}
 
-	if toolConfig.IdleTimeout == 0 {
+	if toolConfig.IdleTimeout <= 0 {
 		tool.IdleTimeout = defaults.SessionIdleTimeout
-		if tool.IdleTimeout == 0 {
+		if tool.IdleTimeout <= 0 {
 			tool.IdleTimeout = DefaultSessionIdleTimeout
 		}
 	}
