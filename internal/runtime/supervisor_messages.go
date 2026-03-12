@@ -76,3 +76,11 @@ type SupervisorCountSessionsForTenant struct {
 type SupervisorCountSessionsForTenantResult struct {
 	Count int
 }
+
+// RefreshToolConfig notifies a ToolSupervisor that its tool configuration
+// has changed in the ToolConfigExtension. The supervisor re-reads the
+// updated config from the extension. Typically sent via Tell from the
+// Registrar after an UpdateTool or EnableTool.
+type RefreshToolConfig struct {
+	ToolID mcp.ToolID
+}

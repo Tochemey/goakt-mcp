@@ -26,26 +26,35 @@ package config
 import "github.com/tochemey/goakt-mcp/mcp"
 
 // ApplyDefaults fills zero values in cfg with defaults.
-func ApplyDefaults(cfg *Config) {
-	if cfg.Runtime.SessionIdleTimeout == 0 {
-		cfg.Runtime.SessionIdleTimeout = DefaultSessionIdleTimeout
+func ApplyDefaults(config *Config) {
+	if config.Runtime.SessionIdleTimeout == 0 {
+		config.Runtime.SessionIdleTimeout = DefaultSessionIdleTimeout
 	}
-	if cfg.Runtime.RequestTimeout == 0 {
-		cfg.Runtime.RequestTimeout = DefaultRequestTimeout
+	if config.Runtime.RequestTimeout == 0 {
+		config.Runtime.RequestTimeout = DefaultRequestTimeout
 	}
-	if cfg.Runtime.StartupTimeout == 0 {
-		cfg.Runtime.StartupTimeout = DefaultStartupTimeout
+	if config.Runtime.StartupTimeout == 0 {
+		config.Runtime.StartupTimeout = DefaultStartupTimeout
 	}
-	if cfg.Runtime.HealthProbeInterval == 0 {
-		cfg.Runtime.HealthProbeInterval = DefaultHealthProbeInterval
+	if config.Runtime.HealthProbeInterval == 0 {
+		config.Runtime.HealthProbeInterval = DefaultHealthProbeInterval
 	}
-	if cfg.Runtime.ShutdownTimeout == 0 {
-		cfg.Runtime.ShutdownTimeout = DefaultShutdownTimeout
+	if config.Runtime.ShutdownTimeout == 0 {
+		config.Runtime.ShutdownTimeout = DefaultShutdownTimeout
 	}
-	if cfg.Tools == nil {
-		cfg.Tools = []mcp.Tool{}
+	if config.Tools == nil {
+		config.Tools = []mcp.Tool{}
 	}
-	if cfg.Tenants == nil {
-		cfg.Tenants = []TenantConfig{}
+	if config.HealthProbe.Timeout == 0 {
+		config.HealthProbe.Timeout = mcp.DefaultHealthProbeTimeout
+	}
+	if config.Credentials.MaxCacheEntries == 0 {
+		config.Credentials.MaxCacheEntries = mcp.DefaultMaxCacheEntries
+	}
+	if config.Audit.MailboxSize == 0 {
+		config.Audit.MailboxSize = mcp.DefaultAuditMailboxSize
+	}
+	if config.Tenants == nil {
+		config.Tenants = []TenantConfig{}
 	}
 }

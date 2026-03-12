@@ -45,24 +45,47 @@ func (c CorrelationMeta) IsZero() bool {
 // It carries the full identity context, correlation metadata, MCP payload, and
 // timing information needed to execute a tool call and produce an auditable record.
 type Invocation struct {
+	// Correlation carries the tenant, client, request, and trace identifiers
+	// that propagate through every runtime actor and log line.
 	Correlation CorrelationMeta
-	ToolID      ToolID
-	SessionID   SessionID
-	Method      string
-	Params      map[string]any
-	Metadata    map[string]string
+	// ToolID is the identifier of the tool to invoke.
+	ToolID ToolID
+	// SessionID, when non-empty, pins the invocation to an existing tool session.
+	// The router creates a new session when this field is empty.
+	SessionID SessionID
+	// Method is the MCP JSON-RPC method name (e.g. "tools/call").
+	Method string
+	// Params holds the raw method parameters forwarded to the backend MCP server.
+	// For tool calls, the map contains "name" (string) and "arguments" (map[string]any).
+	Params map[string]any
+	// Metadata holds arbitrary key-value pairs injected by middleware layers
+	// (e.g. ingress headers, tracing baggage).
+	Metadata map[string]string
+	// Credentials holds resolved secrets injected by the credential broker
+	// before the invocation reaches the egress layer.
 	Credentials map[string]string
-	ReceivedAt  time.Time
+	// ReceivedAt is the wall-clock time the invocation was accepted by the
+	// ingress layer, used to compute end-to-end latency in audit records.
+	ReceivedAt time.Time
 }
 
 // ExecutionStatus describes the outcome category of a completed tool invocation.
 type ExecutionStatus string
 
 const (
-	ExecutionStatusSuccess   ExecutionStatus = "success"
-	ExecutionStatusFailure   ExecutionStatus = "failure"
-	ExecutionStatusTimeout   ExecutionStatus = "timeout"
-	ExecutionStatusDenied    ExecutionStatus = "denied"
+	// ExecutionStatusSuccess indicates the tool call completed and returned output.
+	ExecutionStatusSuccess ExecutionStatus = "success"
+	// ExecutionStatusFailure indicates the tool call completed but the backend
+	// reported an error (transport failure, non-zero exit, protocol error).
+	ExecutionStatusFailure ExecutionStatus = "failure"
+	// ExecutionStatusTimeout indicates the invocation exceeded its deadline
+	// before the backend returned a response.
+	ExecutionStatusTimeout ExecutionStatus = "timeout"
+	// ExecutionStatusDenied indicates the policy layer rejected the invocation
+	// (tool disabled, tenant not authorized, authorization policy denied).
+	ExecutionStatusDenied ExecutionStatus = "denied"
+	// ExecutionStatusThrottled indicates the invocation was rejected because the
+	// tenant exceeded its rate or concurrency quota.
 	ExecutionStatusThrottled ExecutionStatus = "throttled"
 )
 

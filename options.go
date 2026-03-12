@@ -73,15 +73,10 @@ func WithTracing() Option {
 	}
 }
 
-// WithSystemForTesting injects a pre-built actor system for testing. When set,
-// Start uses this system instead of creating one. The system must already have
-// GatewayManager, Registrar, and Router spawned. For testing the resolver
-// fallback path (system.ActorOf when Child fails), use a GatewayManager with
-// no children and Registrar/Router as top-level actors.
-//
-// Must not be used in production.
-func WithSystemForTesting(system goaktactor.ActorSystem) Option {
+// withSystemForTesting injects a pre-built actor system for testing. When set,
+// Start uses this system instead of creating one.
+func withSystemForTesting(system goaktactor.ActorSystem) Option {
 	return func(g *Gateway) {
-		g.systemForTesting = system
+		g.testSystem = system // TODO: revisit this
 	}
 }

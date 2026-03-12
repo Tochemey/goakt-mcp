@@ -191,6 +191,108 @@ func TestCredentialBrokerActor(t *testing.T) {
 		probe.Stop()
 	})
 
+	t.Run("evicts expired entries when cache is full", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Credentials.Providers = []mcp.CredentialsProvider{&mockCredentialProvider{creds: map[string]string{"k": "v"}}}
+		cfg.Credentials.CacheTTL = 50 * time.Millisecond
+		cfg.Credentials.MaxCacheEntries = 2
+		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(cfg)))
+
+		pid, err := kit.ActorSystem().Spawn(ctx, "broker-evict-expired", newCredentialBroker())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+		waitForActors()
+
+		probe := kit.NewProbe(ctx)
+
+		// Fill cache with 2 entries
+		probe.SendSync("broker-evict-expired", &runtime.ResolveRequest{TenantID: "t1", ToolID: "tool1"}, askTimeout)
+		probe.ExpectAnyMessage()
+		probe.SendSync("broker-evict-expired", &runtime.ResolveRequest{TenantID: "t1", ToolID: "tool2"}, askTimeout)
+		probe.ExpectAnyMessage()
+
+		// Wait for entries to expire
+		time.Sleep(100 * time.Millisecond)
+
+		// Third request should succeed — expired entries are evicted to make room
+		probe.SendSync("broker-evict-expired", &runtime.ResolveRequest{TenantID: "t1", ToolID: "tool3"}, askTimeout)
+		resp := probe.ExpectAnyMessage()
+		result, ok := resp.(*runtime.ResolveResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		assert.Equal(t, "v", result.Credentials.Values["k"])
+		probe.Stop()
+	})
+
+	t.Run("evicts LRU entry when cache is full and no entries expired", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Credentials.Providers = []mcp.CredentialsProvider{&mockCredentialProvider{creds: map[string]string{"k": "v"}}}
+		cfg.Credentials.CacheTTL = time.Hour
+		cfg.Credentials.MaxCacheEntries = 2
+		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(cfg)))
+
+		pid, err := kit.ActorSystem().Spawn(ctx, "broker-evict-lru", newCredentialBroker())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+		waitForActors()
+
+		probe := kit.NewProbe(ctx)
+
+		// Fill cache with 2 entries
+		probe.SendSync("broker-evict-lru", &runtime.ResolveRequest{TenantID: "t1", ToolID: "tool1"}, askTimeout)
+		probe.ExpectAnyMessage()
+
+		time.Sleep(10 * time.Millisecond)
+
+		probe.SendSync("broker-evict-lru", &runtime.ResolveRequest{TenantID: "t1", ToolID: "tool2"}, askTimeout)
+		probe.ExpectAnyMessage()
+
+		// Access tool1 again to make it more recent
+		probe.SendSync("broker-evict-lru", &runtime.ResolveRequest{TenantID: "t1", ToolID: "tool1"}, askTimeout)
+		probe.ExpectAnyMessage()
+
+		// Third entry should evict tool2 (least recently accessed)
+		probe.SendSync("broker-evict-lru", &runtime.ResolveRequest{TenantID: "t1", ToolID: "tool3"}, askTimeout)
+		resp := probe.ExpectAnyMessage()
+		result, ok := resp.(*runtime.ResolveResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		assert.Equal(t, "v", result.Credentials.Values["k"])
+		probe.Stop()
+	})
+
+	t.Run("cache updates lastAccess on hit", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Credentials.Providers = []mcp.CredentialsProvider{&mockCredentialProvider{creds: map[string]string{"k": "v"}}}
+		cfg.Credentials.CacheTTL = time.Hour
+		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(cfg)))
+
+		pid, err := kit.ActorSystem().Spawn(ctx, "broker-lastaccess", newCredentialBroker())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+		waitForActors()
+
+		probe := kit.NewProbe(ctx)
+
+		// First call caches
+		probe.SendSync("broker-lastaccess", &runtime.ResolveRequest{TenantID: "t1", ToolID: "tool1"}, askTimeout)
+		resp1 := probe.ExpectAnyMessage()
+		result1, ok := resp1.(*runtime.ResolveResult)
+		require.True(t, ok)
+		require.NoError(t, result1.Err)
+
+		time.Sleep(10 * time.Millisecond)
+
+		// Second call should hit cache and return same result
+		probe.SendSync("broker-lastaccess", &runtime.ResolveRequest{TenantID: "t1", ToolID: "tool1"}, askTimeout)
+		resp2 := probe.ExpectAnyMessage()
+		result2, ok := resp2.(*runtime.ResolveResult)
+		require.True(t, ok)
+		require.NoError(t, result2.Err)
+		assert.Equal(t, "v", result2.Credentials.Values["k"])
+		probe.Stop()
+	})
+
 	t.Run("unhandles unknown message", func(t *testing.T) {
 		cfg := testConfig()
 		cfg.Credentials.Providers = []mcp.CredentialsProvider{&mockCredentialProvider{creds: map[string]string{"k": "v"}}}

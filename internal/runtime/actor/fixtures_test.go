@@ -201,3 +201,32 @@ func (m *mockCredentialProvider) ResolveCredentials(_ context.Context, _ mcp.Ten
 	}
 	return &mcp.Credentials{Values: m.creds}, nil
 }
+
+// testDenyEvaluator is a PolicyEvaluator that always denies with a fixed reason.
+type testDenyEvaluator struct {
+	reason string
+}
+
+func (d *testDenyEvaluator) Evaluate(_ context.Context, _ mcp.PolicyInput) *mcp.RuntimeError {
+	return mcp.NewRuntimeError(mcp.ErrCodePolicyDenied, d.reason)
+}
+
+// testAllowEvaluator is a PolicyEvaluator that always allows.
+type testAllowEvaluator struct{}
+
+func (a *testAllowEvaluator) Evaluate(_ context.Context, _ mcp.PolicyInput) *mcp.RuntimeError {
+	return nil
+}
+
+func spawnTestSupervisor(t *testing.T, tool mcp.Tool) (goaktactor.ActorSystem, *goaktactor.PID, func()) {
+	t.Helper()
+	ctx := context.Background()
+	system, stop := testActorSystemWithTools(t, tool)
+	_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+	require.NoError(t, err)
+	name := mcp.ToolSupervisorName(tool.ID)
+	pid, err := system.Spawn(ctx, name, newToolSupervisor())
+	require.NoError(t, err)
+	waitForActors()
+	return system, pid, stop
+}

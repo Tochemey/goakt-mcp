@@ -52,3 +52,38 @@ func TestRegisterMetrics(t *testing.T) {
 		t.Cleanup(UnregisterMetrics)
 	})
 }
+
+func TestRecordFunctions_WithRegisteredMetrics(t *testing.T) {
+	ctx := context.Background()
+
+	m, err := RegisterMetrics(nil)
+	require.NoError(t, err)
+	require.NotNil(t, m)
+	t.Cleanup(UnregisterMetrics)
+
+	t.Run("RecordToolAvailability does not panic when registered", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			RecordToolAvailability(ctx, mcp.ToolID("tool-a"), true)
+			RecordToolAvailability(ctx, mcp.ToolID("tool-a"), false)
+		})
+	})
+
+	t.Run("RecordInvocationLatency does not panic when registered", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			RecordInvocationLatency(ctx, mcp.ToolID("tool-a"), mcp.TenantID("tenant-1"), 12.5)
+		})
+	})
+
+	t.Run("RecordInvocationFailure does not panic when registered", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			RecordInvocationFailure(ctx, mcp.ToolID("tool-a"), mcp.TenantID("tenant-1"), "circuit_open")
+		})
+	})
+
+	t.Run("RecordCircuitState does not panic when registered", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			RecordCircuitState(ctx, mcp.ToolID("tool-a"), "open")
+			RecordCircuitState(ctx, mcp.ToolID("tool-a"), "closed")
+		})
+	})
+}

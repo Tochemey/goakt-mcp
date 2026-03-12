@@ -34,16 +34,31 @@ const (
 	CircuitHalfOpen CircuitState = "half_open"
 )
 
-// CircuitConfig holds the parameters for circuit breaker behavior.
+// CircuitConfig holds the parameters for circuit breaker behavior on a tool
+// supervisor. When any field is zero, the corresponding default constant is used.
 type CircuitConfig struct {
-	FailureThreshold    int
-	OpenDuration        time.Duration
+	// FailureThreshold is the number of consecutive execution failures that trip
+	// the circuit from closed to open. Zero means use DefaultCircuitFailureThreshold.
+	FailureThreshold int
+	// OpenDuration is how long the circuit stays open (fail-fast) before
+	// transitioning to half-open to probe recovery.
+	// Zero means use DefaultCircuitOpenDuration.
+	OpenDuration time.Duration
+	// HalfOpenMaxRequests is the number of probe requests permitted while the
+	// circuit is half-open. A successful probe closes the circuit; a failure
+	// re-opens it. Zero means use DefaultCircuitHalfOpenMaxRequests.
 	HalfOpenMaxRequests int
 }
 
 const (
-	DefaultCircuitFailureThreshold    = 5
-	DefaultCircuitOpenDuration        = 30 * time.Second
+	// DefaultCircuitFailureThreshold is the consecutive-failure count that trips
+	// a circuit breaker from closed to open when CircuitConfig.FailureThreshold is zero.
+	DefaultCircuitFailureThreshold = 5
+	// DefaultCircuitOpenDuration is the time a tripped circuit stays open before
+	// transitioning to half-open when CircuitConfig.OpenDuration is zero.
+	DefaultCircuitOpenDuration = 30 * time.Second
+	// DefaultCircuitHalfOpenMaxRequests is the number of probe requests allowed
+	// while the circuit is half-open when CircuitConfig.HalfOpenMaxRequests is zero.
 	DefaultCircuitHalfOpenMaxRequests = 1
 )
 

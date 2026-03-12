@@ -26,6 +26,7 @@ package goaktmcp
 import (
 	"context"
 	"net"
+	"net/http"
 	"testing"
 	"time"
 
@@ -40,6 +41,16 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
+
+// fixedIdentityResolver always returns the configured tenant and client IDs.
+type fixedIdentityResolver struct {
+	tenantID mcp.TenantID
+	clientID mcp.ClientID
+}
+
+func (r *fixedIdentityResolver) ResolveIdentity(_ *http.Request) (mcp.TenantID, mcp.ClientID, error) {
+	return r.tenantID, r.clientID, nil
+}
 
 // freePort returns an available port for use in tests.
 func freePort(t *testing.T) int {
@@ -471,7 +482,7 @@ func TestGatewayAPI(t *testing.T) {
 		actor.SpawnFoundationalActorsForExternalTest(ctx, system, cfg)
 		waitForActors()
 
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel), WithSystemForTesting(system))
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel), withSystemForTesting(system))
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		defer func() { _ = gw.Stop(ctx) }()
@@ -521,6 +532,197 @@ func newTestActorSystemForResolverFallback(t *testing.T, cfg config.Config, exec
 	return system, func() { _ = system.Stop(ctx) }
 }
 
+func TestGatewayTenantValidation(t *testing.T) {
+	t.Run("New rejects empty tenant ID", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Tenants = []mcp.TenantConfig{{ID: ""}}
+		_, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		require.Error(t, err)
+		var rErr *mcp.RuntimeError
+		require.ErrorAs(t, err, &rErr)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
+		assert.Contains(t, err.Error(), "tenant ID must not be empty")
+	})
+
+	t.Run("New rejects duplicate tenant IDs", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Tenants = []mcp.TenantConfig{
+			{ID: "dup-tenant"},
+			{ID: "dup-tenant"},
+		}
+		_, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		require.Error(t, err)
+		var rErr *mcp.RuntimeError
+		require.ErrorAs(t, err, &rErr)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
+		assert.Contains(t, err.Error(), "duplicate tenant ID")
+	})
+
+	t.Run("New accepts valid tenants", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Tenants = []mcp.TenantConfig{
+			{ID: "tenant-a"},
+			{ID: "tenant-b"},
+		}
+		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		require.NotNil(t, gw)
+	})
+
+	t.Run("New accepts empty tenants list", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Tenants = nil
+		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		require.NotNil(t, gw)
+	})
+}
+
+func TestGatewayDraining(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("API methods return error while gateway is draining", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+
+		// Simulate draining state without actually stopping the system
+		gw.mu.Lock()
+		gw.draining = true
+		gw.mu.Unlock()
+
+		_, err = gw.ListTools(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "shutting down")
+
+		_, err = gw.Invoke(ctx, &mcp.Invocation{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "shutting down")
+
+		err = gw.RegisterTool(ctx, mcp.Tool{ID: "x", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "y"}})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "shutting down")
+
+		err = gw.EnableTool(ctx, "x")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "shutting down")
+
+		err = gw.DisableTool(ctx, "x")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "shutting down")
+
+		err = gw.RemoveTool(ctx, "x")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "shutting down")
+
+		// Restore state so Stop() works
+		gw.mu.Lock()
+		gw.draining = false
+		gw.mu.Unlock()
+		require.NoError(t, gw.Stop(ctx))
+	})
+}
+
+func TestGatewayEnableTool(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("EnableTool re-enables a disabled tool", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Tools = []mcp.Tool{
+			{ID: "to-enable", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "npx"}, State: mcp.ToolStateEnabled},
+		}
+		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+		defer func() { _ = gw.Stop(ctx) }()
+
+		// Disable the tool first
+		err = gw.DisableTool(ctx, "to-enable")
+		require.NoError(t, err)
+
+		// Re-enable it
+		err = gw.EnableTool(ctx, "to-enable")
+		require.NoError(t, err)
+	})
+
+	t.Run("EnableTool returns error for non-existent tool", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.EnableTool(ctx, "nonexistent")
+		require.Error(t, err)
+	})
+
+	t.Run("EnableTool rejects empty tool ID", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.EnableTool(ctx, "")
+		require.Error(t, err)
+		var rErr *mcp.RuntimeError
+		require.ErrorAs(t, err, &rErr)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
+	})
+
+	t.Run("EnableTool returns error when gateway not started", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		err = gw.EnableTool(ctx, "x")
+		require.Error(t, err)
+	})
+
+	t.Run("DisableTool rejects empty tool ID", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.DisableTool(ctx, "")
+		require.Error(t, err)
+		var rErr *mcp.RuntimeError
+		require.ErrorAs(t, err, &rErr)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
+	})
+
+	t.Run("RemoveTool rejects empty tool ID", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.RemoveTool(ctx, "")
+		require.Error(t, err)
+		var rErr *mcp.RuntimeError
+		require.ErrorAs(t, err, &rErr)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
+	})
+
+	t.Run("UpdateTool validates tool before sending to registrar", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+		defer func() { _ = gw.Stop(ctx) }()
+
+		// Tool with empty ID should fail validation
+		err = gw.UpdateTool(ctx, mcp.Tool{})
+		require.Error(t, err)
+		var rErr *mcp.RuntimeError
+		require.ErrorAs(t, err, &rErr)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
+	})
+}
+
 func TestGatewayAPI_ClusterMode(t *testing.T) {
 	ctx := context.Background()
 
@@ -562,5 +764,51 @@ func TestGatewayAPI_ClusterMode(t *testing.T) {
 			}
 		}
 		assert.True(t, found, "bootstrap tool should be listed in cluster mode")
+	})
+}
+
+func TestGatewayHandler(t *testing.T) {
+	t.Run("Handler returns a valid http.Handler when IdentityResolver is set", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+
+		handler, err := gw.Handler(mcp.IngressConfig{
+			IdentityResolver: &fixedIdentityResolver{tenantID: "t1", clientID: "c1"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, handler)
+	})
+
+	t.Run("Handler returns error when IdentityResolver is nil", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+
+		_, err = gw.Handler(mcp.IngressConfig{})
+		require.Error(t, err)
+	})
+}
+
+func TestGatewayStop(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Stop sets system to nil after shutdown", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+		assert.NotNil(t, gw.System())
+
+		require.NoError(t, gw.Stop(ctx))
+		assert.Nil(t, gw.System())
+	})
+
+	t.Run("Stop is idempotent — second call is a no-op", func(t *testing.T) {
+		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+
+		require.NoError(t, gw.Stop(ctx))
+		require.NoError(t, gw.Stop(ctx)) // second stop must not error
 	})
 }

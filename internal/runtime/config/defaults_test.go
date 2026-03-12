@@ -45,6 +45,35 @@ func TestApplyDefaults(t *testing.T) {
 		assert.NotNil(t, cfg.Tenants)
 	})
 
+	t.Run("fills HealthProbe.Timeout and Credentials.MaxCacheEntries defaults", func(t *testing.T) {
+		cfg := Config{}
+		ApplyDefaults(&cfg)
+		assert.Equal(t, mcp.DefaultHealthProbeTimeout, cfg.HealthProbe.Timeout)
+		assert.Equal(t, mcp.DefaultMaxCacheEntries, cfg.Credentials.MaxCacheEntries)
+	})
+
+	t.Run("preserves explicit HealthProbe.Timeout and MaxCacheEntries", func(t *testing.T) {
+		cfg := Config{
+			HealthProbe: mcp.HealthProbeConfig{Timeout: 5 * time.Second},
+			Credentials: mcp.CredentialsConfig{MaxCacheEntries: 500},
+		}
+		ApplyDefaults(&cfg)
+		assert.Equal(t, 5*time.Second, cfg.HealthProbe.Timeout)
+		assert.Equal(t, 500, cfg.Credentials.MaxCacheEntries)
+	})
+
+	t.Run("fills Audit.MailboxSize default", func(t *testing.T) {
+		cfg := Config{}
+		ApplyDefaults(&cfg)
+		assert.Equal(t, mcp.DefaultAuditMailboxSize, cfg.Audit.MailboxSize)
+	})
+
+	t.Run("preserves explicit Audit.MailboxSize", func(t *testing.T) {
+		cfg := Config{Audit: mcp.AuditConfig{MailboxSize: 256}}
+		ApplyDefaults(&cfg)
+		assert.Equal(t, 256, cfg.Audit.MailboxSize)
+	})
+
 	t.Run("preserves explicit values", func(t *testing.T) {
 		cfg := Config{
 			Runtime: RuntimeConfig{

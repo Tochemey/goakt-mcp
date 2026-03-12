@@ -38,8 +38,9 @@ import (
 
 // credentialCacheEntry holds cached credentials with expiration.
 type credentialCacheEntry struct {
-	creds     map[string]string
-	expiresAt time.Time
+	creds      map[string]string
+	expiresAt  time.Time
+	lastAccess time.Time
 }
 
 // credentialBroker is the CredentialBroker.
@@ -59,10 +60,11 @@ type credentialCacheEntry struct {
 // State is protected by the actor mailbox (one message at a time); no mutex
 // is needed or allowed inside an actor.
 type credentialBroker struct {
-	providers []mcp.CredentialsProvider
-	cache     map[string]*credentialCacheEntry
-	cacheTTL  time.Duration
-	logger    goaktlog.Logger
+	providers  []mcp.CredentialsProvider
+	cache      map[string]*credentialCacheEntry
+	cacheTTL   time.Duration
+	maxEntries int
+	logger     goaktlog.Logger
 }
 
 var _ goaktactor.Actor = (*credentialBroker)(nil)
@@ -79,6 +81,10 @@ func (x *credentialBroker) PreStart(ctx *goaktactor.Context) error {
 	x.cacheTTL = config.Credentials.CacheTTL
 	x.providers = config.Credentials.Providers
 	x.cache = make(map[string]*credentialCacheEntry)
+	x.maxEntries = config.Credentials.MaxCacheEntries
+	if x.maxEntries == 0 {
+		x.maxEntries = mcp.DefaultMaxCacheEntries
+	}
 	x.logger.Infof("actor=%s started", mcp.ActorNameCredentialBroker)
 	return nil
 }
@@ -112,6 +118,7 @@ func (x *credentialBroker) handleResolve(ctx *goaktactor.ReceiveContext, msg *ru
 	cacheKey := string(msg.TenantID) + ":" + string(msg.ToolID)
 
 	if entry, ok := x.cache[cacheKey]; ok && time.Now().Before(entry.expiresAt) {
+		entry.lastAccess = time.Now()
 		credsCopy := make(map[string]string, len(entry.creds))
 		maps.Copy(credsCopy, entry.creds)
 		ctx.Response(&runtime.ResolveResult{Credentials: &mcp.Credentials{Values: credsCopy}})
@@ -140,9 +147,12 @@ func (x *credentialBroker) handleResolve(ctx *goaktactor.ReceiveContext, msg *ru
 		return
 	}
 
+	x.evictIfNeeded()
+	now := time.Now()
 	x.cache[cacheKey] = &credentialCacheEntry{
-		creds:     resolved,
-		expiresAt: time.Now().Add(x.cacheTTL),
+		creds:      resolved,
+		expiresAt:  now.Add(x.cacheTTL),
+		lastAccess: now,
 	}
 
 	credsCopy := make(map[string]string, len(resolved))
@@ -152,4 +162,36 @@ func (x *credentialBroker) handleResolve(ctx *goaktactor.ReceiveContext, msg *ru
 		ToolID:   msg.ToolID,
 		Values:   credsCopy,
 	}})
+}
+
+// evictIfNeeded removes entries when the cache exceeds maxEntries.
+// Expired entries are removed first. If still over limit, the entry with
+// the oldest lastAccess time is evicted (LRU). Protected by actor mailbox.
+func (x *credentialBroker) evictIfNeeded() {
+	if x.maxEntries <= 0 || len(x.cache) < x.maxEntries {
+		return
+	}
+
+	now := time.Now()
+	for k, entry := range x.cache {
+		if now.After(entry.expiresAt) {
+			delete(x.cache, k)
+		}
+	}
+
+	if len(x.cache) < x.maxEntries {
+		return
+	}
+
+	var oldestKey string
+	var oldestAccess time.Time
+	for k, entry := range x.cache {
+		if oldestKey == "" || entry.lastAccess.Before(oldestAccess) {
+			oldestKey = k
+			oldestAccess = entry.lastAccess
+		}
+	}
+	if oldestKey != "" {
+		delete(x.cache, oldestKey)
+	}
 }

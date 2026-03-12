@@ -57,7 +57,6 @@ type GatewayManager struct {
 	logger goaktlog.Logger
 }
 
-// enforce that GatewayManager satisfies the GoAkt Actor interface at compile time.
 var _ goaktactor.Actor = (*GatewayManager)(nil)
 
 // NewGatewayManager creates a GatewayManager actor primed with the provided configuration.
@@ -109,8 +108,15 @@ func (x *GatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext)
 	// spawn the registrar
 	registrar := x.spawnRegistrar(ctx)
 
-	// spawn the journal actor (before health and router so they can use it)
-	journaler := ctx.Spawn(mcp.ActorNameJournal, newJournaler())
+	// spawn the journal actor with a bounded mailbox to cap audit event backlog.
+	// When the mailbox is full, senders block until space is available, providing
+	// backpressure instead of unbounded memory growth.
+	auditMailboxSize := x.config.Audit.MailboxSize
+	if auditMailboxSize == 0 {
+		auditMailboxSize = config.DefaultAuditMailboxSize
+	}
+	journaler := ctx.Spawn(mcp.ActorNameJournal, newJournaler(),
+		goaktactor.WithMailbox(goaktactor.NewBoundedMailbox(auditMailboxSize)))
 
 	// spawn the health actor with journal for health transition audit events
 	healthChecker := ctx.Spawn(mcp.ActorNameHealth, newHealthChecker())

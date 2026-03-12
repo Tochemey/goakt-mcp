@@ -173,3 +173,17 @@ type CountSessionsForTenant struct {
 type CountSessionsForTenantResult struct {
 	Count int
 }
+
+// EnableTool is a command to re-enable a previously disabled tool.
+//
+// The tool must exist. Its state is set to ToolStateEnabled and the
+// supervisor is notified of the config change. Use with Tell or Ask
+// for EnableToolResult.
+type EnableTool struct {
+	ToolID mcp.ToolID
+}
+
+// EnableToolResult is the response to an Ask-wrapped EnableTool.
+type EnableToolResult struct {
+	Err error
+}

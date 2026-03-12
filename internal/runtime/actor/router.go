@@ -43,9 +43,6 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
-// routingTimeout is the maximum time for the full routing chain (lookup + session + execute).
-const routingTimeout = config.DefaultRequestTimeout
-
 // router is the RouterActor.
 //
 // RouterActor is the runtime entry point for tool invocations. It performs the
@@ -71,10 +68,10 @@ type router struct {
 	credentialBroker     *goaktactor.PID
 	journaler            *goaktactor.PID
 	hasConcurrencyQuotas bool
+	requestTimeout       time.Duration
 	logger               goaktlog.Logger
 }
 
-// enforce that routerActor satisfies the GoAkt Actor interface at compile time.
 var _ goaktactor.Actor = (*router)(nil)
 
 // newRouterActor creates a RouterActor.
@@ -87,6 +84,10 @@ func (x *router) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
 	config := ctx.Extension(extension.ConfigExtensionID).(*extension.ConfigExtension).Config()
 	x.hasConcurrencyQuotas = hasConcurrencyQuotas(config)
+	x.requestTimeout = config.Runtime.RequestTimeout
+	if x.requestTimeout == 0 {
+		x.requestTimeout = mcp.DefaultRequestTimeout
+	}
 	x.logger.Infof("actor=%s started", mcp.ActorNameRouter)
 	return nil
 }
@@ -159,11 +160,12 @@ func (x *router) resolveActors(ctx *goaktactor.ReceiveContext) {
 func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runtime.RouteInvocation) {
 	if err := x.validateInvocation(msg); err != nil {
 		if msg.Invocation != nil {
-			x.recordAuditEvent(invocationEvent(msg.Invocation, mcp.AuditEventTypeInvocationFailed, "invalid", string(mcp.ErrCodeInvalidRequest), err.Error()))
+			x.logAuditError(x.recordAuditEvent(ctx.Context(), invocationEvent(msg.Invocation, mcp.AuditEventTypeInvocationFailed, "invalid", string(mcp.ErrCodeInvalidRequest), err.Error())))
 		}
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
+
 	inv := msg.Invocation
 	tenantID, clientID := x.resolveTenantClient(inv)
 	corr := &telemetry.CorrelationFields{
@@ -173,14 +175,16 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 		TraceID:   inv.Correlation.TraceID,
 		ToolID:    inv.ToolID,
 	}
+
 	log := x.logger
 	if kvs := corr.LogKeyValues(); len(kvs) > 0 {
 		log = x.logger.With(kvs...)
 	}
+
 	log.Debugf("actor=%s routing tool=%s", mcp.ActorNameRouter, inv.ToolID)
 	start := time.Now()
 
-	goCtx, cancel := context.WithTimeout(ctx.Context(), routingTimeout)
+	goCtx, cancel := context.WithTimeout(ctx.Context(), x.requestTimeout)
 	defer cancel()
 
 	// routeErr tracks the terminal error for span recording. Using a single
@@ -211,7 +215,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 	if err != nil {
 		routeErr = err
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeToolNotFound))
-		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "error", string(mcp.ErrCodeToolNotFound), err.Error()))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "error", string(mcp.ErrCodeToolNotFound), err.Error())))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
@@ -223,28 +227,28 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 			code = re.Code
 		}
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(code))
-		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypePolicyDecision, outcomeFromError(err), string(code), err.Error()))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypePolicyDecision, outcomeFromError(err), string(code), err.Error())))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
 
-	supervisorPID, err := x.lookupSupervisor(goCtx, inv.ToolID)
+	supervisor, err := x.lookupSupervisor(goCtx, inv.ToolID)
 	if err != nil {
 		routeErr = err
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeInternal))
-		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "error", string(mcp.ErrCodeInternal), err.Error()))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "error", string(mcp.ErrCodeInternal), err.Error())))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
 
-	if err := x.checkAcceptWork(goCtx, supervisorPID, inv.ToolID, tool); err != nil {
+	if err := x.checkAcceptWork(goCtx, supervisor, inv.ToolID, tool); err != nil {
 		routeErr = err
 		code := mcp.ErrCodeToolUnavailable
 		if re := (*mcp.RuntimeError)(nil); errors.As(err, &re) {
 			code = re.Code
 		}
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(code))
-		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "unavailable", string(code), err.Error()))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "unavailable", string(code), err.Error())))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
@@ -253,21 +257,21 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 	if err != nil {
 		routeErr = err
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeCredentialUnavailable))
-		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "credential_unavailable", string(mcp.ErrCodeCredentialUnavailable), err.Error()))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "credential_unavailable", string(mcp.ErrCodeCredentialUnavailable), err.Error())))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
 
-	sessionPID, err := x.resolveSession(goCtx, supervisorPID, tenantID, clientID, inv.ToolID, invToUse.Credentials)
+	session, err := x.resolveSession(goCtx, supervisor, tenantID, clientID, inv.ToolID, invToUse.Credentials)
 	if err != nil {
 		routeErr = err
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeInternal))
-		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "session_error", string(mcp.ErrCodeInternal), err.Error()))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "session_error", string(mcp.ErrCodeInternal), err.Error())))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
 
-	result, err := x.executeInvocation(goCtx, sessionPID, invToUse, tool)
+	result, err := x.executeInvocation(goCtx, session, invToUse, tool)
 	if err != nil {
 		routeErr = err
 		code := mcp.ErrCodeInternal
@@ -275,12 +279,13 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 			code = re.Code
 		}
 		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(code))
-		x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "execution_error", string(code), err.Error()))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "execution_error", string(code), err.Error())))
 		ctx.Response(&runtime.RouteResult{Err: err})
 		return
 	}
+
 	telemetry.RecordInvocationLatency(goCtx, inv.ToolID, tenantID, float64(time.Since(start).Milliseconds()))
-	x.recordAuditEvent(invocationEvent(inv, mcp.AuditEventTypeInvocationComplete, string(result.Status), "", ""))
+	x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationComplete, string(result.Status), "", "")))
 	ctx.Response(&runtime.RouteResult{Result: result})
 }
 
@@ -289,6 +294,7 @@ func (x *router) validateInvocation(msg *runtime.RouteInvocation) error {
 	if msg.Invocation == nil {
 		return mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "invocation is required")
 	}
+
 	if msg.Invocation.ToolID.IsZero() {
 		return mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID is required")
 	}
@@ -302,13 +308,15 @@ func (x *router) resolveCredentials(goCtx context.Context, inv *mcp.Invocation, 
 	if tool.CredentialPolicy != mcp.CredentialPolicyRequired {
 		return inv, nil
 	}
+
 	if x.credentialBroker == nil || !x.credentialBroker.IsRunning() {
 		return nil, mcp.NewRuntimeError(mcp.ErrCodeCredentialUnavailable, "credential broker not available")
 	}
+
 	resp, err := goaktactor.Ask(goCtx, x.credentialBroker, &runtime.ResolveRequest{
 		TenantID: tenantID,
 		ToolID:   inv.ToolID,
-	}, routingTimeout)
+	}, x.requestTimeout)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "credential resolution failed", err)
 	}
@@ -319,6 +327,7 @@ func (x *router) resolveCredentials(goCtx context.Context, inv *mcp.Invocation, 
 		}
 		return nil, mcp.NewRuntimeError(mcp.ErrCodeCredentialUnavailable, "credentials not resolved")
 	}
+
 	invCopy := *inv
 	invCopy.Credentials = result.Credentials.Values
 	return &invCopy, nil
@@ -332,14 +341,16 @@ func (x *router) evaluatePolicy(goCtx context.Context, inv *mcp.Invocation, tool
 	if x.policyMaker == nil || !x.policyMaker.IsRunning() {
 		return nil
 	}
+
 	activeSessions := 0
 	if x.hasConcurrencyQuotas && x.registrar != nil && x.registrar.IsRunning() {
-		if resp, err := goaktactor.Ask(goCtx, x.registrar, &runtime.CountSessionsForTenant{TenantID: tenantID}, routingTimeout); err == nil {
+		if resp, err := goaktactor.Ask(goCtx, x.registrar, &runtime.CountSessionsForTenant{TenantID: tenantID}, x.requestTimeout); err == nil {
 			if result, ok := resp.(*runtime.CountSessionsForTenantResult); ok {
 				activeSessions = result.Count
 			}
 		}
 	}
+
 	in := &policy.Input{
 		Invocation:         inv,
 		Tool:               tool,
@@ -347,10 +358,12 @@ func (x *router) evaluatePolicy(goCtx context.Context, inv *mcp.Invocation, tool
 		ClientID:           clientID,
 		ActiveSessionCount: activeSessions,
 	}
-	resp, err := goaktactor.Ask(goCtx, x.policyMaker, &policy.EvaluateRequest{Input: in}, routingTimeout)
+
+	resp, err := goaktactor.Ask(goCtx, x.policyMaker, &policy.EvaluateRequest{Input: in}, x.requestTimeout)
 	if err != nil {
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "policy evaluation failed", err)
 	}
+
 	result, ok := resp.(*policy.EvaluateResult)
 	if !ok || !result.Result.Allowed() {
 		if result != nil && result.Result.Err != nil {
@@ -369,42 +382,49 @@ func (x *router) resolveTenantClient(inv *mcp.Invocation) (mcp.TenantID, mcp.Cli
 	if tenantID.IsZero() {
 		tenantID = "default"
 	}
+
 	if clientID.IsZero() {
 		clientID = "default"
 	}
+
 	return tenantID, clientID
 }
 
 // lookupTool queries the RegistryActor for the tool definition. Returns
 // ErrToolNotFound when the tool is not registered.
 func (x *router) lookupTool(goCtx context.Context, toolID mcp.ToolID) (mcp.Tool, error) {
-	qResp, err := goaktactor.Ask(goCtx, x.registrar, &runtime.QueryTool{ToolID: toolID}, routingTimeout)
+	qResp, err := goaktactor.Ask(goCtx, x.registrar, &runtime.QueryTool{ToolID: toolID}, x.requestTimeout)
 	if err != nil {
 		return mcp.Tool{}, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "registry query failed", err)
 	}
+
 	qResult, ok := qResp.(*runtime.QueryToolResult)
 	if !ok || !qResult.Found || qResult.Tool == nil {
 		return mcp.Tool{}, mcp.ErrToolNotFound
 	}
+
 	return *qResult.Tool, nil
 }
 
 // lookupSupervisor queries the RegistryActor for the tool's supervisor PID.
 // Returns an error when no supervisor exists or the supervisor is not running.
 func (x *router) lookupSupervisor(goCtx context.Context, toolID mcp.ToolID) (*goaktactor.PID, error) {
-	gsResp, err := goaktactor.Ask(goCtx, x.registrar, &runtime.GetSupervisor{ToolID: toolID}, routingTimeout)
+	gsResp, err := goaktactor.Ask(goCtx, x.registrar, &runtime.GetSupervisor{ToolID: toolID}, x.requestTimeout)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "supervisor lookup failed", err)
 	}
+
 	gsResult, ok := gsResp.(*runtime.GetSupervisorResult)
 	if !ok || !gsResult.Found || gsResult.Supervisor == nil {
 		return nil, mcp.ErrToolNotFound
 	}
-	supervisorPID, ok := gsResult.Supervisor.(*goaktactor.PID)
-	if !ok || !supervisorPID.IsRunning() {
+
+	supervisor, ok := gsResult.Supervisor.(*goaktactor.PID)
+	if !ok || !supervisor.IsRunning() {
 		return nil, mcp.NewRuntimeError(mcp.ErrCodeToolUnavailable, "supervisor not available")
 	}
-	return supervisorPID, nil
+
+	return supervisor, nil
 }
 
 // checkAcceptWork asks the ToolSupervisorActor whether it can accept new work.
@@ -412,10 +432,11 @@ func (x *router) lookupSupervisor(goCtx context.Context, toolID mcp.ToolID) (*go
 // (MaxSessionsPerTool) in a single Ask. Returns a typed RuntimeError
 // (ToolDisabled, ToolUnavailable, or ConcurrencyLimitReached) when rejected.
 func (x *router) checkAcceptWork(goCtx context.Context, supervisorPID *goaktactor.PID, toolID mcp.ToolID, tool mcp.Tool) error {
-	acceptResp, err := goaktactor.Ask(goCtx, supervisorPID, &runtime.CanAcceptWork{ToolID: toolID}, routingTimeout)
+	acceptResp, err := goaktactor.Ask(goCtx, supervisorPID, &runtime.CanAcceptWork{ToolID: toolID}, x.requestTimeout)
 	if err != nil {
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "availability check failed", err)
 	}
+
 	acceptResult, ok := acceptResp.(*runtime.CanAcceptWorkResult)
 	if !ok || !acceptResult.Accept {
 		reason := "circuit open or tool unavailable"
@@ -442,10 +463,11 @@ func (x *router) resolveSession(goCtx context.Context, supervisorPID *goaktactor
 		ClientID:    clientID,
 		ToolID:      toolID,
 		Credentials: creds,
-	}, routingTimeout)
+	}, x.requestTimeout)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "session resolution failed", err)
 	}
+
 	sessResult, ok := sessResp.(*runtime.GetOrCreateSessionResult)
 	if !ok || !sessResult.Found || sessResult.Session == nil {
 		err := mcp.NewRuntimeError(mcp.ErrCodeInternal, "session not available")
@@ -454,11 +476,12 @@ func (x *router) resolveSession(goCtx context.Context, supervisorPID *goaktactor
 		}
 		return nil, err
 	}
-	sessionPID, ok := sessResult.Session.(*goaktactor.PID)
-	if !ok || !sessionPID.IsRunning() {
+
+	session, ok := sessResult.Session.(*goaktactor.PID)
+	if !ok || !session.IsRunning() {
 		return nil, mcp.NewRuntimeError(mcp.ErrCodeSessionUnavailable, "session not running")
 	}
-	return sessionPID, nil
+	return session, nil
 }
 
 // executeInvocation forwards the invocation to the SessionActor via Ask and
@@ -468,14 +491,17 @@ func (x *router) executeInvocation(goCtx context.Context, sessionPID *goaktactor
 	if execTimeout == 0 {
 		execTimeout = config.DefaultRequestTimeout
 	}
+
 	sessInvResp, err := goaktactor.Ask(goCtx, sessionPID, &runtime.SessionInvoke{Invocation: inv}, execTimeout)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "invocation failed", err)
 	}
+
 	sessInvResult, ok := sessInvResp.(*runtime.SessionInvokeResult)
 	if !ok {
 		return nil, mcp.NewRuntimeError(mcp.ErrCodeInternal, "invalid session response")
 	}
+
 	if sessInvResult.Err != nil {
 		var rErr *mcp.RuntimeError
 		if errors.As(sessInvResult.Err, &rErr) {
@@ -488,11 +514,19 @@ func (x *router) executeInvocation(goCtx context.Context, sessionPID *goaktactor
 
 // recordAuditEvent sends an audit event to the JournalActor via Tell (fire-and-forget).
 // No-op when the journal is not available.
-func (x *router) recordAuditEvent(event *mcp.AuditEvent) {
+func (x *router) recordAuditEvent(ctx context.Context, event *mcp.AuditEvent) error {
 	if x.journaler == nil || !x.journaler.IsRunning() {
-		return
+		return nil
 	}
-	_ = goaktactor.Tell(context.Background(), x.journaler, &runtime.RecordAuditEvent{Event: event})
+	return goaktactor.Tell(ctx, x.journaler, &runtime.RecordAuditEvent{Event: event})
+}
+
+// logAuditError logs an audit event recording error at warn level.
+// No-op when err is nil.
+func (x *router) logAuditError(err error) {
+	if err != nil {
+		x.logger.Warnf("actor=%s audit event failed: %v", mcp.ActorNameRouter, err)
+	}
 }
 
 // invocationEvent constructs an audit Event from invocation context. Returns nil

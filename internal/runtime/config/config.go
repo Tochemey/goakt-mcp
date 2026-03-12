@@ -53,7 +53,10 @@ const (
 	DefaultRequestTimeout      = mcp.DefaultRequestTimeout
 	DefaultStartupTimeout      = mcp.DefaultStartupTimeout
 	DefaultHealthProbeInterval = mcp.DefaultHealthProbeInterval
+	DefaultHealthProbeTimeout  = mcp.DefaultHealthProbeTimeout
 	DefaultShutdownTimeout     = mcp.DefaultShutdownTimeout
+	DefaultMaxCacheEntries     = mcp.DefaultMaxCacheEntries
+	DefaultAuditMailboxSize    = mcp.DefaultAuditMailboxSize
 )
 
 // ToolConfig defines the static configuration for a single registered tool.

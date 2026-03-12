@@ -75,7 +75,6 @@ type session struct {
 	logger   goaktlog.Logger
 }
 
-// enforce that sessionActor satisfies the GoAkt Actor interface at compile time.
 var _ goaktactor.Actor = (*session)(nil)
 
 // newSession creates a SessionActor instance.
@@ -114,6 +113,12 @@ func (x *session) Receive(ctx *goaktactor.ReceiveContext) {
 		x.logger.Debugf("actor session:%s-%s-%s post-start", x.tenantID, x.clientID, x.toolID)
 	case *runtime.SessionInvoke:
 		x.handleSessionInvoke(ctx, msg)
+	case *runtime.GetSessionIdentity:
+		ctx.Response(&runtime.GetSessionIdentityResult{
+			TenantID: x.tenantID,
+			ClientID: x.clientID,
+			ToolID:   x.toolID,
+		})
 	default:
 		ctx.Unhandled()
 	}

@@ -24,6 +24,8 @@
 package actor
 
 import (
+	"sync"
+
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 	"github.com/tochemey/goakt/v4/supervisor"
@@ -56,7 +58,6 @@ type registrar struct {
 	logger      goaktlog.Logger
 }
 
-// enforce that registrar satisfies the GoAkt Actor interface at compile time.
 var _ goaktactor.Actor = (*registrar)(nil)
 
 // newRegistrar creates a new Registrar instance.
@@ -88,6 +89,8 @@ func (x *registrar) Receive(ctx *goaktactor.ReceiveContext) {
 		x.handleUpdateTool(ctx, msg)
 	case *runtime.DisableTool:
 		x.handleDisableTool(ctx, msg)
+	case *runtime.EnableTool:
+		x.handleEnableTool(ctx, msg)
 	case *runtime.RemoveTool:
 		x.handleRemoveTool(ctx, msg)
 	case *runtime.QueryTool:
@@ -102,6 +105,14 @@ func (x *registrar) Receive(ctx *goaktactor.ReceiveContext) {
 		x.handleListTools(ctx)
 	case *runtime.CountSessionsForTenant:
 		x.handleCountSessionsForTenant(ctx, msg)
+	case *runtime.GetToolStatus:
+		x.handleGetToolStatus(ctx, msg)
+	case *runtime.ResetCircuit:
+		x.handleResetCircuit(ctx, msg)
+	case *runtime.DrainTool:
+		x.handleDrainTool(ctx, msg)
+	case *runtime.ListAllSessions:
+		x.handleListAllSessions(ctx)
 	default:
 		ctx.Unhandled()
 	}
@@ -161,6 +172,8 @@ func (x *registrar) handleUpdateTool(ctx *goaktactor.ReceiveContext, msg *runtim
 
 	updated.State = existing.State
 	x.tools[updated.ID] = updated
+	x.updateToolExtension(ctx, updated)
+	x.notifySupervisor(ctx, updated.ID)
 	x.logger.Infof("actor=%s updated tool=%s", mcp.ActorNameRegistrar, updated.ID)
 	x.respondIfAsk(ctx, &runtime.UpdateToolResult{})
 }
@@ -177,6 +190,8 @@ func (x *registrar) handleDisableTool(ctx *goaktactor.ReceiveContext, msg *runti
 
 	existing.State = mcp.ToolStateDisabled
 	x.tools[msg.ToolID] = existing
+	x.updateToolExtension(ctx, existing)
+	x.notifySupervisor(ctx, msg.ToolID)
 	x.logger.Infof("actor=%s disabled tool=%s", mcp.ActorNameRegistrar, msg.ToolID)
 	x.respondIfAsk(ctx, &runtime.DisableToolResult{})
 }
@@ -262,21 +277,43 @@ func (x *registrar) handleListTools(ctx *goaktactor.ReceiveContext) {
 
 // handleCountSessionsForTenant sums session counts for the tenant across all
 // tool supervisors. Used by policy evaluation for ConcurrentSessions quota.
+// Fan-out is concurrent so the total wait time is bounded by one timeout rather
+// than N × timeout.
 func (x *registrar) handleCountSessionsForTenant(ctx *goaktactor.ReceiveContext, msg *runtime.CountSessionsForTenant) {
+	running := x.runningSupervisors()
+	if len(running) == 0 {
+		x.respondIfAsk(ctx, &runtime.CountSessionsForTenantResult{Count: 0})
+		return
+	}
+
+	counts := make(chan int, len(running))
+	tenantID := msg.TenantID
+	reqCtx := ctx.Context()
+
+	var wg sync.WaitGroup
+	for _, pid := range running {
+		wg.Add(1)
+		go func(s *goaktactor.PID) {
+			defer wg.Done()
+			resp, err := goaktactor.Ask(reqCtx, s, &runtime.SupervisorCountSessionsForTenant{TenantID: tenantID}, config.DefaultRequestTimeout)
+			if err != nil {
+				counts <- 0
+				return
+			}
+			if result, ok := resp.(*runtime.SupervisorCountSessionsForTenantResult); ok {
+				counts <- result.Count
+			} else {
+				counts <- 0
+			}
+		}(pid)
+	}
+
+	wg.Wait()
+	close(counts)
+
 	total := 0
-	for _, supervisor := range x.supervisors {
-		if supervisor == nil || !supervisor.IsRunning() {
-			continue
-		}
-
-		resp, err := goaktactor.Ask(ctx.Context(), supervisor, &runtime.SupervisorCountSessionsForTenant{TenantID: msg.TenantID}, config.DefaultRequestTimeout)
-		if err != nil {
-			continue
-		}
-
-		if result, ok := resp.(*runtime.SupervisorCountSessionsForTenantResult); ok {
-			total += result.Count
-		}
+	for c := range counts {
+		total += c
 	}
 	x.respondIfAsk(ctx, &runtime.CountSessionsForTenantResult{Count: total})
 }
@@ -306,6 +343,155 @@ func (x *registrar) stopSupervisorIfExists(ctx *goaktactor.ReceiveContext, toolI
 	if toolExt, ok := ctx.Extension(actorextension.ToolConfigExtensionID).(*actorextension.ToolConfigExtension); ok && toolExt != nil {
 		toolExt.Remove(toolID)
 	}
+}
+
+// handleEnableTool sets the tool state to ToolStateEnabled. The tool must exist.
+// The supervisor is notified of the config change via RefreshToolConfig.
+// Returns ErrToolNotFound when the tool does not exist.
+func (x *registrar) handleEnableTool(ctx *goaktactor.ReceiveContext, msg *runtime.EnableTool) {
+	existing, ok := x.tools[msg.ToolID]
+	if !ok {
+		x.respondIfAsk(ctx, &runtime.EnableToolResult{Err: mcp.ErrToolNotFound})
+		return
+	}
+
+	existing.State = mcp.ToolStateEnabled
+	x.tools[msg.ToolID] = existing
+	x.updateToolExtension(ctx, existing)
+	x.notifySupervisor(ctx, msg.ToolID)
+	x.logger.Infof("actor=%s enabled tool=%s", mcp.ActorNameRegistrar, msg.ToolID)
+	x.respondIfAsk(ctx, &runtime.EnableToolResult{})
+}
+
+// updateToolExtension updates the tool in the ToolConfigExtension system extension.
+func (x *registrar) updateToolExtension(ctx *goaktactor.ReceiveContext, tool mcp.Tool) {
+	if toolExt, ok := ctx.Extension(actorextension.ToolConfigExtensionID).(*actorextension.ToolConfigExtension); ok && toolExt != nil {
+		toolExt.Register(tool)
+	}
+}
+
+// notifySupervisor sends a RefreshToolConfig message to the tool's supervisor
+// so it can reload the updated tool definition from the extension.
+func (x *registrar) notifySupervisor(ctx *goaktactor.ReceiveContext, toolID mcp.ToolID) {
+	if pid, ok := x.supervisors[toolID]; ok && pid != nil && pid.IsRunning() {
+		_ = goaktactor.Tell(ctx.Context(), pid, &runtime.RefreshToolConfig{ToolID: toolID})
+	}
+}
+
+// handleGetToolStatus relays GetToolStatus to the tool's supervisor and returns
+// the result. Returns ErrToolNotFound when no supervisor exists for the tool.
+func (x *registrar) handleGetToolStatus(ctx *goaktactor.ReceiveContext, msg *runtime.GetToolStatus) {
+	pid, ok := x.supervisors[msg.ToolID]
+	if !ok || pid == nil || !pid.IsRunning() {
+		x.respondIfAsk(ctx, &runtime.GetToolStatusResult{Err: mcp.ErrToolNotFound})
+		return
+	}
+	resp, err := goaktactor.Ask(ctx.Context(), pid, msg, config.DefaultRequestTimeout)
+	if err != nil {
+		x.respondIfAsk(ctx, &runtime.GetToolStatusResult{Err: mcp.WrapRuntimeError(mcp.ErrCodeInternal, "supervisor ask failed", err)})
+		return
+	}
+	result, ok := resp.(*runtime.GetToolStatusResult)
+	if !ok {
+		x.respondIfAsk(ctx, &runtime.GetToolStatusResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInternal, "unexpected response type")})
+		return
+	}
+	x.respondIfAsk(ctx, result)
+}
+
+// handleResetCircuit relays ResetCircuit to the tool's supervisor.
+// Returns ErrToolNotFound when no supervisor exists for the tool.
+func (x *registrar) handleResetCircuit(ctx *goaktactor.ReceiveContext, msg *runtime.ResetCircuit) {
+	pid, ok := x.supervisors[msg.ToolID]
+	if !ok || pid == nil || !pid.IsRunning() {
+		x.respondIfAsk(ctx, &runtime.ResetCircuitResult{Err: mcp.ErrToolNotFound})
+		return
+	}
+	resp, err := goaktactor.Ask(ctx.Context(), pid, msg, config.DefaultRequestTimeout)
+	if err != nil {
+		x.respondIfAsk(ctx, &runtime.ResetCircuitResult{Err: mcp.WrapRuntimeError(mcp.ErrCodeInternal, "supervisor ask failed", err)})
+		return
+	}
+	result, ok := resp.(*runtime.ResetCircuitResult)
+	if !ok {
+		x.respondIfAsk(ctx, &runtime.ResetCircuitResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInternal, "unexpected response type")})
+		return
+	}
+	x.respondIfAsk(ctx, result)
+}
+
+// handleDrainTool relays DrainTool to the tool's supervisor.
+// Returns ErrToolNotFound when no supervisor exists for the tool.
+func (x *registrar) handleDrainTool(ctx *goaktactor.ReceiveContext, msg *runtime.DrainTool) {
+	pid, ok := x.supervisors[msg.ToolID]
+	if !ok || pid == nil || !pid.IsRunning() {
+		x.respondIfAsk(ctx, &runtime.DrainToolResult{Err: mcp.ErrToolNotFound})
+		return
+	}
+	resp, err := goaktactor.Ask(ctx.Context(), pid, msg, config.DefaultRequestTimeout)
+	if err != nil {
+		x.respondIfAsk(ctx, &runtime.DrainToolResult{Err: mcp.WrapRuntimeError(mcp.ErrCodeInternal, "supervisor ask failed", err)})
+		return
+	}
+	result, ok := resp.(*runtime.DrainToolResult)
+	if !ok {
+		x.respondIfAsk(ctx, &runtime.DrainToolResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInternal, "unexpected response type")})
+		return
+	}
+	x.respondIfAsk(ctx, result)
+}
+
+// handleListAllSessions fans out ListSupervisorSessions to all running supervisors
+// and aggregates the SessionInfo slices into a single result.
+// Fan-out is concurrent so the total wait time is bounded by one timeout rather
+// than N × timeout.
+func (x *registrar) handleListAllSessions(ctx *goaktactor.ReceiveContext) {
+	running := x.runningSupervisors()
+	if len(running) == 0 {
+		x.respondIfAsk(ctx, &runtime.ListAllSessionsResult{Sessions: nil})
+		return
+	}
+
+	results := make(chan []mcp.SessionInfo, len(running))
+	reqCtx := ctx.Context()
+
+	var wg sync.WaitGroup
+	for _, pid := range running {
+		wg.Add(1)
+		go func(s *goaktactor.PID) {
+			defer wg.Done()
+			resp, err := goaktactor.Ask(reqCtx, s, &runtime.ListSupervisorSessions{}, config.DefaultRequestTimeout)
+			if err != nil {
+				results <- nil
+				return
+			}
+			if result, ok := resp.(*runtime.ListSupervisorSessionsResult); ok {
+				results <- result.Sessions
+			} else {
+				results <- nil
+			}
+		}(pid)
+	}
+
+	wg.Wait()
+	close(results)
+
+	var all []mcp.SessionInfo
+	for sessions := range results {
+		all = append(all, sessions...)
+	}
+	x.respondIfAsk(ctx, &runtime.ListAllSessionsResult{Sessions: all})
+}
+
+// runningSupervisors returns the PIDs of all currently running supervisors.
+func (x *registrar) runningSupervisors() []*goaktactor.PID {
+	running := make([]*goaktactor.PID, 0, len(x.supervisors))
+	for _, pid := range x.supervisors {
+		if pid != nil && pid.IsRunning() {
+			running = append(running, pid)
+		}
+	}
+	return running
 }
 
 // respondIfAsk sends the response when the message was delivered via Ask.

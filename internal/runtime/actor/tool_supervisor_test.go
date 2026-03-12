@@ -39,6 +39,7 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
+	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
@@ -289,6 +290,84 @@ func TestToolSupervisorActor(t *testing.T) {
 		assert.False(t, pid.IsRunning())
 	})
 
+	t.Run("RefreshToolConfig reloads tool definition from extension", func(t *testing.T) {
+		tool := validStdioTool("refresh-tool")
+		tool.RequestTimeout = 10 * time.Second
+		toolCfgExt := actorextension.NewToolConfigExtension()
+		toolCfgExt.Register(tool)
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		name := mcp.ToolSupervisorName(tool.ID)
+		pid, err := system.Spawn(ctx, name, newToolSupervisor())
+		require.NoError(t, err)
+		waitForActors()
+
+		// Verify supervisor accepts work initially
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.CanAcceptWork{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.CanAcceptWorkResult)
+		require.True(t, ok)
+		assert.True(t, result.Accept)
+
+		// Update the tool in the extension to disabled state
+		disabledTool := tool
+		disabledTool.State = mcp.ToolStateDisabled
+		toolCfgExt.Register(disabledTool)
+
+		// Send RefreshToolConfig to the supervisor
+		err = goaktactor.Tell(ctx, pid, &runtime.RefreshToolConfig{ToolID: tool.ID})
+		require.NoError(t, err)
+		waitForActors()
+
+		// Verify supervisor now rejects work because tool is disabled
+		resp, err = goaktactor.Ask(ctx, pid, &runtime.CanAcceptWork{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		result, ok = resp.(*runtime.CanAcceptWorkResult)
+		require.True(t, ok)
+		assert.False(t, result.Accept)
+		assert.Contains(t, result.Reason, "disabled")
+	})
+
+	t.Run("RefreshToolConfig with missing tool is no-op", func(t *testing.T) {
+		tool := validStdioTool("refresh-noop-tool")
+		toolCfgExt := actorextension.NewToolConfigExtension()
+		toolCfgExt.Register(tool)
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		name := mcp.ToolSupervisorName(tool.ID)
+		pid, err := system.Spawn(ctx, name, newToolSupervisor())
+		require.NoError(t, err)
+		waitForActors()
+
+		// Send RefreshToolConfig with a non-existent tool ID — should be a no-op
+		err = goaktactor.Tell(ctx, pid, &runtime.RefreshToolConfig{ToolID: "nonexistent"})
+		require.NoError(t, err)
+		waitForActors()
+
+		// Supervisor should still accept work with the original tool
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.CanAcceptWork{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.CanAcceptWorkResult)
+		require.True(t, ok)
+		assert.True(t, result.Accept)
+	})
+
 	t.Run("circuit open records CircuitState metric when metrics are registered", func(t *testing.T) {
 		meter := noopmetric.NewMeterProvider().Meter("test")
 		_, err := telemetry.RegisterMetrics(meter)
@@ -353,5 +432,239 @@ func TestToolSupervisorActor(t *testing.T) {
 		require.NotNil(t, circuitEvent)
 		assert.Equal(t, string(tool.ID), circuitEvent.ToolID)
 		assert.Equal(t, string(mcp.CircuitOpen), circuitEvent.Outcome)
+	})
+}
+
+func TestToolSupervisorGetToolStatus(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns closed circuit and not draining for fresh supervisor", func(t *testing.T) {
+		tool := validStdioTool("admin-status-tool")
+		_, pid, stop := spawnTestSupervisor(t, tool)
+		defer stop()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.GetToolStatus{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.GetToolStatusResult)
+		require.True(t, ok)
+		assert.Nil(t, result.Err)
+		assert.Equal(t, tool.ID, result.Status.ToolID)
+		assert.Equal(t, mcp.ToolStateEnabled, result.Status.State)
+		assert.Equal(t, mcp.CircuitClosed, result.Status.Circuit)
+		assert.Zero(t, result.Status.SessionCount)
+		assert.False(t, result.Status.Draining)
+	})
+
+	t.Run("returns error for tool ID mismatch", func(t *testing.T) {
+		tool := validStdioTool("admin-mismatch-tool")
+		_, pid, stop := spawnTestSupervisor(t, tool)
+		defer stop()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.GetToolStatus{ToolID: "other-tool"}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.GetToolStatusResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
+	})
+}
+
+func TestToolSupervisorResetCircuit(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("resets open circuit to closed", func(t *testing.T) {
+		tool := validStdioTool("admin-reset-tool")
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		toolCfgExt := actorextension.NewToolConfigExtension()
+		toolCfgExt.Register(tool)
+		system, stop := testActorSystem(t, goaktactor.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)))
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+		name := mcp.ToolSupervisorName(tool.ID)
+		pid, err := system.Spawn(ctx, name, newToolSupervisor())
+		require.NoError(t, err)
+		waitForActors()
+
+		// Trip the circuit.
+		for i := 0; i < mcp.DefaultCircuitFailureThreshold; i++ {
+			require.NoError(t, goaktactor.Tell(ctx, pid, &runtime.ReportFailure{ToolID: tool.ID}))
+		}
+		waitForActors()
+
+		// Confirm circuit is open.
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.CanAcceptWork{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		canAccept, ok := resp.(*runtime.CanAcceptWorkResult)
+		require.True(t, ok)
+		assert.False(t, canAccept.Accept)
+
+		// Reset circuit.
+		resp, err = goaktactor.Ask(ctx, pid, &runtime.ResetCircuit{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		resetResult, ok := resp.(*runtime.ResetCircuitResult)
+		require.True(t, ok)
+		assert.Nil(t, resetResult.Err)
+
+		// Circuit must now be closed.
+		resp, err = goaktactor.Ask(ctx, pid, &runtime.CanAcceptWork{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		canAccept2, ok := resp.(*runtime.CanAcceptWorkResult)
+		require.True(t, ok)
+		assert.True(t, canAccept2.Accept)
+	})
+
+	t.Run("returns error for tool ID mismatch", func(t *testing.T) {
+		tool := validStdioTool("admin-reset-mismatch")
+		_, pid, stop := spawnTestSupervisor(t, tool)
+		defer stop()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.ResetCircuit{ToolID: "other-tool"}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.ResetCircuitResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
+	})
+}
+
+func TestToolSupervisorDrainTool(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("sets draining and rejects new work", func(t *testing.T) {
+		tool := validStdioTool("admin-drain-tool")
+		_, pid, stop := spawnTestSupervisor(t, tool)
+		defer stop()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.DrainTool{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		drainResult, ok := resp.(*runtime.DrainToolResult)
+		require.True(t, ok)
+		assert.Nil(t, drainResult.Err)
+
+		// CanAcceptWork must be rejected with draining reason.
+		resp, err = goaktactor.Ask(ctx, pid, &runtime.CanAcceptWork{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		canAccept, ok := resp.(*runtime.CanAcceptWorkResult)
+		require.True(t, ok)
+		assert.False(t, canAccept.Accept)
+		assert.Contains(t, canAccept.Reason, "draining")
+	})
+
+	t.Run("returns error for tool ID mismatch", func(t *testing.T) {
+		tool := validStdioTool("admin-drain-mismatch")
+		_, pid, stop := spawnTestSupervisor(t, tool)
+		defer stop()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.DrainTool{ToolID: "other-tool"}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.DrainToolResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
+	})
+}
+
+func TestToolSupervisorListSupervisorSessions(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns empty slice when no sessions are active", func(t *testing.T) {
+		tool := validStdioTool("admin-list-tool")
+		_, pid, stop := spawnTestSupervisor(t, tool)
+		defer stop()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.ListSupervisorSessions{}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.ListSupervisorSessionsResult)
+		require.True(t, ok)
+		assert.Empty(t, result.Sessions)
+	})
+}
+
+func TestPolicyActorCustomEvaluator(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("custom deny evaluator blocks invocations that pass built-in checks", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Tenants = []mcp.TenantConfig{
+			{
+				ID:        "tenant-1",
+				Evaluator: &testDenyEvaluator{reason: "custom rule rejected"},
+			},
+		}
+
+		system, stop := testActorSystem(t)
+		defer stop()
+		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("custom-eval-tool")
+		in := &policy.Input{
+			Invocation: sessionInvocation(tool.ID, "tenant-1", "client-1"),
+			Tool:       tool,
+			TenantID:   "tenant-1",
+			ClientID:   "client-1",
+		}
+		resp, err := goaktactor.Ask(ctx, pid, &policy.EvaluateRequest{Input: in}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*policy.EvaluateResult)
+		require.True(t, ok)
+		assert.False(t, result.Result.Allowed())
+		assert.Contains(t, result.Result.Reason, "custom rule rejected")
+	})
+
+	t.Run("custom allow evaluator passes invocations that pass built-in checks", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Tenants = []mcp.TenantConfig{
+			{
+				ID:        "tenant-2",
+				Evaluator: &testAllowEvaluator{},
+			},
+		}
+
+		system, stop := testActorSystem(t)
+		defer stop()
+		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("custom-allow-tool")
+		in := &policy.Input{
+			Invocation: sessionInvocation(tool.ID, "tenant-2", "client-2"),
+			Tool:       tool,
+			TenantID:   "tenant-2",
+			ClientID:   "client-2",
+		}
+		resp, err := goaktactor.Ask(ctx, pid, &policy.EvaluateRequest{Input: in}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*policy.EvaluateResult)
+		require.True(t, ok)
+		assert.True(t, result.Result.Allowed())
+	})
+
+	t.Run("nil evaluator field is a no-op", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Tenants = []mcp.TenantConfig{
+			{ID: "tenant-3", Evaluator: nil},
+		}
+
+		system, stop := testActorSystem(t)
+		defer stop()
+		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("nil-eval-tool")
+		in := &policy.Input{
+			Invocation: sessionInvocation(tool.ID, "tenant-3", "client-3"),
+			Tool:       tool,
+			TenantID:   "tenant-3",
+			ClientID:   "client-3",
+		}
+		resp, err := goaktactor.Ask(ctx, pid, &policy.EvaluateRequest{Input: in}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*policy.EvaluateResult)
+		require.True(t, ok)
+		assert.True(t, result.Result.Allowed())
 	})
 }

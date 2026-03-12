@@ -72,9 +72,9 @@ type toolSupervisor struct {
 	journal          *goaktactor.PID
 	logger           goaktlog.Logger
 	self             *goaktactor.PID
+	draining         bool
 }
 
-// enforce that toolSupervisor satisfies the GoAkt Actor interface at compile time.
 var _ goaktactor.Actor = (*toolSupervisor)(nil)
 
 // newToolSupervisor creates a ToolSupervisor Actor instance.
@@ -147,6 +147,16 @@ func (x *toolSupervisor) Receive(ctx *goaktactor.ReceiveContext) {
 		x.handleReportSuccess(ctx, msg)
 	case *runtime.SupervisorCountSessionsForTenant:
 		x.handleCountSessionsForTenant(ctx, msg)
+	case *runtime.RefreshToolConfig:
+		x.handleRefreshToolConfig(ctx, msg)
+	case *runtime.GetToolStatus:
+		x.handleGetToolStatus(ctx, msg)
+	case *runtime.ResetCircuit:
+		x.handleResetCircuit(ctx, msg)
+	case *runtime.DrainTool:
+		x.handleDrainTool(ctx, msg)
+	case *runtime.ListSupervisorSessions:
+		x.handleListSupervisorSessions(ctx)
 	default:
 		ctx.Unhandled()
 	}
@@ -181,6 +191,11 @@ func (x *toolSupervisor) handleCanAcceptWork(ctx *goaktactor.ReceiveContext, msg
 
 	if x.tool.State == mcp.ToolStateDisabled {
 		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "tool is disabled", SessionCount: sessionCount})
+		return
+	}
+
+	if x.draining {
+		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "tool is draining", SessionCount: sessionCount})
 		return
 	}
 
@@ -337,6 +352,93 @@ func (x *toolSupervisor) handleCountSessionsForTenant(ctx *goaktactor.ReceiveCon
 		}
 	}
 	ctx.Response(&runtime.SupervisorCountSessionsForTenantResult{Count: count})
+}
+
+// handleRefreshToolConfig reloads the tool definition from the ToolConfigExtension.
+// Called when the Registrar updates, enables, or disables the tool.
+func (x *toolSupervisor) handleRefreshToolConfig(ctx *goaktactor.ReceiveContext, msg *runtime.RefreshToolConfig) {
+	toolExt, ok := ctx.Extension(actorextension.ToolConfigExtensionID).(*actorextension.ToolConfigExtension)
+	if !ok || toolExt == nil {
+		return
+	}
+	tool, found := toolExt.Get(msg.ToolID)
+	if !found {
+		return
+	}
+	x.tool = tool
+	x.logger.Infof("actor supervisor:%s refreshed tool config state=%s", msg.ToolID, tool.State)
+}
+
+// handleGetToolStatus returns the current operational status of the tool:
+// state, circuit breaker state, active session count, and drain flag.
+func (x *toolSupervisor) handleGetToolStatus(ctx *goaktactor.ReceiveContext, msg *runtime.GetToolStatus) {
+	if msg.ToolID != x.tool.ID {
+		ctx.Response(&runtime.GetToolStatusResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID mismatch")})
+		return
+	}
+	x.maybeTransitionFromOpen()
+	ctx.Response(&runtime.GetToolStatusResult{
+		Status: mcp.ToolStatus{
+			ToolID:       x.tool.ID,
+			State:        x.tool.State,
+			Circuit:      x.circuitState,
+			SessionCount: ctx.Self().ChildrenCount(),
+			Draining:     x.draining,
+		},
+	})
+}
+
+// handleResetCircuit manually resets the circuit breaker to closed state,
+// clearing the failure counter and half-open probe count.
+func (x *toolSupervisor) handleResetCircuit(ctx *goaktactor.ReceiveContext, msg *runtime.ResetCircuit) {
+	if msg.ToolID != x.tool.ID {
+		ctx.Response(&runtime.ResetCircuitResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID mismatch")})
+		return
+	}
+	prev := x.circuitState
+	x.circuitState = mcp.CircuitClosed
+	x.failureCount = 0
+	x.halfOpenRequests = 0
+	x.logger.Infof("actor supervisor:%s circuit reset to closed (was %s)", x.tool.ID, prev)
+	x.recordCircuitStateChange(string(mcp.CircuitClosed), map[string]string{"reason": "manual_reset"})
+	ctx.Response(&runtime.ResetCircuitResult{})
+}
+
+// handleDrainTool sets the draining flag so new session requests are rejected.
+// Existing sessions continue until they passivate or complete.
+func (x *toolSupervisor) handleDrainTool(ctx *goaktactor.ReceiveContext, msg *runtime.DrainTool) {
+	if msg.ToolID != x.tool.ID {
+		ctx.Response(&runtime.DrainToolResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID mismatch")})
+		return
+	}
+	x.draining = true
+	x.logger.Infof("actor supervisor:%s draining: no new sessions accepted", x.tool.ID)
+	ctx.Response(&runtime.DrainToolResult{})
+}
+
+// handleListSupervisorSessions enumerates active child sessions by asking each
+// for its identity via GetSessionIdentity.
+func (x *toolSupervisor) handleListSupervisorSessions(ctx *goaktactor.ReceiveContext) {
+	children := ctx.Self().Children()
+	sessions := make([]mcp.SessionInfo, 0, len(children))
+	for _, child := range children {
+		if child == nil || !child.IsRunning() {
+			continue
+		}
+		resp, err := goaktactor.Ask(ctx.Context(), child, &runtime.GetSessionIdentity{}, x.circuitConfig.OpenDuration)
+		if err != nil {
+			continue
+		}
+		if identity, ok := resp.(*runtime.GetSessionIdentityResult); ok {
+			sessions = append(sessions, mcp.SessionInfo{
+				Name:     child.Name(),
+				ToolID:   identity.ToolID,
+				TenantID: identity.TenantID,
+				ClientID: identity.ClientID,
+			})
+		}
+	}
+	ctx.Response(&runtime.ListSupervisorSessionsResult{Sessions: sessions})
 }
 
 // recordCircuitStateChange sends a circuit state change audit event to the
