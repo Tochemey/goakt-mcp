@@ -31,8 +31,9 @@ import "context"
 // pass. It provides a hook for use cases such as OPA integration, RBAC, or
 // any domain-specific access control rules.
 //
-// Returning a non-nil *RuntimeError causes the invocation to be denied with
-// ErrCodePolicyDenied. Returning nil allows the invocation to proceed.
+// Returning a non-nil *RuntimeError causes the invocation to be denied. The
+// error is propagated as-is, so the evaluator controls both the error code and
+// message. Returning nil allows the invocation to proceed.
 //
 // Implementations must be safe for concurrent use from multiple goroutines.
 type PolicyEvaluator interface {

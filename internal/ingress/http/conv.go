@@ -39,9 +39,9 @@ import (
 // dispatchToolCall translates an SDK CallToolRequest into a gateway Invocation,
 // forwards it through gw, and converts the result back to an SDK CallToolResult.
 //
-// Tool-level errors (policy denials, timeouts, execution failures) are returned
-// as tool errors (IsError: true) so the LLM can observe and self-correct.
-// Only unrecoverable marshaling failures are returned as Go errors.
+// All errors (invalid requests, policy denials, timeouts, execution failures)
+// are returned as tool errors (IsError: true) so the LLM can observe and
+// self-correct. The returned Go error is always nil.
 func dispatchToolCall(
 	ctx context.Context,
 	gw Invoker,

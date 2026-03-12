@@ -65,10 +65,17 @@ func TestFileSink_NewFileSink_CreatesDir(t *testing.T) {
 }
 
 func TestFileSink_EmptyDir_UsesCurrentDir(t *testing.T) {
-	// NewFileSink("") defaults to "." — just verify no error and clean up
-	sink, err := NewFileSink(t.TempDir())
+	// NewFileSink("") defaults to "." — verify it creates audit.log in cwd.
+	tmp := t.TempDir()
+	orig, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(tmp))
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	sink, err := NewFileSink("")
 	require.NoError(t, err)
 	require.NoError(t, sink.Close())
+	assert.FileExists(t, filepath.Join(tmp, "audit.log"))
 }
 
 func TestFileSink_WriteNilEvent(t *testing.T) {
