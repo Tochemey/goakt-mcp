@@ -224,13 +224,20 @@ var requestIDCounter atomic.Uint64
 
 // newRequestID generates a cryptographically random 16-hex-character request
 // identifier. If crypto/rand fails, it falls back to a time+counter based ID
-// to ensure uniqueness.
+// packed into 8 bytes to guarantee the same 16-hex-character length.
 func newRequestID() mcp.RequestID {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		ts := uint64(time.Now().UnixNano())
-		seq := requestIDCounter.Add(1)
-		return mcp.RequestID(fmt.Sprintf("%08x%08x", ts, seq))
+		ts := uint32(time.Now().UnixNano())
+		seq := uint32(requestIDCounter.Add(1))
+		b[0] = byte(ts >> 24)
+		b[1] = byte(ts >> 16)
+		b[2] = byte(ts >> 8)
+		b[3] = byte(ts)
+		b[4] = byte(seq >> 24)
+		b[5] = byte(seq >> 16)
+		b[6] = byte(seq >> 8)
+		b[7] = byte(seq)
 	}
 	return mcp.RequestID(fmt.Sprintf("%x", b))
 }

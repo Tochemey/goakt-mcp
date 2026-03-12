@@ -121,9 +121,11 @@ func (x *policyMaker) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy
 		x.currentMinute = minute
 	}
 
-	// Pass current count before incrementing so evaluator can enforce "allow N,
-	// throttle N+1". We increment only after a successful allow.
+	// Snapshot the current count for "allow N, throttle N+1" semantics, then
+	// increment unconditionally so denied requests still count toward the rate
+	// limit. This prevents a flood of denied calls from bypassing throttling.
 	in.RequestsInCurrentMinute = x.requestCounts[in.TenantID]
+	x.requestCounts[in.TenantID]++
 	in.TenantConfig = x.lookupTenantConfig(in.TenantID)
 
 	result := x.evaluator.Evaluate(in)
@@ -133,8 +135,7 @@ func (x *policyMaker) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy
 	}
 
 	// Call the tenant's custom PolicyEvaluator when configured. It runs after
-	// all built-in authorization and quota checks have passed, so the count
-	// is incremented only when the custom evaluator also allows the request.
+	// all built-in authorization and quota checks have passed.
 	if in.TenantConfig != nil && in.TenantConfig.Evaluator != nil {
 		policyInput := mcp.PolicyInput{
 			TenantID:                in.TenantID,
@@ -154,7 +155,6 @@ func (x *policyMaker) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy
 		}
 	}
 
-	x.requestCounts[in.TenantID]++
 	ctx.Response(&policy.EvaluateResult{Result: result})
 }
 
