@@ -78,8 +78,6 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	goaktlog "github.com/tochemey/goakt/v4/log"
-
 	goaktmcp "github.com/tochemey/goakt-mcp"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/mcp"
@@ -292,7 +290,6 @@ func startGateway(ctx context.Context, fileSink *audit.FileSink, root, httpToolU
 	gw, err := goaktmcp.New(cfg,
 		goaktmcp.WithMetrics(),
 		goaktmcp.WithTracing(),
-		goaktmcp.WithLogger(goaktlog.InvalidLevel),
 	)
 	if err != nil {
 		log.Fatalf("create gateway: %v", err)

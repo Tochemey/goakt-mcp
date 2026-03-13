@@ -52,8 +52,6 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	goaktlog "github.com/tochemey/goakt/v4/log"
-
 	goaktmcp "github.com/tochemey/goakt-mcp"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
@@ -126,7 +124,7 @@ func main() {
 		},
 	}
 
-	gw, err := goaktmcp.New(cfg, goaktmcp.WithLogger(goaktlog.InvalidLevel))
+	gw, err := goaktmcp.New(cfg)
 	if err != nil {
 		log.Fatalf("create gateway: %v", err)
 	}

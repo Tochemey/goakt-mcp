@@ -82,12 +82,13 @@ func New(cfg mcp.Config, opts ...Option) (*Gateway, error) {
 		logger: goaktlog.DiscardLogger,
 	}
 
-	for _, opt := range opts {
-		opt(gw)
+	// Config-level logger is applied first so that explicit options take precedence.
+	if cfg.LogLevel != "" {
+		gw.logger = config.NewLogger(cfg.LogLevel)
 	}
 
-	if gw.config.LogLevel != "" {
-		gw.logger = config.NewLogger(gw.config.LogLevel)
+	for _, opt := range opts {
+		opt(gw)
 	}
 
 	if err := validateTenants(gw.config.Tenants); err != nil {

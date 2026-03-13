@@ -294,9 +294,12 @@ cfg := mcp.Config{
 
 ### Options
 
-- `WithLogger(level goaktlog.Level)` — Set gateway log level; use `goaktlog.InvalidLevel` to suppress output (e.g. in tests).
+- `WithLogger(logger Logger)` — Plug in a custom logging backend (zap, zerolog, slog, logrus, etc.) by implementing the four-method `Logger` interface (`Debug`, `Info`, `Warn`, `Error`). The gateway wraps it to satisfy the engine's internal logger. If the `Logger` also implements the optional `LeveledLogger` interface (`Level() string`), the adapter uses its level for engine-side log gating; otherwise it defaults to `"info"` level. Passing `nil` is a no-op — the logger set via `mcp.Config.LogLevel` (if any) is preserved.
+- `WithDebug()` — Enable verbose debug logging from the underlying engine to stdout. Useful for diagnosing actor lifecycle, message routing, and cluster events.
 - `WithMetrics()` — Enable OpenTelemetry metrics (invocation latency, failures, tool availability, circuit state).
 - `WithTracing()` — Enable OpenTelemetry tracing and W3C trace-context propagation on egress.
+
+Log level can also be set declaratively via `mcp.Config.LogLevel` (e.g. `"info"`, `"debug"`, `"error"`). When both `LogLevel` and `WithLogger` are set, the programmatic option takes precedence.
 
 ## Configuration
 

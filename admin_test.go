@@ -29,7 +29,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	goaktlog "github.com/tochemey/goakt/v4/log"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 )
@@ -41,7 +40,7 @@ func newStartedGatewayWithTools(t *testing.T, tools ...mcp.Tool) (*Gateway, cont
 	ctx := context.Background()
 	cfg := testConfig()
 	cfg.Tools = tools
-	gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+	gw, err := New(cfg)
 	require.NoError(t, err)
 	require.NoError(t, gw.Start(ctx))
 	waitForActors()
@@ -87,7 +86,7 @@ func TestGetToolStatus(t *testing.T) {
 	})
 
 	t.Run("returns error when gateway not started", func(t *testing.T) {
-		gw2, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw2, err := New(testConfig())
 		require.NoError(t, err)
 		_, err = gw2.GetToolStatus(ctx, "any-tool")
 		require.Error(t, err)
@@ -119,7 +118,7 @@ func TestResetCircuit(t *testing.T) {
 	})
 
 	t.Run("returns error when gateway not started", func(t *testing.T) {
-		gw2, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw2, err := New(testConfig())
 		require.NoError(t, err)
 		err = gw2.ResetCircuit(ctx, tool.ID)
 		require.Error(t, err)
@@ -151,7 +150,7 @@ func TestDrainTool(t *testing.T) {
 	})
 
 	t.Run("returns error when gateway not started", func(t *testing.T) {
-		gw2, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw2, err := New(testConfig())
 		require.NoError(t, err)
 		err = gw2.DrainTool(ctx, tool.ID)
 		require.Error(t, err)
@@ -173,7 +172,7 @@ func TestGetGatewayStatus(t *testing.T) {
 	})
 
 	t.Run("returns not running for unstarted gateway", func(t *testing.T) {
-		gw2, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw2, err := New(testConfig())
 		require.NoError(t, err)
 		status, err := gw2.GetGatewayStatus(ctx)
 		require.NoError(t, err)
@@ -194,9 +193,43 @@ func TestListSessions(t *testing.T) {
 	})
 
 	t.Run("returns error when gateway not started", func(t *testing.T) {
-		gw2, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw2, err := New(testConfig())
 		require.NoError(t, err)
 		_, err = gw2.ListSessions(ctx)
+		require.Error(t, err)
+	})
+}
+
+func TestGetToolSchema(t *testing.T) {
+	tool := adminTool("schema-tool")
+	gw, ctx, stop := newStartedGatewayWithTools(t, tool)
+	defer stop()
+
+	t.Run("returns schemas for registered tool without error", func(t *testing.T) {
+		schemas, err := gw.GetToolSchema(ctx, tool.ID)
+		require.NoError(t, err)
+		// Backend is not running so schemas may be nil; the important check is
+		// that the function completes without error for a known tool ID.
+		_ = schemas
+	})
+
+	t.Run("returns error for unknown tool", func(t *testing.T) {
+		_, err := gw.GetToolSchema(ctx, "nonexistent-tool")
+		require.Error(t, err)
+	})
+
+	t.Run("returns error for empty tool ID", func(t *testing.T) {
+		_, err := gw.GetToolSchema(ctx, "")
+		require.Error(t, err)
+		var rErr *mcp.RuntimeError
+		require.ErrorAs(t, err, &rErr)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
+	})
+
+	t.Run("returns error when gateway not started", func(t *testing.T) {
+		gw2, err := New(testConfig())
+		require.NoError(t, err)
+		_, err = gw2.GetToolSchema(ctx, tool.ID)
 		require.Error(t, err)
 	})
 }

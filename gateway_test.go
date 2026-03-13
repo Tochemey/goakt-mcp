@@ -86,14 +86,14 @@ func waitForActors() {
 
 func TestNew(t *testing.T) {
 	t.Run("returns Gateway with valid config", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NotNil(t, gw)
 		assert.Nil(t, gw.System(), "system must be nil before Start")
 	})
 
 	t.Run("WithMetrics enables metrics", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel), WithMetrics())
+		gw, err := New(testConfig(), WithMetrics())
 		require.NoError(t, err)
 		require.NotNil(t, gw)
 		assert.True(t, gw.metrics)
@@ -119,7 +119,7 @@ func TestGatewayStartStop(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("starts cleanly and exposes the actor system", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 
 		require.NoError(t, gw.Start(ctx))
@@ -131,13 +131,13 @@ func TestGatewayStartStop(t *testing.T) {
 	})
 
 	t.Run("stop on unstarted gateway is a no-op", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		assert.NoError(t, gw.Stop(ctx))
 	})
 
 	t.Run("GatewayManager is present after start", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 
@@ -151,7 +151,7 @@ func TestGatewayStartStop(t *testing.T) {
 	})
 
 	t.Run("foundational actors are children of GatewayManager after start", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 
@@ -185,7 +185,7 @@ func TestGatewayStartStop(t *testing.T) {
 			},
 		}
 
-		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(cfg)
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 
@@ -206,7 +206,7 @@ func TestGatewayStartStop(t *testing.T) {
 		cfg.Cluster.Discovery = "kubernetes"
 		cfg.Cluster.Kubernetes = mcp.KubernetesDiscoveryConfig{}
 
-		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(cfg)
 		require.NoError(t, err)
 
 		err = gw.Start(ctx)
@@ -223,7 +223,7 @@ func TestGatewayStartStop(t *testing.T) {
 		cfg.Cluster.Discovery = "dnssd"
 		cfg.Cluster.DNSSD = mcp.DNSSDDiscoveryConfig{DomainName: ""}
 
-		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(cfg)
 		require.NoError(t, err)
 
 		err = gw.Start(ctx)
@@ -243,7 +243,7 @@ func TestGatewayStartStop(t *testing.T) {
 			KeyFile:  "/nonexistent/key.pem",
 		}
 
-		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(cfg)
 		require.NoError(t, err)
 
 		err = gw.Start(ctx)
@@ -255,7 +255,7 @@ func TestGatewayStartStop(t *testing.T) {
 	})
 
 	t.Run("Start with WithMetrics succeeds", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel), WithMetrics())
+		gw, err := New(testConfig(), WithMetrics())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -264,7 +264,7 @@ func TestGatewayStartStop(t *testing.T) {
 	})
 
 	t.Run("Start with WithTracing succeeds", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel), WithTracing())
+		gw, err := New(testConfig(), WithTracing())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -277,7 +277,7 @@ func TestGatewayAPI(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("RegisterTool and ListTools", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -312,7 +312,7 @@ func TestGatewayAPI(t *testing.T) {
 		cfg.Tools = []mcp.Tool{
 			{ID: "to-disable", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "npx"}, State: mcp.ToolStateEnabled},
 		}
-		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(cfg)
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -327,7 +327,7 @@ func TestGatewayAPI(t *testing.T) {
 		cfg.Tools = []mcp.Tool{
 			{ID: "to-remove", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "npx"}, State: mcp.ToolStateEnabled},
 		}
-		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(cfg)
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -344,7 +344,7 @@ func TestGatewayAPI(t *testing.T) {
 	})
 
 	t.Run("RegisterTool validates tool", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -358,7 +358,7 @@ func TestGatewayAPI(t *testing.T) {
 	})
 
 	t.Run("API methods return error when gateway not started", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 
 		_, err = gw.ListTools(ctx)
@@ -378,7 +378,7 @@ func TestGatewayAPI(t *testing.T) {
 	})
 
 	t.Run("Invoke returns error for non-existent tool", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -402,7 +402,7 @@ func TestGatewayAPI(t *testing.T) {
 		cfg.Tools = []mcp.Tool{
 			{ID: "to-update", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "echo"}, State: mcp.ToolStateEnabled},
 		}
-		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(cfg)
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -419,7 +419,7 @@ func TestGatewayAPI(t *testing.T) {
 	})
 
 	t.Run("UpdateTool returns error when gateway not started", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		err = gw.UpdateTool(ctx, mcp.Tool{ID: "x"})
 		require.Error(t, err)
@@ -439,7 +439,7 @@ func TestGatewayAPI(t *testing.T) {
 				State: mcp.ToolStateEnabled,
 			},
 		}
-		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(cfg)
 		require.NoError(t, err)
 		if err := gw.Start(ctx); err != nil {
 			t.Skipf("gateway start failed (npx/node may be unavailable): %v", err)
@@ -482,7 +482,7 @@ func TestGatewayAPI(t *testing.T) {
 		actor.SpawnFoundationalActorsForExternalTest(ctx, system, cfg)
 		waitForActors()
 
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel), withSystemForTesting(system))
+		gw, err := New(testConfig(), withSystemForTesting(system))
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		defer func() { _ = gw.Stop(ctx) }()
@@ -536,7 +536,7 @@ func TestGatewayTenantValidation(t *testing.T) {
 	t.Run("New rejects empty tenant ID", func(t *testing.T) {
 		cfg := testConfig()
 		cfg.Tenants = []mcp.TenantConfig{{ID: ""}}
-		_, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		_, err := New(cfg)
 		require.Error(t, err)
 		var rErr *mcp.RuntimeError
 		require.ErrorAs(t, err, &rErr)
@@ -550,7 +550,7 @@ func TestGatewayTenantValidation(t *testing.T) {
 			{ID: "dup-tenant"},
 			{ID: "dup-tenant"},
 		}
-		_, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		_, err := New(cfg)
 		require.Error(t, err)
 		var rErr *mcp.RuntimeError
 		require.ErrorAs(t, err, &rErr)
@@ -564,7 +564,7 @@ func TestGatewayTenantValidation(t *testing.T) {
 			{ID: "tenant-a"},
 			{ID: "tenant-b"},
 		}
-		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(cfg)
 		require.NoError(t, err)
 		require.NotNil(t, gw)
 	})
@@ -572,7 +572,7 @@ func TestGatewayTenantValidation(t *testing.T) {
 	t.Run("New accepts empty tenants list", func(t *testing.T) {
 		cfg := testConfig()
 		cfg.Tenants = nil
-		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(cfg)
 		require.NoError(t, err)
 		require.NotNil(t, gw)
 	})
@@ -582,7 +582,7 @@ func TestGatewayDraining(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("API methods return error while gateway is draining", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -632,7 +632,7 @@ func TestGatewayEnableTool(t *testing.T) {
 		cfg.Tools = []mcp.Tool{
 			{ID: "to-enable", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "npx"}, State: mcp.ToolStateEnabled},
 		}
-		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(cfg)
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -648,7 +648,7 @@ func TestGatewayEnableTool(t *testing.T) {
 	})
 
 	t.Run("EnableTool returns error for non-existent tool", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -659,7 +659,7 @@ func TestGatewayEnableTool(t *testing.T) {
 	})
 
 	t.Run("EnableTool rejects empty tool ID", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -673,14 +673,14 @@ func TestGatewayEnableTool(t *testing.T) {
 	})
 
 	t.Run("EnableTool returns error when gateway not started", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		err = gw.EnableTool(ctx, "x")
 		require.Error(t, err)
 	})
 
 	t.Run("DisableTool rejects empty tool ID", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -694,7 +694,7 @@ func TestGatewayEnableTool(t *testing.T) {
 	})
 
 	t.Run("RemoveTool rejects empty tool ID", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -708,7 +708,7 @@ func TestGatewayEnableTool(t *testing.T) {
 	})
 
 	t.Run("UpdateTool validates tool before sending to registrar", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -742,7 +742,7 @@ func TestGatewayAPI_ClusterMode(t *testing.T) {
 				State:     mcp.ToolStateEnabled,
 			},
 		}
-		gw, err := New(cfg, WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(cfg)
 		require.NoError(t, err)
 		if err := gw.Start(ctx); err != nil {
 			t.Skipf("cluster gateway start failed (dnssd may be unavailable): %v", err)
@@ -769,7 +769,7 @@ func TestGatewayAPI_ClusterMode(t *testing.T) {
 
 func TestGatewayHandler(t *testing.T) {
 	t.Run("Handler returns a valid http.Handler when IdentityResolver is set", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 
 		handler, err := gw.Handler(mcp.IngressConfig{
@@ -780,7 +780,7 @@ func TestGatewayHandler(t *testing.T) {
 	})
 
 	t.Run("Handler returns error when IdentityResolver is nil", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 
 		_, err = gw.Handler(mcp.IngressConfig{})
@@ -788,11 +788,107 @@ func TestGatewayHandler(t *testing.T) {
 	})
 }
 
+func TestGatewaySSEHandler(t *testing.T) {
+	t.Run("SSEHandler returns a valid http.Handler when IdentityResolver is set", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+
+		handler, err := gw.SSEHandler(mcp.IngressConfig{
+			IdentityResolver: &fixedIdentityResolver{tenantID: "t1", clientID: "c1"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, handler)
+	})
+
+	t.Run("SSEHandler returns error when IdentityResolver is nil", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+
+		_, err = gw.SSEHandler(mcp.IngressConfig{})
+		require.Error(t, err)
+	})
+}
+
+func TestGatewayWSHandler(t *testing.T) {
+	t.Run("WSHandler returns a valid http.Handler when IdentityResolver is set", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+
+		handler, err := gw.WSHandler(mcp.IngressConfig{
+			IdentityResolver: &fixedIdentityResolver{tenantID: "t1", clientID: "c1"},
+		}, nil)
+		require.NoError(t, err)
+		require.NotNil(t, handler)
+	})
+
+	t.Run("WSHandler returns error when IdentityResolver is nil", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+
+		_, err = gw.WSHandler(mcp.IngressConfig{}, nil)
+		require.Error(t, err)
+	})
+}
+
+func TestInvokeStream(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns error when gateway not started", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+
+		_, err = gw.InvokeStream(ctx, &mcp.Invocation{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "gateway not started")
+	})
+
+	t.Run("returns StreamingResult with closed Progress and buffered Final on success", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Tenants = []mcp.TenantConfig{{ID: "stream-tenant"}}
+		cfg.Tools = []mcp.Tool{
+			{ID: "stream-tool", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "npx"}, State: mcp.ToolStateEnabled},
+		}
+		gw, err := New(cfg)
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+		defer func() { _ = gw.Stop(ctx) }()
+
+		inv := &mcp.Invocation{
+			ToolID: "stream-tool",
+			Method: "tools/call",
+			Params: map[string]any{"name": "echo", "arguments": map[string]any{}},
+			Correlation: mcp.CorrelationMeta{
+				TenantID:  "stream-tenant",
+				ClientID:  "stream-client",
+				RequestID: "stream-req-1",
+			},
+		}
+
+		result, err := gw.InvokeStream(ctx, inv)
+		// The invocation may error (tool backend not running), but InvokeStream
+		// itself must be reached and return a non-nil StreamingResult on success
+		// or propagate the error from Invoke. Either way the function is covered.
+		if err != nil {
+			assert.Nil(t, result)
+			return
+		}
+		require.NotNil(t, result)
+		// Progress channel must be closed immediately (non-streaming path)
+		_, open := <-result.Progress
+		assert.False(t, open, "Progress channel should be closed for non-streaming result")
+		// Final channel must have exactly one result buffered
+		final, ok := <-result.Final
+		require.True(t, ok)
+		assert.NotNil(t, final)
+	})
+}
+
 func TestGatewayStop(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Stop sets system to nil after shutdown", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
@@ -803,7 +899,7 @@ func TestGatewayStop(t *testing.T) {
 	})
 
 	t.Run("Stop is idempotent — second call is a no-op", func(t *testing.T) {
-		gw, err := New(testConfig(), WithLogger(goaktlog.InvalidLevel))
+		gw, err := New(testConfig())
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
 		waitForActors()
