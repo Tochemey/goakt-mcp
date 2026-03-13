@@ -519,9 +519,15 @@ func (x *registrar) runningSupervisors() []*goaktactor.PID {
 
 // fetchAndCacheSchemas resolves the SchemaFetcherExtension from the actor system,
 // fetches tool schemas from the backend MCP server, and stores them in the
-// schemas map. Fetch failures are logged and result in an empty schema cache
-// for the tool, allowing the runtime to operate without schemas.
+// schemas map. Stale schemas are cleared before fetching so that a failed
+// re-registration does not leave outdated schemas in the cache. Fetch failures
+// are logged and result in an empty schema cache for the tool, allowing the
+// runtime to operate without schemas.
 func (x *registrar) fetchAndCacheSchemas(ctx *goaktactor.ReceiveContext, tool mcp.Tool) {
+	// Clear any previously cached schemas so a fetch failure does not leave
+	// stale data from an earlier registration.
+	delete(x.schemas, tool.ID)
+
 	ext := ctx.Extension(actorextension.SchemaFetcherExtensionID)
 	fetcherExt, ok := ext.(*actorextension.SchemaFetcherExtension)
 	if !ok || fetcherExt == nil {

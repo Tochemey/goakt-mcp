@@ -65,19 +65,20 @@ func dispatchToolCall(
 // Invocation type. Arguments are unmarshaled from JSON into a map so the egress
 // layer can forward them to the backend MCP server via [mcpconv.ParamsFromInvocation].
 //
-// Backend tool name resolution: req.Params.Name is the gateway tool ID (e.g.
-// "filesystem"). The backend MCP server may expose many sub-tools under that
-// gateway ID (e.g. "list_directory", "read_file"). MCP clients pass the
-// backend tool name and its arguments inside the arguments map using the
-// standard MCP tools/call shape:
+// The toolID parameter is the canonical gateway tool ID used for routing to the
+// correct tool supervisor. It is set by the caller (registerTool) when capturing
+// the closure. req.Params.Name may differ from toolID when schema-derived tools
+// are registered: each backend sub-tool (e.g. "read_file", "write_file") gets
+// its own SDK registration, but they all route to the same gateway tool.
+//
+// Backend tool name resolution: when args["name"] is present it is used as the
+// backend tool name and args["arguments"] as the backend arguments. This allows
+// LLMs and MCP clients to route invocations to the correct sub-tool on the
+// backend server via the standard MCP tools/call shape:
 //
 //	{"name": "<backend-tool>", "arguments": {...}}
 //
-// When args["name"] is present it is used as the backend tool name and
-// args["arguments"] as the backend arguments. This allows LLMs and MCP clients
-// to route invocations to the correct sub-tool on the backend server.
-//
-// If args["name"] is absent (single-operation tools where the gateway ID
+// If args["name"] is absent (single-operation tools where the SDK tool name
 // equals the backend tool name), req.Params.Name is used as a fallback and the
 // entire args map is forwarded as arguments.
 func requestToInvocation(

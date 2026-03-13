@@ -441,6 +441,77 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, result.Err)
 	})
 
+	t.Run("route with empty tenant and client defaults to 'default'", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		spawnFoundationalActorsForTest(ctx, system, cfg)
+
+		registryPID, err := system.ActorOf(ctx, mcp.ActorNameRegistrar)
+		require.NoError(t, err)
+		tool := validStdioTool("default-tenant-tool")
+		_, err = goaktactor.Ask(ctx, registryPID, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		require.NoError(t, err)
+
+		inv := &mcp.Invocation{
+			Correlation: mcp.CorrelationMeta{RequestID: "req-1"},
+			ToolID:      "default-tenant-tool",
+			Method:      "tools/call",
+			Params:      map[string]any{},
+		}
+		resp, err := goaktactor.Ask(ctx, routerPID, &runtime.RouteInvocation{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.RouteResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		require.NotNil(t, result.Result)
+		assert.Equal(t, mcp.ExecutionStatusSuccess, result.Result.Status)
+	})
+
+	t.Run("draining tool rejects invocation", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		spawnFoundationalActorsForTest(ctx, system, cfg)
+
+		registryPID, err := system.ActorOf(ctx, mcp.ActorNameRegistrar)
+		require.NoError(t, err)
+		tool := validStdioTool("drain-route-tool")
+		_, err = goaktactor.Ask(ctx, registryPID, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		// Drain the tool via the registrar
+		_, err = goaktactor.Ask(ctx, registryPID, &runtime.DrainTool{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		require.NoError(t, err)
+
+		inv := sessionInvocation("drain-route-tool", "default", "default")
+		resp, err := goaktactor.Ask(ctx, routerPID, &runtime.RouteInvocation{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.RouteResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
+		var rErr *mcp.RuntimeError
+		require.True(t, assert.ErrorAs(t, result.Err, &rErr))
+		assert.Equal(t, mcp.ErrCodeToolUnavailable, rErr.Code)
+	})
+
 	t.Run("records InvocationFailure metric on tool-not-found when metrics are registered", func(t *testing.T) {
 		meter := noopmetric.NewMeterProvider().Meter("test")
 		_, err := telemetry.RegisterMetrics(meter)

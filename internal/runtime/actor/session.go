@@ -202,8 +202,18 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 
 		result, err = x.executor.Execute(execCtx, msg.Invocation)
 		duration := time.Since(start)
-		if err != nil {
-			log.Warnf("actor session:%s-%s-%s execution failed, attempting recovery: %v", x.tenantID, x.clientID, x.toolID, err)
+
+		// Recovery is attempted when:
+		// - Execute returns a non-nil Go error (unexpected crash), OR
+		// - Execute returns a result with a transport failure (e.g. connection
+		//   drop, process crash) — the built-in executors surface these as
+		//   result.Err with ErrCodeTransportFailure and a nil Go error.
+		if err != nil || isTransportFailure(result) {
+			reason := err
+			if reason == nil && result != nil && result.Err != nil {
+				reason = result.Err
+			}
+			log.Warnf("actor session:%s-%s-%s execution failed, attempting recovery: %v", x.tenantID, x.clientID, x.toolID, reason)
 			if recovered := x.tryRecoverExecutor(ctx); recovered {
 				log.Infof("actor session:%s-%s-%s executor recovered, retrying", x.tenantID, x.clientID, x.toolID)
 				// Create a fresh timeout context for the retry — the original
@@ -245,6 +255,17 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 
 	// Resume passivation now that invocation is complete.
 	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.ResumePassivation{})
+}
+
+// isTransportFailure returns true when the execution result indicates a
+// transport-level failure (connection drop, process crash). The built-in
+// stdio and HTTP executors return these as result.Err with ErrCodeTransportFailure
+// and a nil Go error.
+func isTransportFailure(result *mcp.ExecutionResult) bool {
+	if result == nil || result.Err == nil {
+		return false
+	}
+	return result.Err.Code == mcp.ErrCodeTransportFailure
 }
 
 // tryRecoverExecutor attempts to replace a failed executor with a fresh one

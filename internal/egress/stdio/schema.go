@@ -50,20 +50,22 @@ func FetchSchemas(ctx context.Context, cfg *mcp.StdioTransportConfig, startupTim
 	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "goakt-mcp-schema", Version: mcp.Version()}, nil)
 	transport := &sdkmcp.CommandTransport{Command: cmd}
 
-	connectCtx := ctx
+	// Use a single deadline for the entire operation (connect + list tools)
+	// so schema discovery cannot hang indefinitely.
+	fetchCtx := ctx
 	if startupTimeout > 0 {
 		var cancel context.CancelFunc
-		connectCtx, cancel = context.WithTimeout(connectCtx, startupTimeout)
+		fetchCtx, cancel = context.WithTimeout(fetchCtx, startupTimeout)
 		defer cancel()
 	}
 
-	sess, err := client.Connect(connectCtx, transport, nil)
+	sess, err := client.Connect(fetchCtx, transport, nil)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeTransportFailure, "stdio schema connect failed", err)
 	}
 	defer sess.Close()
 
-	result, err := sess.ListTools(ctx, nil)
+	result, err := sess.ListTools(fetchCtx, nil)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeTransportFailure, "stdio list tools failed", err)
 	}

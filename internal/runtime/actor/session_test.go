@@ -185,6 +185,82 @@ func TestSessionActor(t *testing.T) {
 		assert.Equal(t, mcp.ExecutionStatusFailure, result.Result.Status)
 	})
 
+	t.Run("recovers executor on transport failure result (nil Go error)", func(t *testing.T) {
+		// Simulate how the built-in executors surface transport failures:
+		// result.Err has ErrCodeTransportFailure, but the Go error is nil.
+		transportFailExec := &mockExecutor{
+			result: &mcp.ExecutionResult{
+				Status: mcp.ExecutionStatusFailure,
+				Err:    mcp.NewRuntimeError(mcp.ErrCodeTransportFailure, "connection reset"),
+			},
+		}
+		successExec := &mockExecutor{}
+		factory := &mockExecutorFactory{executor: successExec}
+
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(
+				actorextension.NewExecutorFactoryExtension(factory),
+				actorextension.NewConfigExtension(cfg),
+			),
+		)
+		defer stop()
+
+		tool := validStdioTool("transport-fail-tool")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, transportFailExec, nil)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := sessionInvocation(tool.ID, "tenant1", "client1")
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvoke{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeResult)
+		require.True(t, ok)
+		require.NotNil(t, result.Result)
+		assert.True(t, result.Result.Succeeded(), "retry after transport failure recovery should succeed")
+	})
+
+	t.Run("no recovery attempted for non-transport result errors", func(t *testing.T) {
+		// An executor that returns a failure result with a non-transport error code
+		// should NOT trigger recovery.
+		nonTransportExec := &mockExecutor{
+			result: &mcp.ExecutionResult{
+				Status: mcp.ExecutionStatusFailure,
+				Err:    mcp.NewRuntimeError(mcp.ErrCodeInternal, "tool logic error"),
+			},
+		}
+
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		tool := validStdioTool("no-recovery-tool")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nonTransportExec, nil)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := sessionInvocation(tool.ID, "tenant1", "client1")
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvoke{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeResult)
+		require.True(t, ok)
+		require.NotNil(t, result.Result)
+		// The original failure is returned unchanged — no recovery attempted
+		assert.Equal(t, mcp.ExecutionStatusFailure, result.Result.Status)
+	})
+
 	t.Run("passivates after idle timeout", func(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
@@ -303,6 +379,58 @@ func TestGetOrCreateSession(t *testing.T) {
 		gsResult, ok := resp.(*runtime.GetOrCreateSessionResult)
 		require.True(t, ok)
 		require.Error(t, gsResult.Err)
+	})
+}
+
+func TestSessionGetIdentity(t *testing.T) {
+	ctx := context.Background()
+	system, stop := testActorSystem(t)
+	defer stop()
+
+	tool := validStdioTool("identity-tool")
+	tool.IdleTimeout = 5 * time.Minute
+
+	dep := actorextension.NewSessionDependency("tenant-id", "client-id", tool.ID, tool, nil, nil)
+	name := mcp.SessionName("tenant-id", "client-id", tool.ID)
+	pid, err := system.Spawn(ctx, name, newSession(),
+		goaktactor.WithDependencies(dep),
+		goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+	require.NoError(t, err)
+	waitForActors()
+
+	resp, err := goaktactor.Ask(ctx, pid, &runtime.GetSessionIdentity{}, askTimeout)
+	require.NoError(t, err)
+	result, ok := resp.(*runtime.GetSessionIdentityResult)
+	require.True(t, ok)
+	assert.Equal(t, mcp.TenantID("tenant-id"), result.TenantID)
+	assert.Equal(t, mcp.ClientID("client-id"), result.ClientID)
+	assert.Equal(t, tool.ID, result.ToolID)
+}
+
+func TestIsTransportFailure(t *testing.T) {
+	t.Run("nil result is not a transport failure", func(t *testing.T) {
+		assert.False(t, isTransportFailure(nil))
+	})
+
+	t.Run("result with nil error is not a transport failure", func(t *testing.T) {
+		r := &mcp.ExecutionResult{Status: mcp.ExecutionStatusSuccess}
+		assert.False(t, isTransportFailure(r))
+	})
+
+	t.Run("result with non-transport error is not a transport failure", func(t *testing.T) {
+		r := &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusFailure,
+			Err:    mcp.NewRuntimeError(mcp.ErrCodeInternal, "logic error"),
+		}
+		assert.False(t, isTransportFailure(r))
+	})
+
+	t.Run("result with transport failure error is a transport failure", func(t *testing.T) {
+		r := &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusFailure,
+			Err:    mcp.NewRuntimeError(mcp.ErrCodeTransportFailure, "connection reset"),
+		}
+		assert.True(t, isTransportFailure(r))
 	})
 }
 

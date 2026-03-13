@@ -901,6 +901,65 @@ func TestRegistryActor(t *testing.T) {
 		assert.Empty(t, schemaResult.Schemas)
 	})
 
+	t.Run("re-registration clears stale schemas when fetch fails", func(t *testing.T) {
+		// First registration succeeds with schemas, second fails — stale schemas must be cleared.
+		callCount := 0
+		schemas := []mcp.ToolSchema{{Name: "old_func", Description: "Old"}}
+
+		dynamicFetcher := &dynamicMockSchemaFetcher{
+			fn: func() ([]mcp.ToolSchema, error) {
+				callCount++
+				if callCount == 1 {
+					return schemas, nil
+				}
+				return nil, errors.New("backend unavailable")
+			},
+		}
+
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(
+				actorextension.NewToolConfigExtension(),
+				actorextension.NewConfigExtension(cfg),
+				actorextension.NewSchemaFetcherExtension(dynamicFetcher),
+			),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("stale-schema-tool")
+
+		// First registration — schemas fetched successfully
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.GetToolSchema{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		schemaResult := resp.(*runtime.GetToolSchemaResult)
+		require.NoError(t, schemaResult.Err)
+		require.Len(t, schemaResult.Schemas, 1)
+		assert.Equal(t, "old_func", schemaResult.Schemas[0].Name)
+
+		// Re-register same tool — fetch fails, stale schemas must be cleared
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err = goaktactor.Ask(ctx, pid, &runtime.GetToolSchema{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		schemaResult = resp.(*runtime.GetToolSchemaResult)
+		require.NoError(t, schemaResult.Err)
+		assert.Empty(t, schemaResult.Schemas, "stale schemas should have been cleared")
+	})
+
 	t.Run("ListAllSessions fans out to running supervisors", func(t *testing.T) {
 		cfg := testConfig()
 		cfg.Audit.Sink = audit.NewMemorySink()

@@ -176,12 +176,17 @@ for _, s := range schemas {
 
 ### Session Executor Recovery
 
-When a tool invocation fails due to a transport error (HTTP connection drop, stdio process crash), the session actor transparently attempts recovery:
+When a tool invocation fails due to a transport error, the session actor transparently attempts recovery. Recovery triggers when either:
+
+- `ToolExecutor.Execute` returns a non-nil Go error (unexpected crash), or
+- The result contains `ErrCodeTransportFailure` (connection drop, stdio process crash) — this is how the built-in stdio and HTTP executors surface transport failures.
+
+Steps:
 
 1. The failed executor is closed
 2. A fresh executor is created via the `ExecutorFactory`
-3. The invocation is retried once with the new executor
-4. If recovery fails, the error is returned and reported to the circuit breaker
+3. The invocation is retried once with a fresh timeout context
+4. If recovery fails, the original error is returned and reported to the circuit breaker
 
 This eliminates the need to wait for session passivation and recreation on transient failures.
 
