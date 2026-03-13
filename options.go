@@ -33,12 +33,11 @@ import (
 type Option func(*Gateway)
 
 // WithLogger plugs in a custom logger. The gateway wraps it internally to
-// satisfy the underlying engine's logging interface. Pass nil to disable
-// logging (equivalent to no option).
+// satisfy the underlying engine's logging interface. Passing nil is a no-op:
+// the logger is left unchanged, so a LogLevel set in mcp.Config is preserved.
 func WithLogger(logger Logger) Option {
 	return func(g *Gateway) {
 		if logger == nil {
-			g.logger = goaktlog.DiscardLogger
 			return
 		}
 		g.logger = &loggerAdapter{inner: logger}

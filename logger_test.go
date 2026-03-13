@@ -34,18 +34,36 @@ import (
 	goaktlog "github.com/tochemey/goakt/v4/log"
 )
 
-// spyLogger records the last method called and the message passed to it.
-// It implements Logger and is used to verify that loggerAdapter routes each
-// GoAkt method to the correct inner method with the correct message.
+// spyLogger records the last method called, the message, and any structured
+// fields passed to it. It implements Logger and is used to verify that
+// loggerAdapter routes each GoAkt method to the correct inner method with the
+// correct message and fields.
 type spyLogger struct {
 	lastMethod string
 	lastMsg    string
+	lastFields []any
 }
 
-func (s *spyLogger) Debug(msg string, _ ...any) { s.lastMethod = "debug"; s.lastMsg = msg }
-func (s *spyLogger) Info(msg string, _ ...any)  { s.lastMethod = "info"; s.lastMsg = msg }
-func (s *spyLogger) Warn(msg string, _ ...any)  { s.lastMethod = "warn"; s.lastMsg = msg }
-func (s *spyLogger) Error(msg string, _ ...any) { s.lastMethod = "error"; s.lastMsg = msg }
+func (s *spyLogger) Debug(msg string, args ...any) {
+	s.lastMethod = "debug"
+	s.lastMsg = msg
+	s.lastFields = args
+}
+func (s *spyLogger) Info(msg string, args ...any) {
+	s.lastMethod = "info"
+	s.lastMsg = msg
+	s.lastFields = args
+}
+func (s *spyLogger) Warn(msg string, args ...any) {
+	s.lastMethod = "warn"
+	s.lastMsg = msg
+	s.lastFields = args
+}
+func (s *spyLogger) Error(msg string, args ...any) {
+	s.lastMethod = "error"
+	s.lastMsg = msg
+	s.lastFields = args
+}
 
 func newAdapter(spy *spyLogger) *loggerAdapter {
 	return &loggerAdapter{inner: spy}
@@ -312,4 +330,82 @@ func TestLoggerAdapterStdLogger(t *testing.T) {
 	std.Print("std message")
 	assert.Equal(t, "info", spy.lastMethod)
 	assert.Contains(t, spy.lastMsg, "std message")
+}
+
+// -----------------------------------------------------------------------------
+// goaktArgsToMsg helper
+// -----------------------------------------------------------------------------
+
+func TestGoaktArgsToMsg(t *testing.T) {
+	t.Run("empty args returns empty message and nil fields", func(t *testing.T) {
+		msg, fields := goaktArgsToMsg(nil)
+		assert.Equal(t, "", msg)
+		assert.Nil(t, fields)
+	})
+
+	t.Run("single arg returns it as message with nil fields", func(t *testing.T) {
+		msg, fields := goaktArgsToMsg([]any{"hello"})
+		assert.Equal(t, "hello", msg)
+		assert.Nil(t, fields)
+	})
+
+	t.Run("multiple args splits message from key-value fields", func(t *testing.T) {
+		msg, fields := goaktArgsToMsg([]any{"hello", "key", "value"})
+		assert.Equal(t, "hello", msg)
+		assert.Equal(t, []any{"key", "value"}, fields)
+	})
+}
+
+// -----------------------------------------------------------------------------
+// Multi-arg routing — verifies fields are passed through, not swallowed
+// -----------------------------------------------------------------------------
+
+func TestLoggerAdapterMultiArgRouting(t *testing.T) {
+	t.Run("Debug passes fields to inner logger", func(t *testing.T) {
+		spy := &spyLogger{}
+		a := newAdapter(spy)
+		a.Debug("msg", "k", "v")
+		assert.Equal(t, "msg", spy.lastMsg)
+		assert.Equal(t, []any{"k", "v"}, spy.lastFields)
+	})
+
+	t.Run("Info passes fields to inner logger", func(t *testing.T) {
+		spy := &spyLogger{}
+		a := newAdapter(spy)
+		a.Info("msg", "k", "v")
+		assert.Equal(t, "msg", spy.lastMsg)
+		assert.Equal(t, []any{"k", "v"}, spy.lastFields)
+	})
+
+	t.Run("Warn passes fields to inner logger", func(t *testing.T) {
+		spy := &spyLogger{}
+		a := newAdapter(spy)
+		a.Warn("msg", "k", "v")
+		assert.Equal(t, "msg", spy.lastMsg)
+		assert.Equal(t, []any{"k", "v"}, spy.lastFields)
+	})
+
+	t.Run("Error passes fields to inner logger", func(t *testing.T) {
+		spy := &spyLogger{}
+		a := newAdapter(spy)
+		a.Error("msg", "k", "v")
+		assert.Equal(t, "msg", spy.lastMsg)
+		assert.Equal(t, []any{"k", "v"}, spy.lastFields)
+	})
+
+	t.Run("Panic passes fields to inner logger before panicking", func(t *testing.T) {
+		spy := &spyLogger{}
+		a := newAdapter(spy)
+		assert.Panics(t, func() { a.Panic("msg", "k", "v") })
+		assert.Equal(t, "msg", spy.lastMsg)
+		assert.Equal(t, []any{"k", "v"}, spy.lastFields)
+	})
+
+	t.Run("empty args produces empty message", func(t *testing.T) {
+		spy := &spyLogger{}
+		a := newAdapter(spy)
+		a.Info()
+		assert.Equal(t, "", spy.lastMsg)
+		assert.Nil(t, spy.lastFields)
+	})
 }

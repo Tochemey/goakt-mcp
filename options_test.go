@@ -42,8 +42,9 @@ func withSystemForTesting(system goaktactor.ActorSystem) Option {
 	}
 }
 
-// noopLogger is a Logger implementation that discards all output, used in tests
-// to silence the gateway without importing goaktlog.
+// noopLogger is a Logger implementation that discards all output. It is used
+// in tests to exercise WithLogger with a concrete Logger value; goaktlog is
+// still imported in this file for unrelated assertions.
 type noopLogger struct{}
 
 func (noopLogger) Debug(_ string, _ ...any) {}
@@ -52,11 +53,20 @@ func (noopLogger) Warn(_ string, _ ...any)  {}
 func (noopLogger) Error(_ string, _ ...any) {}
 
 func TestWithLogger(t *testing.T) {
-	t.Run("nil logger sets DiscardLogger", func(t *testing.T) {
+	t.Run("nil logger is a no-op and leaves default DiscardLogger", func(t *testing.T) {
 		gw, err := New(mcp.Config{}, WithLogger(nil))
 		require.NoError(t, err)
 		require.NotNil(t, gw)
 		assert.Equal(t, goaktlog.DiscardLogger, gw.logger)
+	})
+
+	t.Run("nil logger does not override a config-level logger", func(t *testing.T) {
+		cfg := mcp.Config{}
+		cfg.LogLevel = "info"
+		gw, err := New(cfg, WithLogger(nil))
+		require.NoError(t, err)
+		require.NotNil(t, gw)
+		assert.NotEqual(t, goaktlog.DiscardLogger, gw.logger, "config-level logger must be preserved when nil is passed")
 	})
 
 	t.Run("custom logger wraps in adapter", func(t *testing.T) {

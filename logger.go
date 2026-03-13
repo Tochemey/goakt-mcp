@@ -56,45 +56,80 @@ type loggerAdapter struct {
 // compile-time check
 var _ goaktlog.Logger = (*loggerAdapter)(nil)
 
-func (a *loggerAdapter) Debug(args ...any) { a.inner.Debug(fmt.Sprint(args...)) }
+// goaktArgsToMsg splits GoAkt variadic log arguments into a message string
+// and optional key-value fields. GoAkt follows the slog convention where the
+// first argument is the log message and subsequent arguments are alternating
+// key-value pairs for structured logging.
+func goaktArgsToMsg(args []any) (string, []any) {
+	if len(args) == 0 {
+		return "", nil
+	}
+	if len(args) == 1 {
+		return fmt.Sprint(args[0]), nil
+	}
+	return fmt.Sprint(args[0]), args[1:]
+}
+
+func (a *loggerAdapter) Debug(args ...any) {
+	msg, fields := goaktArgsToMsg(args)
+	a.inner.Debug(msg, fields...)
+}
 func (a *loggerAdapter) Debugf(format string, args ...any) {
 	a.inner.Debug(fmt.Sprintf(format, args...))
 }
 func (a *loggerAdapter) DebugContext(_ context.Context, args ...any) {
-	a.inner.Debug(fmt.Sprint(args...))
+	msg, fields := goaktArgsToMsg(args)
+	a.inner.Debug(msg, fields...)
 }
 func (a *loggerAdapter) DebugfContext(_ context.Context, format string, args ...any) {
 	a.inner.Debug(fmt.Sprintf(format, args...))
 }
-func (a *loggerAdapter) Info(args ...any)                 { a.inner.Info(fmt.Sprint(args...)) }
-func (a *loggerAdapter) Infof(format string, args ...any) { a.inner.Info(fmt.Sprintf(format, args...)) }
+func (a *loggerAdapter) Info(args ...any) {
+	msg, fields := goaktArgsToMsg(args)
+	a.inner.Info(msg, fields...)
+}
+func (a *loggerAdapter) Infof(format string, args ...any) {
+	a.inner.Info(fmt.Sprintf(format, args...))
+}
 func (a *loggerAdapter) InfoContext(_ context.Context, args ...any) {
-	a.inner.Info(fmt.Sprint(args...))
+	msg, fields := goaktArgsToMsg(args)
+	a.inner.Info(msg, fields...)
 }
 func (a *loggerAdapter) InfofContext(_ context.Context, format string, args ...any) {
 	a.inner.Info(fmt.Sprintf(format, args...))
 }
-func (a *loggerAdapter) Warn(args ...any)                 { a.inner.Warn(fmt.Sprint(args...)) }
-func (a *loggerAdapter) Warnf(format string, args ...any) { a.inner.Warn(fmt.Sprintf(format, args...)) }
+func (a *loggerAdapter) Warn(args ...any) {
+	msg, fields := goaktArgsToMsg(args)
+	a.inner.Warn(msg, fields...)
+}
+func (a *loggerAdapter) Warnf(format string, args ...any) {
+	a.inner.Warn(fmt.Sprintf(format, args...))
+}
 func (a *loggerAdapter) WarnContext(_ context.Context, args ...any) {
-	a.inner.Warn(fmt.Sprint(args...))
+	msg, fields := goaktArgsToMsg(args)
+	a.inner.Warn(msg, fields...)
 }
 func (a *loggerAdapter) WarnfContext(_ context.Context, format string, args ...any) {
 	a.inner.Warn(fmt.Sprintf(format, args...))
 }
-func (a *loggerAdapter) Error(args ...any) { a.inner.Error(fmt.Sprint(args...)) }
+func (a *loggerAdapter) Error(args ...any) {
+	msg, fields := goaktArgsToMsg(args)
+	a.inner.Error(msg, fields...)
+}
 func (a *loggerAdapter) Errorf(format string, args ...any) {
 	a.inner.Error(fmt.Sprintf(format, args...))
 }
 func (a *loggerAdapter) ErrorContext(_ context.Context, args ...any) {
-	a.inner.Error(fmt.Sprint(args...))
+	msg, fields := goaktArgsToMsg(args)
+	a.inner.Error(msg, fields...)
 }
 func (a *loggerAdapter) ErrorfContext(_ context.Context, format string, args ...any) {
 	a.inner.Error(fmt.Sprintf(format, args...))
 }
 
 func (a *loggerAdapter) Fatal(args ...any) {
-	a.inner.Error(fmt.Sprint(args...))
+	msg, fields := goaktArgsToMsg(args)
+	a.inner.Error(msg, fields...)
 	os.Exit(1)
 }
 
@@ -104,8 +139,8 @@ func (a *loggerAdapter) Fatalf(format string, args ...any) {
 }
 
 func (a *loggerAdapter) Panic(args ...any) {
-	msg := fmt.Sprint(args...)
-	a.inner.Error(msg)
+	msg, fields := goaktArgsToMsg(args)
+	a.inner.Error(msg, fields...)
 	panic(msg)
 }
 
