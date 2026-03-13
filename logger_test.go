@@ -27,6 +27,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,8 +67,16 @@ func (s *spyLogger) Error(msg string, args ...any) {
 }
 
 func newAdapter(spy *spyLogger) *loggerAdapter {
-	return &loggerAdapter{inner: spy}
+	return newLoggerAdapter(spy)
 }
+
+// leveledSpyLogger extends spyLogger with LeveledLogger support.
+type leveledSpyLogger struct {
+	spyLogger
+	level string
+}
+
+func (l *leveledSpyLogger) Level() string { return l.level }
 
 // -----------------------------------------------------------------------------
 // Debug family
@@ -292,18 +301,48 @@ func TestLoggerAdapterFatalfHelperProcess(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestLoggerAdapterLogLevel(t *testing.T) {
-	a := newAdapter(&spyLogger{})
-	assert.Equal(t, goaktlog.DebugLevel, a.LogLevel())
+	t.Run("defaults to InfoLevel without LeveledLogger", func(t *testing.T) {
+		a := newAdapter(&spyLogger{})
+		assert.Equal(t, goaktlog.InfoLevel, a.LogLevel())
+	})
+
+	t.Run("uses LeveledLogger level when implemented", func(t *testing.T) {
+		a := newLoggerAdapter(&leveledSpyLogger{level: "debug"})
+		assert.Equal(t, goaktlog.DebugLevel, a.LogLevel())
+	})
+
+	t.Run("unrecognized LeveledLogger value defaults to InfoLevel", func(t *testing.T) {
+		a := newLoggerAdapter(&leveledSpyLogger{level: "unknown"})
+		assert.Equal(t, goaktlog.InfoLevel, a.LogLevel())
+	})
 }
 
 func TestLoggerAdapterEnabled(t *testing.T) {
-	a := newAdapter(&spyLogger{})
-	assert.True(t, a.Enabled(goaktlog.DebugLevel))
-	assert.True(t, a.Enabled(goaktlog.InfoLevel))
-	assert.True(t, a.Enabled(goaktlog.WarningLevel))
-	assert.True(t, a.Enabled(goaktlog.ErrorLevel))
-	assert.True(t, a.Enabled(goaktlog.FatalLevel))
-	assert.True(t, a.Enabled(goaktlog.PanicLevel))
+	t.Run("default InfoLevel gates debug but allows info and above", func(t *testing.T) {
+		a := newAdapter(&spyLogger{})
+		assert.False(t, a.Enabled(goaktlog.DebugLevel))
+		assert.True(t, a.Enabled(goaktlog.InfoLevel))
+		assert.True(t, a.Enabled(goaktlog.WarningLevel))
+		assert.True(t, a.Enabled(goaktlog.ErrorLevel))
+		assert.True(t, a.Enabled(goaktlog.FatalLevel))
+		assert.True(t, a.Enabled(goaktlog.PanicLevel))
+	})
+
+	t.Run("DebugLevel enables all levels", func(t *testing.T) {
+		a := newLoggerAdapter(&leveledSpyLogger{level: "debug"})
+		assert.True(t, a.Enabled(goaktlog.DebugLevel))
+		assert.True(t, a.Enabled(goaktlog.InfoLevel))
+		assert.True(t, a.Enabled(goaktlog.ErrorLevel))
+	})
+
+	t.Run("ErrorLevel gates debug, info, and warning", func(t *testing.T) {
+		a := newLoggerAdapter(&leveledSpyLogger{level: "error"})
+		assert.False(t, a.Enabled(goaktlog.DebugLevel))
+		assert.False(t, a.Enabled(goaktlog.InfoLevel))
+		assert.False(t, a.Enabled(goaktlog.WarningLevel))
+		assert.True(t, a.Enabled(goaktlog.ErrorLevel))
+		assert.True(t, a.Enabled(goaktlog.FatalLevel))
+	})
 }
 
 func TestLoggerAdapterWith(t *testing.T) {
@@ -330,6 +369,7 @@ func TestLoggerAdapterStdLogger(t *testing.T) {
 	std.Print("std message")
 	assert.Equal(t, "info", spy.lastMethod)
 	assert.Contains(t, spy.lastMsg, "std message")
+	assert.False(t, strings.HasSuffix(spy.lastMsg, "\n"), "trailing newline should be trimmed")
 }
 
 // -----------------------------------------------------------------------------
@@ -408,4 +448,89 @@ func TestLoggerAdapterMultiArgRouting(t *testing.T) {
 		assert.Equal(t, "", spy.lastMsg)
 		assert.Nil(t, spy.lastFields)
 	})
+}
+
+// -----------------------------------------------------------------------------
+// isNilLogger helper
+// -----------------------------------------------------------------------------
+
+func TestIsNilLogger(t *testing.T) {
+	t.Run("untyped nil returns true", func(t *testing.T) {
+		assert.True(t, isNilLogger(nil))
+	})
+
+	t.Run("typed-nil pointer returns true", func(t *testing.T) {
+		var spy *spyLogger // typed-nil
+		assert.True(t, isNilLogger(spy))
+	})
+
+	t.Run("non-nil pointer returns false", func(t *testing.T) {
+		assert.False(t, isNilLogger(&spyLogger{}))
+	})
+
+	t.Run("value type returns false", func(t *testing.T) {
+		assert.False(t, isNilLogger(noopLogger{}))
+	})
+}
+
+// -----------------------------------------------------------------------------
+// parseLevel helper
+// -----------------------------------------------------------------------------
+
+func TestParseLevel(t *testing.T) {
+	tests := []struct {
+		input string
+		want  goaktlog.Level
+	}{
+		{"debug", goaktlog.DebugLevel},
+		{"DEBUG", goaktlog.DebugLevel},
+		{"info", goaktlog.InfoLevel},
+		{"warn", goaktlog.WarningLevel},
+		{"warning", goaktlog.WarningLevel},
+		{"error", goaktlog.ErrorLevel},
+		{"fatal", goaktlog.FatalLevel},
+		{"panic", goaktlog.PanicLevel},
+		{"unknown", goaktlog.InfoLevel},
+		{"", goaktlog.InfoLevel},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.want, parseLevel(tt.input))
+		})
+	}
+}
+
+// -----------------------------------------------------------------------------
+// levelSeverity helper
+// -----------------------------------------------------------------------------
+
+func TestLevelSeverity(t *testing.T) {
+	assert.Less(t, levelSeverity(goaktlog.DebugLevel), levelSeverity(goaktlog.InfoLevel))
+	assert.Less(t, levelSeverity(goaktlog.InfoLevel), levelSeverity(goaktlog.WarningLevel))
+	assert.Less(t, levelSeverity(goaktlog.WarningLevel), levelSeverity(goaktlog.ErrorLevel))
+	assert.Less(t, levelSeverity(goaktlog.ErrorLevel), levelSeverity(goaktlog.FatalLevel))
+	assert.Less(t, levelSeverity(goaktlog.FatalLevel), levelSeverity(goaktlog.PanicLevel))
+}
+
+// -----------------------------------------------------------------------------
+// loggerWriter newline trimming
+// -----------------------------------------------------------------------------
+
+func TestLoggerWriterTrimsNewline(t *testing.T) {
+	spy := &spyLogger{}
+	w := &loggerWriter{inner: spy}
+	n, err := w.Write([]byte("hello\n"))
+	require.NoError(t, err)
+	assert.Equal(t, 6, n)
+	assert.Equal(t, "hello", spy.lastMsg)
+	assert.False(t, strings.HasSuffix(spy.lastMsg, "\n"))
+}
+
+func TestLoggerWriterNoNewline(t *testing.T) {
+	spy := &spyLogger{}
+	w := &loggerWriter{inner: spy}
+	n, err := w.Write([]byte("hello"))
+	require.NoError(t, err)
+	assert.Equal(t, 5, n)
+	assert.Equal(t, "hello", spy.lastMsg)
 }

@@ -33,14 +33,18 @@ import (
 type Option func(*Gateway)
 
 // WithLogger plugs in a custom logger. The gateway wraps it internally to
-// satisfy the underlying engine's logging interface. Passing nil is a no-op:
-// the logger is left unchanged, so a LogLevel set in mcp.Config is preserved.
+// satisfy the underlying engine's logging interface. Passing nil (or a
+// typed-nil pointer such as (*MyLogger)(nil)) is a no-op: the logger is
+// left unchanged, so a LogLevel set in mcp.Config is preserved.
+//
+// If the Logger also implements LeveledLogger, the adapter uses its level
+// for engine-side log gating. Otherwise the adapter defaults to InfoLevel.
 func WithLogger(logger Logger) Option {
 	return func(g *Gateway) {
-		if logger == nil {
+		if isNilLogger(logger) {
 			return
 		}
-		g.logger = &loggerAdapter{inner: logger}
+		g.logger = newLoggerAdapter(logger)
 	}
 }
 

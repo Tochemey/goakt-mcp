@@ -29,6 +29,8 @@ import (
 	"io"
 	golog "log"
 	"os"
+	"reflect"
+	"strings"
 
 	goaktlog "github.com/tochemey/goakt/v4/log"
 )
@@ -47,14 +49,92 @@ type Logger interface {
 	Error(msg string, args ...any)
 }
 
+// LeveledLogger is an optional interface that a Logger can implement to
+// advertise its minimum log level. When the inner Logger implements this
+// interface, the adapter uses its level for engine-side log gating (via
+// LogLevel and Enabled), avoiding unnecessary log formatting for messages
+// below the configured threshold.
+//
+// Level returns a log level string: "debug", "info", "warn"/"warning",
+// "error", "fatal", or "panic". Unrecognized values are treated as "info".
+type LeveledLogger interface {
+	Level() string
+}
+
 // loggerAdapter wraps a Logger and satisfies the goaktlog.Logger interface
 // used internally by the underlying engine.
 type loggerAdapter struct {
 	inner Logger
+	level goaktlog.Level
 }
 
 // compile-time check
 var _ goaktlog.Logger = (*loggerAdapter)(nil)
+
+// newLoggerAdapter creates a loggerAdapter wrapping the given Logger. If the
+// Logger also implements LeveledLogger, the adapter uses its level for
+// engine-side gating; otherwise it defaults to InfoLevel.
+func newLoggerAdapter(inner Logger) *loggerAdapter {
+	level := goaktlog.InfoLevel
+	if ll, ok := inner.(LeveledLogger); ok {
+		level = parseLevel(ll.Level())
+	}
+	return &loggerAdapter{inner: inner, level: level}
+}
+
+// isNilLogger returns true when l is nil or a typed-nil (e.g. (*MyLogger)(nil)).
+// A typed-nil interface value is non-nil at the interface level but wraps a nil
+// pointer, which would cause a nil-dereference panic on the first log call.
+func isNilLogger(l Logger) bool {
+	if l == nil {
+		return true
+	}
+	v := reflect.ValueOf(l)
+	return v.Kind() == reflect.Ptr && v.IsNil()
+}
+
+// levelSeverity maps a goaktlog.Level to an integer severity for comparison.
+// Lower values are more verbose. GoAkt's level enum has non-standard ordering
+// (Debug=5 in the iota) so direct numeric comparison does not reflect severity.
+func levelSeverity(l goaktlog.Level) int {
+	switch l {
+	case goaktlog.DebugLevel:
+		return 0
+	case goaktlog.InfoLevel:
+		return 1
+	case goaktlog.WarningLevel:
+		return 2
+	case goaktlog.ErrorLevel:
+		return 3
+	case goaktlog.FatalLevel:
+		return 4
+	case goaktlog.PanicLevel:
+		return 5
+	default:
+		return 1
+	}
+}
+
+// parseLevel converts a human-readable level string to a goaktlog.Level.
+// Unrecognized values default to InfoLevel.
+func parseLevel(s string) goaktlog.Level {
+	switch strings.ToLower(s) {
+	case "debug":
+		return goaktlog.DebugLevel
+	case "info":
+		return goaktlog.InfoLevel
+	case "warn", "warning":
+		return goaktlog.WarningLevel
+	case "error":
+		return goaktlog.ErrorLevel
+	case "fatal":
+		return goaktlog.FatalLevel
+	case "panic":
+		return goaktlog.PanicLevel
+	default:
+		return goaktlog.InfoLevel
+	}
+}
 
 // goaktArgsToMsg splits GoAkt variadic log arguments into a message string
 // and optional key-value fields. GoAkt follows the slog convention where the
@@ -150,8 +230,10 @@ func (a *loggerAdapter) Panicf(format string, args ...any) {
 	panic(msg)
 }
 
-func (a *loggerAdapter) LogLevel() goaktlog.Level      { return goaktlog.DebugLevel }
-func (a *loggerAdapter) Enabled(_ goaktlog.Level) bool { return true }
+func (a *loggerAdapter) LogLevel() goaktlog.Level { return a.level }
+func (a *loggerAdapter) Enabled(l goaktlog.Level) bool {
+	return levelSeverity(l) >= levelSeverity(a.level)
+}
 func (a *loggerAdapter) With(_ ...any) goaktlog.Logger { return a }
 func (a *loggerAdapter) LogOutput() []io.Writer        { return nil }
 func (a *loggerAdapter) Flush() error                  { return nil }
@@ -166,6 +248,6 @@ type loggerWriter struct {
 }
 
 func (w *loggerWriter) Write(p []byte) (int, error) {
-	w.inner.Info(string(p))
+	w.inner.Info(strings.TrimRight(string(p), "\n"))
 	return len(p), nil
 }
