@@ -614,7 +614,7 @@ func TestSessionInvokeStream(t *testing.T) {
 	})
 
 	t.Run("streaming executor error returns failure result", func(t *testing.T) {
-		streamExec := &mockStreamExecutor{err: errors.New("stream init failed")}
+		streamExec := &mockStreamExecutor{streamErr: errors.New("stream init failed")}
 		system, stop := testActorSystem(t)
 		defer stop()
 

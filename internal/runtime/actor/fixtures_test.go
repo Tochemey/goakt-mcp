@@ -218,15 +218,16 @@ func (m *mockExecutorFactory) Create(_ context.Context, _ mcp.Tool, _ map[string
 }
 
 // mockStreamExecutor implements both ToolExecutor and ToolStreamExecutor for tests.
+// streamErr is used by ExecuteStream; the embedded mockExecutor.err is used by Execute.
 type mockStreamExecutor struct {
 	mockExecutor
 	streamResult *mcp.StreamingResult
-	err          error
+	streamErr    error
 }
 
 func (m *mockStreamExecutor) ExecuteStream(_ context.Context, _ *mcp.Invocation) (*mcp.StreamingResult, error) {
-	if m.err != nil {
-		return nil, m.err
+	if m.streamErr != nil {
+		return nil, m.streamErr
 	}
 	return m.streamResult, nil
 }
