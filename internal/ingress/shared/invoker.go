@@ -21,49 +21,24 @@
 // SOFTWARE.
 //
 
-package http
+package shared
 
 import (
 	"context"
 
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/tochemey/goakt-mcp/internal/ingress/shared"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-// The functions below delegate to [shared] so that internal tests in this
-// package (conv_test.go) continue to compile and pass without changes to
-// their call sites. New code should import [shared] directly.
+// Invoker is the minimal Gateway interface required by all ingress handlers.
+//
+// Using a narrow interface rather than coupling directly to *Gateway keeps the
+// ingress layer independently testable and prevents import cycles.
+type Invoker interface {
+	// Invoke executes a single tool-call invocation and returns its result.
+	// A non-nil error from Invoke is treated as a tool error, not a protocol error.
+	Invoke(ctx context.Context, inv *mcp.Invocation) (*mcp.ExecutionResult, error)
 
-func dispatchToolCall(
-	ctx context.Context,
-	gw Invoker,
-	req *sdkmcp.CallToolRequest,
-	toolID mcp.ToolID,
-	tenantID mcp.TenantID,
-	clientID mcp.ClientID,
-) (*sdkmcp.CallToolResult, error) {
-	return shared.DispatchToolCall(ctx, gw, req, toolID, tenantID, clientID)
-}
-
-func requestToInvocation(
-	req *sdkmcp.CallToolRequest,
-	toolID mcp.ToolID,
-	tenantID mcp.TenantID,
-	clientID mcp.ClientID,
-) (*mcp.Invocation, error) {
-	return shared.RequestToInvocation(req, toolID, tenantID, clientID)
-}
-
-func executionResultToCallToolResult(res *mcp.ExecutionResult, gwErr error) *sdkmcp.CallToolResult {
-	return shared.ExecutionResultToCallToolResult(res, gwErr)
-}
-
-func outputToCallToolResult(output map[string]any) *sdkmcp.CallToolResult {
-	return shared.OutputToCallToolResult(output)
-}
-
-func newRequestID() mcp.RequestID {
-	return shared.NewRequestID()
+	// ListTools returns the current set of registered tools.
+	// It is called once per new MCP session to populate the session's tool list.
+	ListTools(ctx context.Context) ([]mcp.Tool, error)
 }

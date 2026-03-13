@@ -67,6 +67,21 @@ type SessionInvokeResult struct {
 	Err    error
 }
 
+// SessionInvokeStream is a request to execute an invocation with streaming
+// progress support. The session checks if the executor implements
+// ToolStreamExecutor and returns a StreamingResult if so.
+// Must be used with Ask. Response is SessionInvokeStreamResult.
+type SessionInvokeStream struct {
+	Invocation *mcp.Invocation
+}
+
+// SessionInvokeStreamResult is the response to SessionInvokeStream.
+type SessionInvokeStreamResult struct {
+	StreamResult *mcp.StreamingResult
+	Result       *mcp.ExecutionResult
+	Err          error
+}
+
 // GetSessionIdentity is a request to retrieve the identity of a session.
 //
 // Used by ToolSupervisorActor when handling ListSupervisorSessions to collect

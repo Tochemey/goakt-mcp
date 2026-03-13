@@ -35,6 +35,21 @@ type ToolExecutor interface {
 	Close() error
 }
 
+// ToolStreamExecutor is an optional extension of ToolExecutor that supports
+// streaming progress notifications from the backend during execution.
+//
+// Executors may implement this interface alongside ToolExecutor. The session
+// actor checks for this interface at runtime via type assertion. When present,
+// ExecuteStream is called instead of Execute, enabling progress forwarding
+// to the client.
+//
+// Executors that do not support streaming need not implement this interface;
+// the session falls back to the standard Execute path.
+type ToolStreamExecutor interface {
+	ToolExecutor
+	ExecuteStream(ctx context.Context, inv *Invocation) (*StreamingResult, error)
+}
+
 // ExecutorFactory creates ToolExecutor instances for a given tool.
 //
 // The factory is invoked when a session is created. The returned executor

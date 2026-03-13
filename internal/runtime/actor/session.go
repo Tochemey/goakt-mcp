@@ -115,6 +115,8 @@ func (x *session) Receive(ctx *goaktactor.ReceiveContext) {
 		x.logger.Debugf("actor session:%s-%s-%s post-start", x.tenantID, x.clientID, x.toolID)
 	case *runtime.SessionInvoke:
 		x.handleSessionInvoke(ctx, msg)
+	case *runtime.SessionInvokeStream:
+		x.handleSessionInvokeStream(ctx, msg)
 	case *runtime.GetSessionIdentity:
 		ctx.Response(&runtime.GetSessionIdentityResult{
 			TenantID: x.tenantID,
@@ -255,6 +257,146 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 
 	// Resume passivation now that invocation is complete.
 	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.ResumePassivation{})
+}
+
+// handleSessionInvokeStream handles streaming invocations. If the executor
+// implements ToolStreamExecutor, it uses ExecuteStream to deliver progress
+// events and the final result. Otherwise it falls back to the standard
+// Execute path and returns the result directly.
+func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg *runtime.SessionInvokeStream) {
+	if msg.Invocation == nil {
+		ctx.Response(&runtime.SessionInvokeStreamResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "invocation is required")})
+		return
+	}
+	if msg.Invocation.ToolID != x.toolID {
+		ctx.Response(&runtime.SessionInvokeStreamResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID mismatch")})
+		return
+	}
+
+	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.PausePassivation{})
+	defer func() {
+		_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.ResumePassivation{})
+	}()
+
+	// Check if the executor supports streaming. The nil check must precede the
+	// type assertion: a nil interface asserted in the two-value form yields
+	// (nil, false), but a non-nil interface holding a nil pointer can produce
+	// ok==true with a nil ToolStreamExecutor.
+	streamExec, ok := x.executor.(mcp.ToolStreamExecutor)
+	if x.executor == nil || !ok {
+		// Fall back to standard execution.
+		start := time.Now()
+		var result *mcp.ExecutionResult
+		if x.executor != nil {
+			execCtx := ctx.Context()
+			timeout := x.tool.RequestTimeout
+			if timeout == 0 {
+				timeout = config.DefaultRequestTimeout
+			}
+			var cancel context.CancelFunc
+			execCtx, cancel = context.WithTimeout(execCtx, timeout)
+			defer cancel()
+
+			var err error
+			result, err = x.executor.Execute(execCtx, msg.Invocation)
+			if err != nil {
+				result = &mcp.ExecutionResult{
+					Status:      mcp.ExecutionStatusFailure,
+					Err:         mcp.WrapRuntimeError(mcp.ErrCodeInternal, "execution failed", err),
+					Duration:    time.Since(start),
+					Correlation: msg.Invocation.Correlation,
+				}
+			}
+			if result != nil && result.Duration == 0 {
+				result.Duration = time.Since(start)
+			}
+		} else {
+			result = &mcp.ExecutionResult{
+				Status:      mcp.ExecutionStatusSuccess,
+				Output:      map[string]any{},
+				Duration:    time.Since(start),
+				Correlation: msg.Invocation.Correlation,
+			}
+		}
+		x.reportOutcomeToSupervisor(ctx, result)
+		ctx.Response(&runtime.SessionInvokeStreamResult{Result: result})
+		return
+	}
+
+	execCtx := ctx.Context()
+	timeout := x.tool.RequestTimeout
+	if timeout == 0 {
+		timeout = config.DefaultRequestTimeout
+	}
+	execCtx, cancel := context.WithTimeout(execCtx, timeout)
+	// cancel is not deferred here: the goroutine below owns the cancel call so
+	// that the execution context is not cancelled before the executor finishes
+	// streaming.
+
+	sr, err := streamExec.ExecuteStream(execCtx, msg.Invocation)
+	if err != nil {
+		cancel()
+		result := &mcp.ExecutionResult{
+			Status:      mcp.ExecutionStatusFailure,
+			Err:         mcp.WrapRuntimeError(mcp.ErrCodeInternal, "stream execution failed", err),
+			Correlation: msg.Invocation.Correlation,
+		}
+		x.reportOutcomeToSupervisor(ctx, result)
+		ctx.Response(&runtime.SessionInvokeStreamResult{Result: result})
+		return
+	}
+
+	// Capture ctx-derived values before the handler returns; ctx is only valid
+	// for the duration of this receive handler, but the goroutine below
+	// outlives it.
+	parent := ctx.Self().Parent()
+	actorCtx := ctx.Context()
+
+	// Fan out sr.Progress and sr.Final so the caller and the goroutine do not
+	// race on the same channels. The goroutine is the sole reader of the
+	// underlying executor channels; it forwards events to callerProg/callerFinal
+	// and performs supervisor reporting directly so the handler can return
+	// immediately and free the actor for the next message.
+	callerProg := make(chan mcp.ProgressEvent)
+	callerFinal := make(chan *mcp.ExecutionResult, 1)
+
+	go func() {
+		// cancel is deferred here so the execution context stays alive until
+		// the executor has finished streaming; canceling it in the handler
+		// would abort the executor while the goroutine is still reading.
+		defer cancel()
+
+		for evt := range sr.Progress {
+			callerProg <- evt
+		}
+		close(callerProg)
+
+		final := <-sr.Final
+		if final != nil {
+			callerFinal <- final
+		}
+		close(callerFinal)
+
+		// Report outcome to supervisor using the pre-captured parent ref and
+		// context, since ctx is no longer valid after the handler has returned.
+		if final != nil && parent != nil && parent.IsRunning() {
+			success := final.Status == mcp.ExecutionStatusSuccess && final.Err == nil
+			if success {
+				_ = goaktactor.Tell(actorCtx, parent, &runtime.ReportSuccess{ToolID: x.toolID})
+			} else {
+				_ = goaktactor.Tell(actorCtx, parent, &runtime.ReportFailure{ToolID: x.toolID})
+			}
+		}
+	}()
+
+	ctx.Response(&runtime.SessionInvokeStreamResult{
+		StreamResult: &mcp.StreamingResult{
+			Progress: callerProg,
+			Final:    callerFinal,
+		},
+	})
+	// Handler returns immediately; the goroutine handles streaming completion
+	// and supervisor reporting without holding the actor receive context open.
 }
 
 // isTransportFailure returns true when the execution result indicates a
