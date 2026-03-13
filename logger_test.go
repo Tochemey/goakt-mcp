@@ -247,7 +247,7 @@ func TestLoggerAdapterFatal(t *testing.T) {
 		a.Fatal("fatal msg")
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=TestLoggerAdapterFatalHelperProcess$", "-test.v") // #nosec G204
+	cmd := exec.Command(os.Args[0], "-test.run=TestLoggerAdapterFatalHelperProcess$", "-test.v") // #nosec G204 G702
 	cmd.Env = append(os.Environ(), "GO_TEST_ADAPTER_FATAL=1")
 	out, err := cmd.CombinedOutput()
 	var exitErr *exec.ExitError
@@ -270,7 +270,7 @@ func TestLoggerAdapterFatalf(t *testing.T) {
 		a.Fatalf("fatal %s", "formatted")
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=TestLoggerAdapterFatalfHelperProcess$", "-test.v") // #nosec G204
+	cmd := exec.Command(os.Args[0], "-test.run=TestLoggerAdapterFatalfHelperProcess$", "-test.v") // #nosec G204 G702
 	cmd.Env = append(os.Environ(), "GO_TEST_ADAPTER_FATALF=1")
 	out, err := cmd.CombinedOutput()
 	var exitErr *exec.ExitError
