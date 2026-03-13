@@ -259,8 +259,8 @@ func (a *loggerAdapter) With(keyValues ...any) goaktlog.Logger {
 	merged = append(merged, keyValues...)
 	return &loggerAdapter{inner: a.inner, level: a.level, fields: merged}
 }
-func (a *loggerAdapter) LogOutput() []io.Writer        { return nil }
-func (a *loggerAdapter) Flush() error                  { return nil }
+func (a *loggerAdapter) LogOutput() []io.Writer { return nil }
+func (a *loggerAdapter) Flush() error           { return nil }
 
 func (a *loggerAdapter) StdLogger() *golog.Logger {
 	return golog.New(&loggerWriter{inner: a.inner}, "", 0)
