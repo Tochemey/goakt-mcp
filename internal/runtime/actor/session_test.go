@@ -33,12 +33,14 @@ import (
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/passivation"
+	noopmetric "go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
+	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
 func TestSessionActor(t *testing.T) {
@@ -431,6 +433,242 @@ func TestIsTransportFailure(t *testing.T) {
 			Err:    mcp.NewRuntimeError(mcp.ErrCodeTransportFailure, "connection reset"),
 		}
 		assert.True(t, isTransportFailure(r))
+	})
+}
+
+func TestSessionInvokeStream(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("rejects nil invocation", func(t *testing.T) {
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		tool := validStdioTool("stream-nil")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvokeStream{Invocation: nil}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeStreamResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
+		assert.Contains(t, result.Err.Error(), "invocation is required")
+	})
+
+	t.Run("rejects tool ID mismatch", func(t *testing.T) {
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		tool := validStdioTool("stream-mismatch")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := sessionInvocation("other-tool", "tenant1", "client1")
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvokeStream{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeStreamResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
+		assert.Contains(t, result.Err.Error(), "tool ID mismatch")
+	})
+
+	t.Run("fallback to Execute when executor is nil (stub mode)", func(t *testing.T) {
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		tool := validStdioTool("stream-stub")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := sessionInvocation(tool.ID, "tenant1", "client1")
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvokeStream{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeStreamResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		require.NotNil(t, result.Result)
+		assert.True(t, result.Result.Succeeded())
+	})
+
+	t.Run("fallback to Execute when executor does not implement ToolStreamExecutor", func(t *testing.T) {
+		exec := &mockExecutor{}
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		tool := validStdioTool("stream-no-iface")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, exec, nil)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := sessionInvocation(tool.ID, "tenant1", "client1")
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvokeStream{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeStreamResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		require.NotNil(t, result.Result)
+		assert.True(t, result.Result.Succeeded())
+	})
+
+	t.Run("fallback Execute error returns failure result", func(t *testing.T) {
+		exec := &mockExecutor{err: errors.New("exec failed")}
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		tool := validStdioTool("stream-exec-fail")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, exec, nil)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := sessionInvocation(tool.ID, "tenant1", "client1")
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvokeStream{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeStreamResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		require.NotNil(t, result.Result)
+		assert.Equal(t, mcp.ExecutionStatusFailure, result.Result.Status)
+	})
+
+	t.Run("streaming executor returns StreamResult with progress and final", func(t *testing.T) {
+		progCh := make(chan mcp.ProgressEvent, 1)
+		finalCh := make(chan *mcp.ExecutionResult, 1)
+		progCh <- mcp.ProgressEvent{Message: "step1"}
+		close(progCh)
+		finalCh <- &mcp.ExecutionResult{Status: mcp.ExecutionStatusSuccess, Output: map[string]any{}}
+		close(finalCh)
+
+		streamExec := &mockStreamExecutor{
+			streamResult: &mcp.StreamingResult{
+				Progress: progCh,
+				Final:    finalCh,
+			},
+		}
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		tool := validStdioTool("stream-real")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, streamExec, nil)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := sessionInvocation(tool.ID, "tenant1", "client1")
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvokeStream{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeStreamResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		require.NotNil(t, result.StreamResult)
+
+		// Drain progress
+		var progEvents []mcp.ProgressEvent
+		for evt := range result.StreamResult.Progress {
+			progEvents = append(progEvents, evt)
+		}
+		assert.Len(t, progEvents, 1)
+		assert.Equal(t, "step1", progEvents[0].Message)
+
+		// Read final
+		final := <-result.StreamResult.Final
+		require.NotNil(t, final)
+		assert.Equal(t, mcp.ExecutionStatusSuccess, final.Status)
+	})
+
+	t.Run("streaming executor error returns failure result", func(t *testing.T) {
+		streamExec := &mockStreamExecutor{err: errors.New("stream init failed")}
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		tool := validStdioTool("stream-init-fail")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, streamExec, nil)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := sessionInvocation(tool.ID, "tenant1", "client1")
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvokeStream{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeStreamResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		require.NotNil(t, result.Result)
+		assert.Equal(t, mcp.ExecutionStatusFailure, result.Result.Status)
+	})
+}
+
+func TestSessionMetricsIntegration(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("session lifecycle records metrics when registered", func(t *testing.T) {
+		meter := noopmetric.NewMeterProvider().Meter("test")
+		_, err := telemetry.RegisterMetrics(meter)
+		require.NoError(t, err)
+		t.Cleanup(telemetry.UnregisterMetrics)
+
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		tool := validStdioTool("metrics-session")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		assert.True(t, pid.IsRunning())
+
+		// Stop the actor to trigger PostStop → RecordSessionDestroyed
+		require.NoError(t, pid.Shutdown(ctx))
+		waitForActors()
+		assert.False(t, pid.IsRunning())
 	})
 }
 

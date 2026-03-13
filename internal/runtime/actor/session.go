@@ -67,14 +67,13 @@ import (
 //
 // All fields are unexported to enforce actor immutability rules.
 type session struct {
-	tenantID         mcp.TenantID
-	clientID         mcp.ClientID
-	toolID           mcp.ToolID
-	tool             mcp.Tool
-	executor         mcp.ToolExecutor
-	credentials      map[string]string
-	logger           goaktlog.Logger
-	invocationActive bool
+	tenantID    mcp.TenantID
+	clientID    mcp.ClientID
+	toolID      mcp.ToolID
+	tool        mcp.Tool
+	executor    mcp.ToolExecutor
+	credentials map[string]string
+	logger      goaktlog.Logger
 }
 
 var _ goaktactor.Actor = (*session)(nil)
@@ -171,7 +170,6 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 
 	// Pause passivation during invocation so we are not passivated while
 	// waiting for transport or during processing.
-	x.invocationActive = true
 	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.PausePassivation{})
 
 	start := time.Now()
@@ -261,7 +259,6 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 	x.reportOutcomeToSupervisor(ctx, result)
 
 	// Resume passivation now that invocation is complete.
-	x.invocationActive = false
 	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.ResumePassivation{})
 }
 
@@ -279,18 +276,15 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 		return
 	}
 
-	x.invocationActive = true
 	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.PausePassivation{})
 
-	// resumePassivation is a helper that resets invocationActive and resumes
-	// passivation. It is called at the end of each code path — synchronous
-	// fallback, error, or (crucially) inside the streaming goroutine after
-	// sr.Final is consumed, so that passivation stays paused for the entire
-	// duration of the stream.
+	// resumePassivation resumes passivation after the invocation completes.
+	// Called at the end of each code path — synchronous fallback, error, or
+	// (crucially) inside the streaming goroutine after sr.Final is consumed,
+	// so that passivation stays paused for the entire duration of the stream.
 	selfPID := ctx.Self()
 	resumeCtx := ctx.Context()
 	resumePassivation := func() {
-		x.invocationActive = false
 		_ = goaktactor.Tell(resumeCtx, selfPID, &goaktactor.ResumePassivation{})
 	}
 
