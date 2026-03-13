@@ -97,3 +97,31 @@ func TestGatewayManager(t *testing.T) {
 		_ = sink.Close()
 	})
 }
+
+func TestExternalTestHelpers(t *testing.T) {
+	t.Run("ExternalTestConfig returns valid config", func(t *testing.T) {
+		cfg := ExternalTestConfig()
+		assert.Equal(t, config.DefaultSessionIdleTimeout, cfg.Runtime.SessionIdleTimeout)
+		assert.Equal(t, config.DefaultRequestTimeout, cfg.Runtime.RequestTimeout)
+		assert.Equal(t, config.DefaultStartupTimeout, cfg.Runtime.StartupTimeout)
+		assert.NotNil(t, cfg.Audit.Sink)
+	})
+
+	t.Run("SpawnFoundationalActorsForExternalTest spawns all required actors", func(t *testing.T) {
+		cfg := ExternalTestConfig()
+		kit, ctx := newTestKit(t, testkit.WithExtensions(
+			extension.NewToolConfigExtension(),
+			extension.NewConfigExtension(cfg),
+		))
+
+		SpawnFoundationalActorsForExternalTest(ctx, kit.ActorSystem(), cfg)
+
+		pid, err := kit.ActorSystem().ActorOf(ctx, mcp.ActorNameRegistrar)
+		require.NoError(t, err)
+		assert.True(t, pid.IsRunning())
+
+		pid, err = kit.ActorSystem().ActorOf(ctx, mcp.ActorNameRouter)
+		require.NoError(t, err)
+		assert.True(t, pid.IsRunning())
+	})
+}

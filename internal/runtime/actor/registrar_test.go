@@ -361,6 +361,155 @@ func TestRegistryActor(t *testing.T) {
 		require.NotNil(t, a)
 	})
 
+	t.Run("enable tool sets state to enabled and notifies supervisor", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("enable-tool")
+		tool.State = mcp.ToolStateDisabled
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		// Verify tool is disabled
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.QueryTool{ToolID: "enable-tool"}, askTimeout)
+		require.NoError(t, err)
+		qResult := resp.(*runtime.QueryToolResult)
+		require.True(t, qResult.Found)
+		assert.Equal(t, mcp.ToolStateDisabled, qResult.Tool.State)
+
+		// Enable the tool
+		resp, err = goaktactor.Ask(ctx, pid, &runtime.EnableTool{ToolID: "enable-tool"}, askTimeout)
+		require.NoError(t, err)
+		enableResult, ok := resp.(*runtime.EnableToolResult)
+		require.True(t, ok)
+		require.NoError(t, enableResult.Err)
+
+		// Verify state is now enabled
+		resp, err = goaktactor.Ask(ctx, pid, &runtime.QueryTool{ToolID: "enable-tool"}, askTimeout)
+		require.NoError(t, err)
+		qResult = resp.(*runtime.QueryToolResult)
+		require.True(t, qResult.Found)
+		assert.Equal(t, mcp.ToolStateEnabled, qResult.Tool.State)
+	})
+
+	t.Run("enable tool not found returns ErrToolNotFound", func(t *testing.T) {
+		kit, ctx := newTestKit(t)
+
+		kit.ActorSystem().Spawn(ctx, "registry-enable-nf", newRegistrar())
+		waitForActors()
+
+		probe := kit.NewProbe(ctx)
+		probe.SendSync("registry-enable-nf", &runtime.EnableTool{ToolID: "nonexistent"}, askTimeout)
+		resp := probe.ExpectAnyMessage()
+		result, ok := resp.(*runtime.EnableToolResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
+		assert.ErrorIs(t, result.Err, mcp.ErrToolNotFound)
+		probe.Stop()
+	})
+
+	t.Run("update tool propagates config to supervisor via RefreshToolConfig", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("propagate-tool")
+		tool.RequestTimeout = 10 * time.Second
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		// Update the tool - this should propagate to the supervisor
+		updated := tool
+		updated.RequestTimeout = 60 * time.Second
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.UpdateTool{Tool: updated}, askTimeout)
+		require.NoError(t, err)
+		updateResult, ok := resp.(*runtime.UpdateToolResult)
+		require.True(t, ok)
+		require.NoError(t, updateResult.Err)
+		waitForActors()
+
+		// Verify the supervisor still accepts work (it refreshed config without error)
+		supResp, err := goaktactor.Ask(ctx, pid, &runtime.GetSupervisor{ToolID: "propagate-tool"}, askTimeout)
+		require.NoError(t, err)
+		gsResult, ok := supResp.(*runtime.GetSupervisorResult)
+		require.True(t, ok)
+		require.True(t, gsResult.Found)
+		supervisorPID, ok := gsResult.Supervisor.(*goaktactor.PID)
+		require.True(t, ok)
+		require.True(t, supervisorPID.IsRunning())
+
+		acceptResp, err := goaktactor.Ask(ctx, supervisorPID, &runtime.CanAcceptWork{ToolID: "propagate-tool"}, askTimeout)
+		require.NoError(t, err)
+		acceptResult, ok := acceptResp.(*runtime.CanAcceptWorkResult)
+		require.True(t, ok)
+		assert.True(t, acceptResult.Accept)
+	})
+
+	t.Run("disable tool propagates config to supervisor", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("disable-propagate-tool")
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		// Disable the tool
+		_, err = goaktactor.Ask(ctx, pid, &runtime.DisableTool{ToolID: "disable-propagate-tool"}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		// Verify the supervisor rejects work because tool is now disabled
+		supResp, err := goaktactor.Ask(ctx, pid, &runtime.GetSupervisor{ToolID: "disable-propagate-tool"}, askTimeout)
+		require.NoError(t, err)
+		gsResult, ok := supResp.(*runtime.GetSupervisorResult)
+		require.True(t, ok)
+		require.True(t, gsResult.Found)
+		supervisorPID, ok := gsResult.Supervisor.(*goaktactor.PID)
+		require.True(t, ok)
+
+		acceptResp, err := goaktactor.Ask(ctx, supervisorPID, &runtime.CanAcceptWork{ToolID: "disable-propagate-tool"}, askTimeout)
+		require.NoError(t, err)
+		acceptResult, ok := acceptResp.(*runtime.CanAcceptWorkResult)
+		require.True(t, ok)
+		assert.False(t, acceptResult.Accept)
+		assert.Contains(t, acceptResult.Reason, "disabled")
+	})
+
 	t.Run("count sessions for tenant", func(t *testing.T) {
 		cfg := testConfig()
 		cfg.Audit.Sink = audit.NewMemorySink()
@@ -387,5 +536,187 @@ func TestRegistryActor(t *testing.T) {
 		require.True(t, ok)
 		require.NotNil(t, countResult)
 		assert.GreaterOrEqual(t, countResult.Count, 0)
+	})
+
+	t.Run("GetToolStatus returns status for registered tool with supervisor", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("get-status-tool")
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.GetToolStatus{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.GetToolStatusResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		assert.Equal(t, tool.ID, result.Status.ToolID)
+		assert.Equal(t, mcp.CircuitClosed, result.Status.Circuit)
+		assert.False(t, result.Status.Draining)
+	})
+
+	t.Run("GetToolStatus returns ErrToolNotFound for unknown tool", func(t *testing.T) {
+		kit, ctx := newTestKit(t)
+
+		kit.ActorSystem().Spawn(ctx, "reg-getstatus-nf", newRegistrar())
+		waitForActors()
+
+		probe := kit.NewProbe(ctx)
+		probe.SendSync("reg-getstatus-nf", &runtime.GetToolStatus{ToolID: "nonexistent"}, askTimeout)
+		resp := probe.ExpectAnyMessage()
+		result, ok := resp.(*runtime.GetToolStatusResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
+		assert.ErrorIs(t, result.Err, mcp.ErrToolNotFound)
+		probe.Stop()
+	})
+
+	t.Run("ResetCircuit relays to supervisor and returns success", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("reset-circuit-tool")
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.ResetCircuit{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.ResetCircuitResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+	})
+
+	t.Run("ResetCircuit returns ErrToolNotFound for unknown tool", func(t *testing.T) {
+		kit, ctx := newTestKit(t)
+
+		kit.ActorSystem().Spawn(ctx, "reg-reset-nf", newRegistrar())
+		waitForActors()
+
+		probe := kit.NewProbe(ctx)
+		probe.SendSync("reg-reset-nf", &runtime.ResetCircuit{ToolID: "nonexistent"}, askTimeout)
+		resp := probe.ExpectAnyMessage()
+		result, ok := resp.(*runtime.ResetCircuitResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
+		assert.ErrorIs(t, result.Err, mcp.ErrToolNotFound)
+		probe.Stop()
+	})
+
+	t.Run("DrainTool relays to supervisor and sets draining", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("drain-tool-reg")
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.DrainTool{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.DrainToolResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+
+		// Verify draining reflected in status.
+		statusResp, err := goaktactor.Ask(ctx, pid, &runtime.GetToolStatus{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		statusResult, ok := statusResp.(*runtime.GetToolStatusResult)
+		require.True(t, ok)
+		assert.True(t, statusResult.Status.Draining)
+	})
+
+	t.Run("DrainTool returns ErrToolNotFound for unknown tool", func(t *testing.T) {
+		kit, ctx := newTestKit(t)
+
+		kit.ActorSystem().Spawn(ctx, "reg-drain-nf", newRegistrar())
+		waitForActors()
+
+		probe := kit.NewProbe(ctx)
+		probe.SendSync("reg-drain-nf", &runtime.DrainTool{ToolID: "nonexistent"}, askTimeout)
+		resp := probe.ExpectAnyMessage()
+		result, ok := resp.(*runtime.DrainToolResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
+		assert.ErrorIs(t, result.Err, mcp.ErrToolNotFound)
+		probe.Stop()
+	})
+
+	t.Run("ListAllSessions returns empty when no supervisors registered", func(t *testing.T) {
+		kit, ctx := newTestKit(t)
+
+		kit.ActorSystem().Spawn(ctx, "reg-list-sessions-empty", newRegistrar())
+		waitForActors()
+
+		probe := kit.NewProbe(ctx)
+		probe.SendSync("reg-list-sessions-empty", &runtime.ListAllSessions{}, askTimeout)
+		resp := probe.ExpectAnyMessage()
+		result, ok := resp.(*runtime.ListAllSessionsResult)
+		require.True(t, ok)
+		assert.Empty(t, result.Sessions)
+		probe.Stop()
+	})
+
+	t.Run("ListAllSessions fans out to running supervisors", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("list-sessions-tool")
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.ListAllSessions{}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.ListAllSessionsResult)
+		require.True(t, ok)
+		// No active invocations so sessions slice should be empty (not nil error).
+		assert.NotNil(t, result)
 	})
 }

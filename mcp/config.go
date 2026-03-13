@@ -31,7 +31,10 @@ const (
 	DefaultRequestTimeout      = 30 * time.Second
 	DefaultStartupTimeout      = 10 * time.Second
 	DefaultHealthProbeInterval = 30 * time.Second
+	DefaultHealthProbeTimeout  = 10 * time.Second
 	DefaultShutdownTimeout     = 30 * time.Second
+	DefaultMaxCacheEntries     = 1000
+	DefaultAuditMailboxSize    = 1024
 )
 
 // Config is the root configuration for the goakt-mcp gateway.
@@ -69,11 +72,24 @@ type Config struct {
 
 // RuntimeConfig holds core runtime tuning parameters.
 type RuntimeConfig struct {
-	SessionIdleTimeout  time.Duration
-	RequestTimeout      time.Duration
-	StartupTimeout      time.Duration
+	// SessionIdleTimeout is how long the router waits before passivating an
+	// idle tool session. Zero means use DefaultSessionIdleTimeout.
+	SessionIdleTimeout time.Duration
+	// RequestTimeout is the maximum wall-clock time allowed for a single tool
+	// invocation, including policy evaluation and egress round-trip.
+	// Zero means use DefaultRequestTimeout.
+	RequestTimeout time.Duration
+	// StartupTimeout is the maximum time the gateway waits for a backend MCP
+	// server process to become ready after it is spawned.
+	// Zero means use DefaultStartupTimeout.
+	StartupTimeout time.Duration
+	// HealthProbeInterval is how often the health actor probes tool supervisors.
+	// Zero means use DefaultHealthProbeInterval.
 	HealthProbeInterval time.Duration
-	ShutdownTimeout     time.Duration
+	// ShutdownTimeout is the maximum time Stop waits for the actor system to
+	// drain cleanly before returning an error.
+	// Zero means use DefaultShutdownTimeout.
+	ShutdownTimeout time.Duration
 }
 
 // ClusterConfig holds multi-node operation settings.
@@ -82,11 +98,22 @@ type RuntimeConfig struct {
 //   - "kubernetes": for production and cloud platforms (in-cluster pod discovery)
 //   - "dnssd": for local development (DNS-based service discovery)
 type ClusterConfig struct {
-	Enabled       bool
-	Discovery     string
+	// Enabled activates multi-node cluster mode. When false the gateway runs
+	// in single-node mode with no distributed coordination.
+	Enabled bool
+	// Discovery selects the peer discovery backend: "kubernetes" or "dnssd".
+	// Required when Enabled is true.
+	Discovery string
+	// SingletonRole is the cluster role name used to elect the singleton
+	// GatewayManager (registrar, router, policy). Only one node in the cluster
+	// holds this role at a time.
 	SingletonRole string
-	PeersPort     int
-	RemotingPort  int
+	// PeersPort is the TCP port used for memberlist (gossip) communication
+	// between cluster nodes.
+	PeersPort int
+	// RemotingPort is the TCP port used for GoAkt remoting (actor message
+	// passing) between cluster nodes.
+	RemotingPort int
 	// TLS configures TLS for remoting and cluster communication.
 	// When set, both the remoting server and client use TLS; cluster memberlist
 	// and remoting traffic are encrypted. All nodes must share the same root CA.
@@ -143,22 +170,38 @@ type TelemetryConfig struct {
 type AuditConfig struct {
 	// Sink is the audit sink to use.
 	Sink AuditSink
+	// MailboxSize is the maximum number of audit events that can be queued in the
+	// journal actor's mailbox. When the mailbox is full, senders block until space
+	// is available, providing backpressure. Zero means use DefaultAuditMailboxSize.
+	MailboxSize int
 }
 
 // CredentialsConfig holds configuration for secret provider backends.
 type CredentialsConfig struct {
 	// Providers holds the list of credentials providers.
 	Providers []CredentialsProvider
-	// CacheTTL is the time to live for the credentials cache.
+	// CacheTTL is the time to live for credentials cache entries. Zero means
+	// credentials are not cached and fetched on every invocation.
 	CacheTTL time.Duration
+	// MaxCacheEntries is the maximum number of entries in the credential cache.
+	// When the cache exceeds this limit, expired entries are evicted first,
+	// then the least-recently-accessed entry is removed (LRU). Zero means use
+	// DefaultMaxCacheEntries.
+	MaxCacheEntries int
 }
 
-// TenantConfig defines per-tenant settings including quota limits.
+// TenantConfig defines per-tenant settings including quota limits and optional
+// custom policy evaluation.
 type TenantConfig struct {
 	// ID is the identifier for the tenant.
 	ID TenantID
 	// Quotas is the usage quota limits for the tenant.
 	Quotas TenantQuotaConfig
+	// Evaluator is an optional custom policy evaluator for this tenant.
+	// When set, it is called after all built-in authorization and quota checks
+	// pass. Returning a non-nil *RuntimeError from Evaluate denies the invocation.
+	// When nil, only the built-in checks apply.
+	Evaluator PolicyEvaluator
 }
 
 // TenantQuotaConfig defines the usage quota limits for a single tenant.
@@ -173,4 +216,7 @@ type TenantQuotaConfig struct {
 type HealthProbeConfig struct {
 	// Interval is the interval between health probes.
 	Interval time.Duration
+	// Timeout is the maximum duration for a single probe cycle.
+	// When zero, DefaultHealthProbeTimeout is used.
+	Timeout time.Duration
 }

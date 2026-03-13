@@ -53,7 +53,6 @@ type journaler struct {
 	logger goaktlog.Logger
 }
 
-// enforce that journaler satisfies the GoAkt Actor interface at compile time.
 var _ goaktactor.Actor = (*journaler)(nil)
 
 // newJournaler creates a new Journaler instance

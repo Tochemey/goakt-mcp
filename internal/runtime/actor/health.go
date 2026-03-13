@@ -38,6 +38,10 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
+// minProbeAskTimeout is the floor for derived Ask timeouts to prevent integer
+// truncation from producing a zero duration.
+const minProbeAskTimeout = 100 * time.Millisecond
+
 // runProbes is an internal message the HealthActor sends to itself to trigger a probe run.
 type runProbes struct{}
 
@@ -54,10 +58,11 @@ type runProbes struct{}
 //
 // Relocation: No. HealthActor runs on the local node and does not relocate.
 type healthChecker struct {
-	registrar *goaktactor.PID
-	journal   *goaktactor.PID
-	interval  time.Duration
-	logger    goaktlog.Logger
+	registrar    *goaktactor.PID
+	journal      *goaktactor.PID
+	interval     time.Duration
+	probeTimeout time.Duration
+	logger       goaktlog.Logger
 }
 
 var _ goaktactor.Actor = (*healthChecker)(nil)
@@ -74,6 +79,10 @@ func (x *healthChecker) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
 	config := ctx.Extension(extension.ConfigExtensionID).(*extension.ConfigExtension).Config()
 	x.interval = config.HealthProbe.Interval
+	x.probeTimeout = config.HealthProbe.Timeout
+	if x.probeTimeout == 0 {
+		x.probeTimeout = mcp.DefaultHealthProbeTimeout
+	}
 	x.logger.Infof("actor=%s starting interval=%s", mcp.ActorNameHealth, x.interval)
 	return nil
 }
@@ -131,10 +140,10 @@ func (x *healthChecker) runProbes(ctx *goaktactor.ReceiveContext) {
 		return
 	}
 
-	probeCtx, cancel := context.WithTimeout(ctx.Context(), 10*time.Second)
+	probeCtx, cancel := context.WithTimeout(ctx.Context(), x.probeTimeout)
 	defer cancel()
 
-	listResp, err := goaktactor.Ask(probeCtx, x.registrar, &runtime.ListTools{}, 5*time.Second)
+	listResp, err := goaktactor.Ask(probeCtx, x.registrar, &runtime.ListTools{}, max(x.probeTimeout/2, minProbeAskTimeout))
 	if err != nil {
 		x.logger.Warnf("actor=%s list tools failed: %v", mcp.ActorNameHealth, err)
 		x.scheduleNext(ctx)
@@ -164,7 +173,7 @@ func (x *healthChecker) runProbes(ctx *goaktactor.ReceiveContext) {
 
 // probeTool asks the tool supervisor CanAcceptWork and maps the result to ToolState.
 func (x *healthChecker) probeTool(ctx context.Context, tool mcp.Tool) mcp.ToolState {
-	supResp, err := goaktactor.Ask(ctx, x.registrar, &runtime.GetSupervisor{ToolID: tool.ID}, 2*time.Second)
+	supResp, err := goaktactor.Ask(ctx, x.registrar, &runtime.GetSupervisor{ToolID: tool.ID}, max(x.probeTimeout/3, minProbeAskTimeout))
 	if err != nil {
 		return mcp.ToolStateUnavailable
 	}
@@ -179,7 +188,7 @@ func (x *healthChecker) probeTool(ctx context.Context, tool mcp.Tool) mcp.ToolSt
 		return mcp.ToolStateUnavailable
 	}
 
-	acceptResp, err := goaktactor.Ask(ctx, supervisor, &runtime.CanAcceptWork{ToolID: tool.ID}, 2*time.Second)
+	acceptResp, err := goaktactor.Ask(ctx, supervisor, &runtime.CanAcceptWork{ToolID: tool.ID}, max(x.probeTimeout/3, minProbeAskTimeout))
 	if err != nil {
 		return mcp.ToolStateUnavailable
 	}

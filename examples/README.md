@@ -17,3 +17,15 @@ Demonstrates the **majority of the gateway configuration** in one example: Runti
 ## quota-assess
 
 Efficiently assesses **tenant quota enforcement** in a real-world scenario: tight limits (RPM=5, ConcurrentSessions=2), concurrent invocations to hit session limit, sequential invocations to hit rate limit. See **[examples/quota-assess/README.md](quota-assess/README.md)** for setup and usage.
+
+## ingress
+
+Demonstrates the **MCP Streamable HTTP ingress** layer: implementing `IdentityResolver` to read `X-Tenant-ID` / `X-Client-ID` headers, mounting `Gateway.Handler` on a standard `net/http` server, and connecting an MCP client via `StreamableClientTransport` with header injection. See **[examples/ingress/README.md](ingress/README.md)** for architecture and environment variables.
+
+## admin-policy
+
+Demonstrates the **Admin/Operational API** (`GetGatewayStatus`, `GetToolStatus`, `ListSessions`, `DrainTool`, `ResetCircuit`) and the **Pluggable Policy Engine** (`PolicyEvaluator` that restricts partner tenants to read-only tools). See **[examples/admin-policy/README.md](admin-policy/README.md)** for details and expected output.
+
+## ai-hub
+
+**Real-world multi-tenant AI tool hub** covering the full breadth of the gateway library in a single runnable program: stdio egress, HTTP egress, HTTP ingress with identity resolution, pluggable policy evaluation, credential broker, durable audit, runtime config, telemetry, and the complete admin API. Start here when building a production gateway. See **[examples/ai-hub/README.md](ai-hub/README.md)** for the program flow and expected output.

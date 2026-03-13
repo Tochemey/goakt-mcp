@@ -129,7 +129,7 @@ func NewHTTPExecutor(cfg *mcp.HTTPTransportConfig, fallbackClient *http.Client, 
 	}
 	httpClient.Transport = wrapTransport(base)
 
-	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "goakt-mcp", Version: "v0.1.0"}, nil)
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "goakt-mcp", Version: mcp.Version()}, nil)
 	transport := &sdkmcp.StreamableClientTransport{
 		Endpoint:   cfg.URL,
 		HTTPClient: httpClient,

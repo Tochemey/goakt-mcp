@@ -63,3 +63,44 @@ func TestFileSink_NewFileSink_CreatesDir(t *testing.T) {
 	require.NoError(t, sink.Close())
 	assert.DirExists(t, dir)
 }
+
+func TestFileSink_EmptyDir_UsesCurrentDir(t *testing.T) {
+	// NewFileSink("") defaults to "." — verify it creates audit.log in cwd.
+	tmp := t.TempDir()
+	orig, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(tmp))
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	sink, err := NewFileSink("")
+	require.NoError(t, err)
+	require.NoError(t, sink.Close())
+	assert.FileExists(t, filepath.Join(tmp, "audit.log"))
+}
+
+func TestFileSink_WriteNilEvent(t *testing.T) {
+	dir := t.TempDir()
+	sink, err := NewFileSink(dir)
+	require.NoError(t, err)
+	defer func() { _ = sink.Close() }()
+	// nil event should be a no-op
+	require.NoError(t, sink.Write(nil))
+}
+
+func TestFileSink_WriteAfterClose(t *testing.T) {
+	dir := t.TempDir()
+	sink, err := NewFileSink(dir)
+	require.NoError(t, err)
+	require.NoError(t, sink.Close())
+	// Write after Close should be a no-op (f is nil)
+	require.NoError(t, sink.Write(&mcp.AuditEvent{TenantID: "t1"}))
+}
+
+func TestFileSink_CloseIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	sink, err := NewFileSink(dir)
+	require.NoError(t, err)
+	require.NoError(t, sink.Close())
+	// Second close should be a no-op
+	require.NoError(t, sink.Close())
+}

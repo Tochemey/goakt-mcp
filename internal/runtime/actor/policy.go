@@ -60,7 +60,6 @@ type policyMaker struct {
 	logger        goaktlog.Logger
 }
 
-// enforce that policyMaker satisfies the GoAkt Actor interface at compile time.
 var _ goaktactor.Actor = (*policyMaker)(nil)
 
 // newPolicyMaker creates a policy actor instance.
@@ -122,15 +121,40 @@ func (x *policyMaker) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy
 		x.currentMinute = minute
 	}
 
-	// Pass current count before incrementing so evaluator can enforce "allow N,
-	// throttle N+1". We increment only after a successful allow.
+	// Snapshot the current count for "allow N, throttle N+1" semantics, then
+	// increment unconditionally so denied requests still count toward the rate
+	// limit. This prevents a flood of denied calls from bypassing throttling.
 	in.RequestsInCurrentMinute = x.requestCounts[in.TenantID]
+	x.requestCounts[in.TenantID]++
 	in.TenantConfig = x.lookupTenantConfig(in.TenantID)
 
 	result := x.evaluator.Evaluate(in)
-	if result.Allowed() {
-		x.requestCounts[in.TenantID]++
+	if !result.Allowed() {
+		ctx.Response(&policy.EvaluateResult{Result: result})
+		return
 	}
+
+	// Call the tenant's custom PolicyEvaluator when configured. It runs after
+	// all built-in authorization and quota checks have passed.
+	if in.TenantConfig != nil && in.TenantConfig.Evaluator != nil {
+		policyInput := mcp.PolicyInput{
+			TenantID:                in.TenantID,
+			ToolID:                  in.Tool.ID,
+			ActiveSessionCount:      in.ActiveSessionCount,
+			RequestsInCurrentMinute: in.RequestsInCurrentMinute,
+		}
+		if runtimeErr := in.TenantConfig.Evaluator.Evaluate(ctx.Context(), policyInput); runtimeErr != nil {
+			ctx.Response(&policy.EvaluateResult{
+				Result: policy.Result{
+					Decision: policy.DecisionDeny,
+					Reason:   runtimeErr.Message,
+					Err:      runtimeErr,
+				},
+			})
+			return
+		}
+	}
+
 	ctx.Response(&policy.EvaluateResult{Result: result})
 }
 

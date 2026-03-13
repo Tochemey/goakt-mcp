@@ -39,16 +39,17 @@ import (
 // Policy evaluation, credential resolution, and session management are handled
 // internally by the runtime.
 func (g *Gateway) Invoke(ctx context.Context, inv *mcp.Invocation) (*mcp.ExecutionResult, error) {
-	if g.system == nil {
-		return nil, mcp.NewRuntimeError(mcp.ErrCodeInternal, "gateway not started")
-	}
-
-	routerPID, err := g.resolveRouter(ctx)
+	system, err := g.requireRunning()
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := goaktactor.Ask(ctx, routerPID, &runtime.RouteInvocation{Invocation: inv}, g.config.Runtime.RequestTimeout)
+	router, err := g.resolveRouter(ctx, system)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := goaktactor.Ask(ctx, router, &runtime.RouteInvocation{Invocation: inv}, g.config.Runtime.RequestTimeout)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "router ask failed", err)
 	}
@@ -66,16 +67,17 @@ func (g *Gateway) Invoke(ctx context.Context, inv *mcp.Invocation) (*mcp.Executi
 
 // ListTools returns all tools currently registered in the gateway.
 func (g *Gateway) ListTools(ctx context.Context) ([]mcp.Tool, error) {
-	if g.system == nil {
-		return nil, mcp.NewRuntimeError(mcp.ErrCodeInternal, "gateway not started")
-	}
-
-	registrarPID, err := g.resolveRegistrar(ctx)
+	system, err := g.requireRunning()
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := goaktactor.Ask(ctx, registrarPID, &runtime.ListTools{}, g.config.Runtime.RequestTimeout)
+	registrar, err := g.resolveRegistrar(ctx, system)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := goaktactor.Ask(ctx, registrar, &runtime.ListTools{}, g.config.Runtime.RequestTimeout)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "registrar ask failed", err)
 	}
@@ -92,20 +94,21 @@ func (g *Gateway) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 // The tool is validated before registration. If a tool with the same ID exists,
 // it is replaced.
 func (g *Gateway) RegisterTool(ctx context.Context, tool mcp.Tool) error {
-	if g.system == nil {
-		return mcp.NewRuntimeError(mcp.ErrCodeInternal, "gateway not started")
+	system, err := g.requireRunning()
+	if err != nil {
+		return err
 	}
 
 	if err := mcp.ValidateTool(tool); err != nil {
 		return err
 	}
 
-	registrarPID, err := g.resolveRegistrar(ctx)
+	registrar, err := g.resolveRegistrar(ctx, system)
 	if err != nil {
 		return err
 	}
 
-	resp, err := goaktactor.Ask(ctx, registrarPID, &runtime.RegisterTool{Tool: tool}, g.config.Runtime.RequestTimeout)
+	resp, err := goaktactor.Ask(ctx, registrar, &runtime.RegisterTool{Tool: tool}, g.config.Runtime.RequestTimeout)
 	if err != nil {
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "registrar ask failed", err)
 	}
@@ -122,16 +125,21 @@ func (g *Gateway) RegisterTool(ctx context.Context, tool mcp.Tool) error {
 // The tool must already exist. Only updatable fields are applied; the tool ID
 // cannot be changed.
 func (g *Gateway) UpdateTool(ctx context.Context, tool mcp.Tool) error {
-	if g.system == nil {
-		return mcp.NewRuntimeError(mcp.ErrCodeInternal, "gateway not started")
-	}
-
-	registrarPID, err := g.resolveRegistrar(ctx)
+	system, err := g.requireRunning()
 	if err != nil {
 		return err
 	}
 
-	resp, err := goaktactor.Ask(ctx, registrarPID, &runtime.UpdateTool{Tool: tool}, g.config.Runtime.RequestTimeout)
+	if err := mcp.ValidateTool(tool); err != nil {
+		return err
+	}
+
+	registrar, err := g.resolveRegistrar(ctx, system)
+	if err != nil {
+		return err
+	}
+
+	resp, err := goaktactor.Ask(ctx, registrar, &runtime.UpdateTool{Tool: tool}, g.config.Runtime.RequestTimeout)
 	if err != nil {
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "registrar ask failed", err)
 	}
@@ -146,16 +154,21 @@ func (g *Gateway) UpdateTool(ctx context.Context, tool mcp.Tool) error {
 // DisableTool administratively disables a tool. The tool remains in the registry
 // but its state is set to Disabled. Requests to disabled tools are rejected.
 func (g *Gateway) DisableTool(ctx context.Context, toolID mcp.ToolID) error {
-	if g.system == nil {
-		return mcp.NewRuntimeError(mcp.ErrCodeInternal, "gateway not started")
-	}
-
-	registrarPID, err := g.resolveRegistrar(ctx)
+	system, err := g.requireRunning()
 	if err != nil {
 		return err
 	}
 
-	resp, err := goaktactor.Ask(ctx, registrarPID, &runtime.DisableTool{ToolID: toolID}, g.config.Runtime.RequestTimeout)
+	if toolID.IsZero() {
+		return mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID is required")
+	}
+
+	registrar, err := g.resolveRegistrar(ctx, system)
+	if err != nil {
+		return err
+	}
+
+	resp, err := goaktactor.Ask(ctx, registrar, &runtime.DisableTool{ToolID: toolID}, g.config.Runtime.RequestTimeout)
 	if err != nil {
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "registrar ask failed", err)
 	}
@@ -169,16 +182,21 @@ func (g *Gateway) DisableTool(ctx context.Context, toolID mcp.ToolID) error {
 
 // RemoveTool removes a tool from the registry entirely.
 func (g *Gateway) RemoveTool(ctx context.Context, toolID mcp.ToolID) error {
-	if g.system == nil {
-		return mcp.NewRuntimeError(mcp.ErrCodeInternal, "gateway not started")
-	}
-
-	registrarPID, err := g.resolveRegistrar(ctx)
+	system, err := g.requireRunning()
 	if err != nil {
 		return err
 	}
 
-	resp, err := goaktactor.Ask(ctx, registrarPID, &runtime.RemoveTool{ToolID: toolID}, g.config.Runtime.RequestTimeout)
+	if toolID.IsZero() {
+		return mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID is required")
+	}
+
+	registrar, err := g.resolveRegistrar(ctx, system)
+	if err != nil {
+		return err
+	}
+
+	resp, err := goaktactor.Ask(ctx, registrar, &runtime.RemoveTool{ToolID: toolID}, g.config.Runtime.RequestTimeout)
 	if err != nil {
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "registrar ask failed", err)
 	}
@@ -190,20 +208,49 @@ func (g *Gateway) RemoveTool(ctx context.Context, toolID mcp.ToolID) error {
 	return result.Err
 }
 
+// EnableTool re-enables a previously disabled tool. The tool must exist in the
+// registry. Its state is set to Enabled and the supervisor is notified.
+func (g *Gateway) EnableTool(ctx context.Context, toolID mcp.ToolID) error {
+	system, err := g.requireRunning()
+	if err != nil {
+		return err
+	}
+
+	if toolID.IsZero() {
+		return mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID is required")
+	}
+
+	registrar, err := g.resolveRegistrar(ctx, system)
+	if err != nil {
+		return err
+	}
+
+	resp, err := goaktactor.Ask(ctx, registrar, &runtime.EnableTool{ToolID: toolID}, g.config.Runtime.RequestTimeout)
+	if err != nil {
+		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "registrar ask failed", err)
+	}
+
+	result, ok := resp.(*runtime.EnableToolResult)
+	if !ok {
+		return mcp.NewRuntimeError(mcp.ErrCodeInternal, fmt.Sprintf("unexpected response type %T", resp))
+	}
+	return result.Err
+}
+
 // resolveRegistrar finds the RegistrarActor PID, trying child lookup first and
 // falling back to system-wide lookup for cluster singletons.
-func (g *Gateway) resolveRegistrar(ctx context.Context) (*goaktactor.PID, error) {
-	managerPID, err := g.system.ActorOf(ctx, mcp.ActorNameGatewayManager)
+func (g *Gateway) resolveRegistrar(ctx context.Context, system goaktactor.ActorSystem) (*goaktactor.PID, error) {
+	manager, err := system.ActorOf(ctx, mcp.ActorNameGatewayManager)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "GatewayManager not found", err)
 	}
 
-	pid, err := managerPID.Child(mcp.ActorNameRegistrar)
+	pid, err := manager.Child(mcp.ActorNameRegistrar)
 	if err == nil && pid != nil {
 		return pid, nil
 	}
 
-	pid, err = g.system.ActorOf(ctx, mcp.ActorNameRegistrar)
+	pid, err = system.ActorOf(ctx, mcp.ActorNameRegistrar)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "registrar not found", err)
 	}
@@ -211,18 +258,18 @@ func (g *Gateway) resolveRegistrar(ctx context.Context) (*goaktactor.PID, error)
 }
 
 // resolveRouter finds the RouterActor PID.
-func (g *Gateway) resolveRouter(ctx context.Context) (*goaktactor.PID, error) {
-	managerPID, err := g.system.ActorOf(ctx, mcp.ActorNameGatewayManager)
+func (g *Gateway) resolveRouter(ctx context.Context, system goaktactor.ActorSystem) (*goaktactor.PID, error) {
+	manager, err := system.ActorOf(ctx, mcp.ActorNameGatewayManager)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "GatewayManager not found", err)
 	}
 
-	pid, err := managerPID.Child(mcp.ActorNameRouter)
+	pid, err := manager.Child(mcp.ActorNameRouter)
 	if err == nil && pid != nil {
 		return pid, nil
 	}
 
-	pid, err = g.system.ActorOf(ctx, mcp.ActorNameRouter)
+	pid, err = system.ActorOf(ctx, mcp.ActorNameRouter)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "router not found", err)
 	}

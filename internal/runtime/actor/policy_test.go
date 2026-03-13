@@ -114,6 +114,65 @@ func TestPolicyActor(t *testing.T) {
 		assert.True(t, result.Result.Allowed())
 	})
 
+	t.Run("throttles when RequestsPerMinute limit is reached", func(t *testing.T) {
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		cfg := testConfig()
+		cfg.Tenants = []mcp.TenantConfig{
+			{ID: "rate-tenant", Quotas: mcp.TenantQuotaConfig{RequestsPerMinute: 2}},
+		}
+		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+		require.NoError(t, err)
+		waitForActors()
+
+		in := func() *policy.Input {
+			return &policy.Input{
+				Invocation: sessionInvocation("tool-1", "rate-tenant", "client-1"),
+				Tool:       validStdioTool("tool-1"),
+				TenantID:   "rate-tenant",
+				ClientID:   "client-1",
+			}
+		}
+
+		// first two requests must be allowed
+		for i := range 2 {
+			resp, err := goaktactor.Ask(ctx, pid, &policy.EvaluateRequest{Input: in()}, askTimeout)
+			require.NoError(t, err)
+			result, ok := resp.(*policy.EvaluateResult)
+			require.True(t, ok, "request %d", i)
+			assert.True(t, result.Result.Allowed(), "request %d should be allowed", i)
+		}
+
+		// third request must be throttled
+		resp, err := goaktactor.Ask(ctx, pid, &policy.EvaluateRequest{Input: in()}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*policy.EvaluateResult)
+		require.True(t, ok)
+		assert.False(t, result.Result.Allowed())
+		assert.Equal(t, policy.DecisionThrottle, result.Result.Decision)
+		var rErr *mcp.RuntimeError
+		require.True(t, assert.ErrorAs(t, result.Result.Err, &rErr))
+		assert.Equal(t, mcp.ErrCodeRateLimited, rErr.Code)
+	})
+
+	t.Run("denies nil input", func(t *testing.T) {
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		cfg := testConfig()
+		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &policy.EvaluateRequest{Input: nil}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*policy.EvaluateResult)
+		require.True(t, ok)
+		assert.False(t, result.Result.Allowed())
+		assert.Equal(t, policy.DecisionDeny, result.Result.Decision)
+	})
+
 	t.Run("unhandles unknown message", func(t *testing.T) {
 		kit, ctx := newTestKit(t)
 
