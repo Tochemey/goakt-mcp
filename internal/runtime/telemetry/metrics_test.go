@@ -42,6 +42,11 @@ func TestRecordFunctions_NoPanicWhenUnregistered(t *testing.T) {
 	assert.NotPanics(t, func() { RecordInvocationLatency(ctx, mcp.ToolID("tool1"), mcp.TenantID("tenant1"), 42.5) })
 	assert.NotPanics(t, func() { RecordInvocationFailure(ctx, mcp.ToolID("tool1"), mcp.TenantID("tenant1"), "timeout") })
 	assert.NotPanics(t, func() { RecordCircuitState(ctx, mcp.ToolID("tool1"), "open") })
+	assert.NotPanics(t, func() { RecordSessionCreated(ctx, mcp.ToolID("tool1"), mcp.TenantID("tenant1")) })
+	assert.NotPanics(t, func() { RecordSessionDestroyed(ctx, mcp.ToolID("tool1"), mcp.TenantID("tenant1")) })
+	assert.NotPanics(t, func() { RecordSessionPassivated(ctx, mcp.ToolID("tool1")) })
+	assert.NotPanics(t, func() { RecordCredentialCacheResult(ctx, mcp.ToolID("tool1"), mcp.TenantID("tenant1"), true) })
+	assert.NotPanics(t, func() { RecordPolicyEvaluationLatency(ctx, mcp.TenantID("tenant1"), "allow", 1.5) })
 }
 
 func TestRegisterMetrics(t *testing.T) {
@@ -84,6 +89,38 @@ func TestRecordFunctions_WithRegisteredMetrics(t *testing.T) {
 		assert.NotPanics(t, func() {
 			RecordCircuitState(ctx, mcp.ToolID("tool-a"), "open")
 			RecordCircuitState(ctx, mcp.ToolID("tool-a"), "closed")
+		})
+	})
+
+	t.Run("RecordSessionCreated does not panic when registered", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			RecordSessionCreated(ctx, mcp.ToolID("tool-a"), mcp.TenantID("tenant-1"))
+		})
+	})
+
+	t.Run("RecordSessionDestroyed does not panic when registered", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			RecordSessionDestroyed(ctx, mcp.ToolID("tool-a"), mcp.TenantID("tenant-1"))
+		})
+	})
+
+	t.Run("RecordSessionPassivated does not panic when registered", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			RecordSessionPassivated(ctx, mcp.ToolID("tool-a"))
+		})
+	})
+
+	t.Run("RecordCredentialCacheResult does not panic when registered", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			RecordCredentialCacheResult(ctx, mcp.ToolID("tool-a"), mcp.TenantID("tenant-1"), true)
+			RecordCredentialCacheResult(ctx, mcp.ToolID("tool-a"), mcp.TenantID("tenant-1"), false)
+		})
+	})
+
+	t.Run("RecordPolicyEvaluationLatency does not panic when registered", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			RecordPolicyEvaluationLatency(ctx, mcp.TenantID("tenant-1"), "allow", 2.5)
+			RecordPolicyEvaluationLatency(ctx, mcp.TenantID("tenant-1"), "deny", 1.0)
 		})
 	})
 }

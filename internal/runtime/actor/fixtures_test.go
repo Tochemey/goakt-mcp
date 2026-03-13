@@ -217,6 +217,21 @@ func (m *mockExecutorFactory) Create(_ context.Context, _ mcp.Tool, _ map[string
 	return m.executor, m.err
 }
 
+// mockStreamExecutor implements both ToolExecutor and ToolStreamExecutor for tests.
+// streamErr is used by ExecuteStream; the embedded mockExecutor.err is used by Execute.
+type mockStreamExecutor struct {
+	mockExecutor
+	streamResult *mcp.StreamingResult
+	streamErr    error
+}
+
+func (m *mockStreamExecutor) ExecuteStream(_ context.Context, _ *mcp.Invocation) (*mcp.StreamingResult, error) {
+	if m.streamErr != nil {
+		return nil, m.streamErr
+	}
+	return m.streamResult, nil
+}
+
 // failingAuditSink is a test sink that returns an error on Write.
 type failingAuditSink struct{}
 

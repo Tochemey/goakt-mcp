@@ -104,6 +104,7 @@ func (x *session) PreStart(ctx *goaktactor.Context) error {
 		return mcp.NewRuntimeError(mcp.ErrCodeInternal, "session dependency not found")
 	}
 
+	telemetry.RecordSessionCreated(ctx.Context(), x.toolID, x.tenantID)
 	x.logger.Infof("actor session:%s-%s-%s started", x.tenantID, x.clientID, x.toolID)
 	return nil
 }
@@ -134,6 +135,8 @@ func (x *session) PostStop(ctx *goaktactor.Context) error {
 	if x.executor != nil {
 		_ = x.executor.Close()
 	}
+
+	telemetry.RecordSessionDestroyed(ctx.Context(), x.toolID, x.tenantID)
 	x.logger.Infof("actor session:%s-%s-%s stopped", x.tenantID, x.clientID, x.toolID)
 	return nil
 }
@@ -274,9 +277,16 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 	}
 
 	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.PausePassivation{})
-	defer func() {
-		_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.ResumePassivation{})
-	}()
+
+	// resumePassivation resumes passivation after the invocation completes.
+	// Called at the end of each code path — synchronous fallback, error, or
+	// (crucially) inside the streaming goroutine after sr.Final is consumed,
+	// so that passivation stays paused for the entire duration of the stream.
+	selfPID := ctx.Self()
+	resumeCtx := ctx.Context()
+	resumePassivation := func() {
+		_ = goaktactor.Tell(resumeCtx, selfPID, &goaktactor.ResumePassivation{})
+	}
 
 	// Check if the executor supports streaming. The nil check must precede the
 	// type assertion: a nil interface asserted in the two-value form yields
@@ -285,6 +295,7 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 	streamExec, ok := x.executor.(mcp.ToolStreamExecutor)
 	if x.executor == nil || !ok {
 		// Fall back to standard execution.
+		defer resumePassivation()
 		start := time.Now()
 		var result *mcp.ExecutionResult
 		if x.executor != nil {
@@ -336,6 +347,7 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 	sr, err := streamExec.ExecuteStream(execCtx, msg.Invocation)
 	if err != nil {
 		cancel()
+		resumePassivation()
 		result := &mcp.ExecutionResult{
 			Status:      mcp.ExecutionStatusFailure,
 			Err:         mcp.WrapRuntimeError(mcp.ErrCodeInternal, "stream execution failed", err),
@@ -365,6 +377,9 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 		// the executor has finished streaming; canceling it in the handler
 		// would abort the executor while the goroutine is still reading.
 		defer cancel()
+		// Resume passivation only after the stream has fully completed, so
+		// the session is not passivated or stopped mid-stream.
+		defer resumePassivation()
 
 		for evt := range sr.Progress {
 			callerProg <- evt

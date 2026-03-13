@@ -32,11 +32,13 @@ import (
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/testkit"
+	noopmetric "go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
+	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
 func TestCredentialBrokerActor(t *testing.T) {
@@ -303,5 +305,39 @@ func TestCredentialBrokerActor(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, pid.Tell(ctx, pid, "unknown"))
 		waitForActors()
+	})
+
+	t.Run("records credential cache hit and miss metrics when registered", func(t *testing.T) {
+		meter := noopmetric.NewMeterProvider().Meter("test")
+		_, err := telemetry.RegisterMetrics(meter)
+		require.NoError(t, err)
+		t.Cleanup(telemetry.UnregisterMetrics)
+
+		cfg := testConfig()
+		cfg.Credentials.Providers = []mcp.CredentialsProvider{&mockCredentialProvider{creds: map[string]string{"k": "v"}}}
+		cfg.Credentials.CacheTTL = time.Minute
+		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(cfg)))
+
+		_, err = kit.ActorSystem().Spawn(ctx, "broker-metrics", newCredentialBroker())
+		require.NoError(t, err)
+		waitForActors()
+
+		probe := kit.NewProbe(ctx)
+
+		// First call: cache miss → records miss metric
+		probe.SendSync("broker-metrics", &runtime.ResolveRequest{TenantID: "t1", ToolID: "tool1"}, askTimeout)
+		resp := probe.ExpectAnyMessage()
+		result, ok := resp.(*runtime.ResolveResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+
+		// Second call: cache hit → records hit metric
+		probe.SendSync("broker-metrics", &runtime.ResolveRequest{TenantID: "t1", ToolID: "tool1"}, askTimeout)
+		resp2 := probe.ExpectAnyMessage()
+		result2, ok := resp2.(*runtime.ResolveResult)
+		require.True(t, ok)
+		require.NoError(t, result2.Err)
+		assert.Equal(t, "v", result2.Credentials.Values["k"])
+		probe.Stop()
 	})
 }

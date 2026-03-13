@@ -361,18 +361,31 @@ func (x *router) evaluatePolicy(goCtx context.Context, inv *mcp.Invocation, tool
 		ActiveSessionCount: activeSessions,
 	}
 
+	policyStart := time.Now()
 	resp, err := goaktactor.Ask(goCtx, x.policyMaker, &policy.EvaluateRequest{Input: in}, x.requestTimeout)
+	policyLatencyMs := float64(time.Since(policyStart).Microseconds()) / 1000.0
 	if err != nil {
+		telemetry.RecordPolicyEvaluationLatency(goCtx, tenantID, "error", policyLatencyMs)
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "policy evaluation failed", err)
 	}
 
 	result, ok := resp.(*policy.EvaluateResult)
-	if !ok || !result.Result.Allowed() {
-		if result != nil && result.Result.Err != nil {
+	if !ok {
+		telemetry.RecordPolicyEvaluationLatency(goCtx, tenantID, "error", policyLatencyMs)
+		return mcp.NewRuntimeError(mcp.ErrCodeInternal, "invalid policy response type")
+	}
+	if !result.Result.Allowed() {
+		decision := string(result.Result.Decision)
+		if decision == "" {
+			decision = "error"
+		}
+		telemetry.RecordPolicyEvaluationLatency(goCtx, tenantID, decision, policyLatencyMs)
+		if result.Result.Err != nil {
 			return result.Result.Err
 		}
 		return mcp.NewRuntimeError(mcp.ErrCodePolicyDenied, "policy evaluation failed")
 	}
+	telemetry.RecordPolicyEvaluationLatency(goCtx, tenantID, string(policy.DecisionAllow), policyLatencyMs)
 	return nil
 }
 

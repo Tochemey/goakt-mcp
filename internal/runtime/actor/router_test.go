@@ -512,6 +512,93 @@ func TestRouterActor(t *testing.T) {
 		assert.Equal(t, mcp.ErrCodeToolUnavailable, rErr.Code)
 	})
 
+	t.Run("records policy evaluation latency on deny when metrics are registered", func(t *testing.T) {
+		meter := noopmetric.NewMeterProvider().Meter("test")
+		_, err := telemetry.RegisterMetrics(meter)
+		require.NoError(t, err)
+		t.Cleanup(telemetry.UnregisterMetrics)
+
+		cfg := testConfigWithTenants("allowed-tenant")
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		spawnFoundationalActorsForTest(ctx, system, cfg)
+
+		registryPID, err := system.ActorOf(ctx, mcp.ActorNameRegistrar)
+		require.NoError(t, err)
+		tool := validStdioTool("policy-metric-tool")
+		tool.AuthorizationPolicy = mcp.AuthorizationPolicyTenantAllowlist
+		_, err = goaktactor.Ask(ctx, registryPID, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		require.NoError(t, err)
+
+		inv := sessionInvocation("policy-metric-tool", "denied-tenant", "client-1")
+		resp, err := goaktactor.Ask(ctx, routerPID, &runtime.RouteInvocation{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.RouteResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
+		var rErr *mcp.RuntimeError
+		require.True(t, assert.ErrorAs(t, result.Err, &rErr))
+		assert.Equal(t, mcp.ErrCodePolicyDenied, rErr.Code)
+	})
+
+	t.Run("records policy evaluation latency with throttle decision when rate limited", func(t *testing.T) {
+		meter := noopmetric.NewMeterProvider().Meter("test")
+		_, err := telemetry.RegisterMetrics(meter)
+		require.NoError(t, err)
+		t.Cleanup(telemetry.UnregisterMetrics)
+
+		cfg := testConfig()
+		cfg.Tenants = []config.TenantConfig{{
+			ID:     "throttle-tenant",
+			Quotas: config.TenantQuotaConfig{RequestsPerMinute: 1},
+		}}
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		spawnFoundationalActorsForTest(ctx, system, cfg)
+
+		registryPID, err := system.ActorOf(ctx, mcp.ActorNameRegistrar)
+		require.NoError(t, err)
+		tool := validStdioTool("throttle-metric-tool")
+		_, err = goaktactor.Ask(ctx, registryPID, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		require.NoError(t, err)
+
+		// First request succeeds (within limit)
+		inv1 := sessionInvocation("throttle-metric-tool", "throttle-tenant", "client-1")
+		resp1, err := goaktactor.Ask(ctx, routerPID, &runtime.RouteInvocation{Invocation: inv1}, askTimeout)
+		require.NoError(t, err)
+		result1, ok := resp1.(*runtime.RouteResult)
+		require.True(t, ok)
+		require.NoError(t, result1.Err)
+
+		// Second request should be throttled (exceeds 1 RPM)
+		inv2 := sessionInvocation("throttle-metric-tool", "throttle-tenant", "client-1")
+		inv2.Correlation.RequestID = "req-throttle"
+		resp2, err := goaktactor.Ask(ctx, routerPID, &runtime.RouteInvocation{Invocation: inv2}, askTimeout)
+		require.NoError(t, err)
+		result2, ok := resp2.(*runtime.RouteResult)
+		require.True(t, ok)
+		require.Error(t, result2.Err)
+		var rErr *mcp.RuntimeError
+		require.True(t, assert.ErrorAs(t, result2.Err, &rErr))
+		assert.Equal(t, mcp.ErrCodeRateLimited, rErr.Code)
+	})
+
 	t.Run("records InvocationFailure metric on tool-not-found when metrics are registered", func(t *testing.T) {
 		meter := noopmetric.NewMeterProvider().Meter("test")
 		_, err := telemetry.RegisterMetrics(meter)
