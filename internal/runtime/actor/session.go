@@ -328,12 +328,14 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 	if timeout == 0 {
 		timeout = config.DefaultRequestTimeout
 	}
-	var cancel context.CancelFunc
-	execCtx, cancel = context.WithTimeout(execCtx, timeout)
-	defer cancel()
+	execCtx, cancel := context.WithTimeout(execCtx, timeout)
+	// cancel is not deferred here: the goroutine below owns the cancel call so
+	// that the execution context is not cancelled before the executor finishes
+	// streaming.
 
 	sr, err := streamExec.ExecuteStream(execCtx, msg.Invocation)
 	if err != nil {
+		cancel()
 		result := &mcp.ExecutionResult{
 			Status:      mcp.ExecutionStatusFailure,
 			Err:         mcp.WrapRuntimeError(mcp.ErrCodeInternal, "stream execution failed", err),
@@ -344,27 +346,47 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 		return
 	}
 
-	// Fan out sr.Progress and sr.Final so the caller and this handler do not
-	// race on the same channels. A goroutine is the sole reader of the
+	// Capture ctx-derived values before the handler returns; ctx is only valid
+	// for the duration of this receive handler, but the goroutine below
+	// outlives it.
+	parent := ctx.Self().Parent()
+	actorCtx := ctx.Context()
+
+	// Fan out sr.Progress and sr.Final so the caller and the goroutine do not
+	// race on the same channels. The goroutine is the sole reader of the
 	// underlying executor channels; it forwards events to callerProg/callerFinal
-	// and signals the handler via supervisorFinal so the supervisor report can
-	// be made while ctx is still valid.
+	// and performs supervisor reporting directly so the handler can return
+	// immediately and free the actor for the next message.
 	callerProg := make(chan mcp.ProgressEvent)
 	callerFinal := make(chan *mcp.ExecutionResult, 1)
-	supervisorFinal := make(chan *mcp.ExecutionResult, 1)
 
 	go func() {
+		// cancel is deferred here so the execution context stays alive until
+		// the executor has finished streaming; canceling it in the handler
+		// would abort the executor while the goroutine is still reading.
+		defer cancel()
+
 		for evt := range sr.Progress {
 			callerProg <- evt
 		}
 		close(callerProg)
+
 		final := <-sr.Final
 		if final != nil {
 			callerFinal <- final
-			supervisorFinal <- final
 		}
 		close(callerFinal)
-		close(supervisorFinal)
+
+		// Report outcome to supervisor using the pre-captured parent ref and
+		// context, since ctx is no longer valid after the handler has returned.
+		if final != nil && parent != nil && parent.IsRunning() {
+			success := final.Status == mcp.ExecutionStatusSuccess && final.Err == nil
+			if success {
+				_ = goaktactor.Tell(actorCtx, parent, &runtime.ReportSuccess{ToolID: x.toolID})
+			} else {
+				_ = goaktactor.Tell(actorCtx, parent, &runtime.ReportFailure{ToolID: x.toolID})
+			}
+		}
 	}()
 
 	ctx.Response(&runtime.SessionInvokeStreamResult{
@@ -373,12 +395,8 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 			Final:    callerFinal,
 		},
 	})
-
-	// Block until the fan-out goroutine delivers the final result, keeping ctx
-	// alive for the supervisor report.
-	if final := <-supervisorFinal; final != nil {
-		x.reportOutcomeToSupervisor(ctx, final)
-	}
+	// Handler returns immediately; the goroutine handles streaming completion
+	// and supervisor reporting without holding the actor receive context open.
 }
 
 // isTransportFailure returns true when the execution result indicates a
