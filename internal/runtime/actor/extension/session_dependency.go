@@ -26,6 +26,7 @@ package extension
 import (
 	"bytes"
 	"encoding/gob"
+	"maps"
 
 	goaktextension "github.com/tochemey/goakt/v4/extension"
 
@@ -44,32 +45,41 @@ const SessionDependencyID = "session"
 // for injection into SessionActor. When Executor is non-nil, the session uses
 // it for real MCP execution; otherwise it returns stub results.
 type SessionDependency struct {
-	tenantID mcp.TenantID
-	clientID mcp.ClientID
-	toolID   mcp.ToolID
-	tool     mcp.Tool
-	executor mcp.ToolExecutor
+	tenantID    mcp.TenantID
+	clientID    mcp.ClientID
+	toolID      mcp.ToolID
+	tool        mcp.Tool
+	executor    mcp.ToolExecutor
+	credentials map[string]string
 }
 
 var _ goaktextension.Dependency = (*SessionDependency)(nil)
 
 // sessionDependencyPayload is used for gob encoding.
 type sessionDependencyPayload struct {
-	TenantID string
-	ClientID string
-	ToolID   string
-	Tool     mcp.Tool
+	TenantID    string
+	ClientID    string
+	ToolID      string
+	Tool        mcp.Tool
+	Credentials map[string]string
 }
 
 // NewSessionDependency creates a dependency for the given session identity and
-// tool. Pass nil for executor to use stub execution.
-func NewSessionDependency(tenantID mcp.TenantID, clientID mcp.ClientID, toolID mcp.ToolID, tool mcp.Tool, executor mcp.ToolExecutor) *SessionDependency {
+// tool. Pass nil for executor to use stub execution. The credentials map is
+// defensively copied to preserve immutability.
+func NewSessionDependency(tenantID mcp.TenantID, clientID mcp.ClientID, toolID mcp.ToolID, tool mcp.Tool, executor mcp.ToolExecutor, credentials map[string]string) *SessionDependency {
+	var credsCopy map[string]string
+	if len(credentials) > 0 {
+		credsCopy = make(map[string]string, len(credentials))
+		maps.Copy(credsCopy, credentials)
+	}
 	return &SessionDependency{
-		tenantID: tenantID,
-		clientID: clientID,
-		toolID:   toolID,
-		tool:     tool,
-		executor: executor,
+		tenantID:    tenantID,
+		clientID:    clientID,
+		toolID:      toolID,
+		tool:        tool,
+		executor:    executor,
+		credentials: credsCopy,
 	}
 }
 
@@ -83,10 +93,11 @@ func (s *SessionDependency) MarshalBinary() ([]byte, error) {
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
 	payload := sessionDependencyPayload{
-		TenantID: string(s.tenantID),
-		ClientID: string(s.clientID),
-		ToolID:   string(s.toolID),
-		Tool:     s.tool,
+		TenantID:    string(s.tenantID),
+		ClientID:    string(s.clientID),
+		ToolID:      string(s.toolID),
+		Tool:        s.tool,
+		Credentials: s.credentials,
 	}
 	if err := enc.Encode(&payload); err != nil {
 		return nil, err
@@ -105,6 +116,7 @@ func (s *SessionDependency) UnmarshalBinary(data []byte) error {
 	s.clientID = mcp.ClientID(payload.ClientID)
 	s.toolID = mcp.ToolID(payload.ToolID)
 	s.tool = payload.Tool
+	s.credentials = payload.Credentials
 	return nil
 }
 
@@ -123,3 +135,7 @@ func (s *SessionDependency) Tool() mcp.Tool { return s.tool }
 // Executor returns the optional tool executor for real MCP execution.
 // Nil means stub mode.
 func (s *SessionDependency) Executor() mcp.ToolExecutor { return s.executor }
+
+// Credentials returns the credentials used to create the executor.
+// Used by session executor recovery to recreate a failed executor.
+func (s *SessionDependency) Credentials() map[string]string { return s.credentials }

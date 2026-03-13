@@ -305,6 +305,8 @@ func (g *Gateway) remoteOptions() []remote.Option {
 			(*runtime.ListSupervisorSessionsResult)(nil),
 			(*runtime.GetSessionIdentity)(nil),
 			(*runtime.GetSessionIdentityResult)(nil),
+			(*runtime.GetToolSchema)(nil),
+			(*runtime.GetToolSchemaResult)(nil),
 		),
 	}
 	if g.tracing {
@@ -315,11 +317,13 @@ func (g *Gateway) remoteOptions() []remote.Option {
 
 func (g *Gateway) actorSystemOptions(tlsInfo *gtls.Info) []goaktactor.Option {
 	execFactory := egress.NewCompositeExecutorFactory(g.config.Runtime.StartupTimeout, nil)
+	schemaFetcher := egress.NewCompositeSchemaFetcher(g.config.Runtime.StartupTimeout, nil)
 	opts := []goaktactor.Option{
 		goaktactor.WithLogger(g.logger),
 		goaktactor.WithActorInitMaxRetries(3),
 		goaktactor.WithExtensions(
 			actorextension.NewExecutorFactoryExtension(execFactory),
+			actorextension.NewSchemaFetcherExtension(schemaFetcher),
 			actorextension.NewToolConfigExtension(),
 			actorextension.NewConfigExtension(g.config),
 		),

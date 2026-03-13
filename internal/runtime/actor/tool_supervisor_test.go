@@ -612,6 +612,75 @@ func TestToolSupervisorDrainTool(t *testing.T) {
 	})
 }
 
+func TestToolSupervisorGetOrCreateSession(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("creates session and returns PID", func(t *testing.T) {
+		tool := validStdioTool("session-create-tool")
+		_, pid, stop := spawnTestSupervisor(t, tool)
+		defer stop()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.GetOrCreateSession{
+			TenantID: "tenant-1",
+			ClientID: "client-1",
+			ToolID:   tool.ID,
+		}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.GetOrCreateSessionResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		require.True(t, result.Found)
+		require.NotNil(t, result.Session)
+		sessionPID, ok := result.Session.(*goaktactor.PID)
+		require.True(t, ok)
+		assert.True(t, sessionPID.IsRunning())
+	})
+
+	t.Run("returns existing session on repeat call", func(t *testing.T) {
+		tool := validStdioTool("session-reuse-tool")
+		_, pid, stop := spawnTestSupervisor(t, tool)
+		defer stop()
+
+		msg := &runtime.GetOrCreateSession{
+			TenantID: "tenant-1",
+			ClientID: "client-1",
+			ToolID:   tool.ID,
+		}
+
+		resp1, err := goaktactor.Ask(ctx, pid, msg, askTimeout)
+		require.NoError(t, err)
+		result1 := resp1.(*runtime.GetOrCreateSessionResult)
+		require.NoError(t, result1.Err)
+		require.True(t, result1.Found)
+		waitForActors()
+
+		resp2, err := goaktactor.Ask(ctx, pid, msg, askTimeout)
+		require.NoError(t, err)
+		result2 := resp2.(*runtime.GetOrCreateSessionResult)
+		require.True(t, result2.Found)
+
+		pid1 := result1.Session.(*goaktactor.PID)
+		pid2 := result2.Session.(*goaktactor.PID)
+		assert.Equal(t, pid1.Name(), pid2.Name())
+	})
+
+	t.Run("rejects tool ID mismatch", func(t *testing.T) {
+		tool := validStdioTool("session-mismatch-tool")
+		_, pid, stop := spawnTestSupervisor(t, tool)
+		defer stop()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.GetOrCreateSession{
+			TenantID: "tenant-1",
+			ClientID: "client-1",
+			ToolID:   "wrong-tool",
+		}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.GetOrCreateSessionResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
+	})
+}
+
 func TestToolSupervisorListSupervisorSessions(t *testing.T) {
 	ctx := context.Background()
 
@@ -625,6 +694,82 @@ func TestToolSupervisorListSupervisorSessions(t *testing.T) {
 		result, ok := resp.(*runtime.ListSupervisorSessionsResult)
 		require.True(t, ok)
 		assert.Empty(t, result.Sessions)
+	})
+
+	t.Run("returns active sessions after GetOrCreateSession", func(t *testing.T) {
+		tool := validStdioTool("list-active-tool")
+		_, pid, stop := spawnTestSupervisor(t, tool)
+		defer stop()
+
+		// Create two sessions
+		_, err := goaktactor.Ask(ctx, pid, &runtime.GetOrCreateSession{
+			TenantID: "tenant-1",
+			ClientID: "client-1",
+			ToolID:   tool.ID,
+		}, askTimeout)
+		require.NoError(t, err)
+
+		_, err = goaktactor.Ask(ctx, pid, &runtime.GetOrCreateSession{
+			TenantID: "tenant-1",
+			ClientID: "client-2",
+			ToolID:   tool.ID,
+		}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.ListSupervisorSessions{}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.ListSupervisorSessionsResult)
+		require.True(t, ok)
+		assert.Len(t, result.Sessions, 2)
+		for _, s := range result.Sessions {
+			assert.Equal(t, tool.ID, s.ToolID)
+			assert.Equal(t, mcp.TenantID("tenant-1"), s.TenantID)
+		}
+	})
+}
+
+func TestToolSupervisorCountSessionsForTenant(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("counts sessions belonging to a specific tenant", func(t *testing.T) {
+		tool := validStdioTool("count-tenant-tool")
+		_, pid, stop := spawnTestSupervisor(t, tool)
+		defer stop()
+
+		// Create sessions for two different tenants
+		_, err := goaktactor.Ask(ctx, pid, &runtime.GetOrCreateSession{
+			TenantID: "tenant-a",
+			ClientID: "client-1",
+			ToolID:   tool.ID,
+		}, askTimeout)
+		require.NoError(t, err)
+
+		_, err = goaktactor.Ask(ctx, pid, &runtime.GetOrCreateSession{
+			TenantID: "tenant-a",
+			ClientID: "client-2",
+			ToolID:   tool.ID,
+		}, askTimeout)
+		require.NoError(t, err)
+
+		_, err = goaktactor.Ask(ctx, pid, &runtime.GetOrCreateSession{
+			TenantID: "tenant-b",
+			ClientID: "client-1",
+			ToolID:   tool.ID,
+		}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SupervisorCountSessionsForTenant{TenantID: "tenant-a"}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SupervisorCountSessionsForTenantResult)
+		require.True(t, ok)
+		assert.Equal(t, 2, result.Count)
+
+		resp, err = goaktactor.Ask(ctx, pid, &runtime.SupervisorCountSessionsForTenant{TenantID: "tenant-b"}, askTimeout)
+		require.NoError(t, err)
+		result = resp.(*runtime.SupervisorCountSessionsForTenantResult)
+		assert.Equal(t, 1, result.Count)
 	})
 }
 

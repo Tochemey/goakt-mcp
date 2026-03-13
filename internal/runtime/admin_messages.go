@@ -105,3 +105,17 @@ type ListSupervisorSessions struct{}
 type ListSupervisorSessionsResult struct {
 	Sessions []mcp.SessionInfo
 }
+
+// GetToolSchema is a request to retrieve the cached MCP tool schemas for a tool.
+//
+// The Registrar returns schemas that were fetched from the backend MCP server
+// at registration time. Must be used with Ask. Response is GetToolSchemaResult.
+type GetToolSchema struct {
+	ToolID mcp.ToolID
+}
+
+// GetToolSchemaResult is the response to GetToolSchema.
+type GetToolSchemaResult struct {
+	Schemas []mcp.ToolSchema
+	Err     error
+}

@@ -175,6 +175,41 @@ func (g *Gateway) DrainTool(ctx context.Context, toolID mcp.ToolID) error {
 	return result.Err
 }
 
+// GetToolSchema returns the cached MCP tool schemas for a registered tool.
+//
+// Schemas are fetched from the backend MCP server at registration time via
+// tools/list and cached by the registrar. Returns ErrToolNotFound when no
+// tool with the given ID is registered.
+func (g *Gateway) GetToolSchema(ctx context.Context, toolID mcp.ToolID) ([]mcp.ToolSchema, error) {
+	system, err := g.requireRunning()
+	if err != nil {
+		return nil, err
+	}
+
+	if toolID.IsZero() {
+		return nil, mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID is required")
+	}
+
+	registrar, err := g.resolveRegistrar(ctx, system)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := goaktactor.Ask(ctx, registrar, &runtime.GetToolSchema{ToolID: toolID}, g.config.Runtime.RequestTimeout)
+	if err != nil {
+		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "registrar ask failed", err)
+	}
+
+	result, ok := resp.(*runtime.GetToolSchemaResult)
+	if !ok {
+		return nil, mcp.NewRuntimeError(mcp.ErrCodeInternal, fmt.Sprintf("unexpected response type %T", resp))
+	}
+	if result.Err != nil {
+		return nil, result.Err
+	}
+	return result.Schemas, nil
+}
+
 // ResetCircuit manually resets the circuit breaker for a tool to the closed
 // state, clearing the failure counter. Use this to manually recover a tool
 // whose circuit tripped after transient failures that have since resolved.

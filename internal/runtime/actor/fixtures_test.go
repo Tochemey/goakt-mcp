@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
+	goaktsupervisor "github.com/tochemey/goakt/v4/supervisor"
 	"github.com/tochemey/goakt/v4/testkit"
 
 	"github.com/tochemey/goakt-mcp/mcp"
@@ -172,6 +173,50 @@ func newTestKit(t *testing.T, opts ...testkit.Option) (*testkit.TestKit, context
 	return kit, ctx
 }
 
+// mockSchemaFetcher is a test SchemaFetcher that returns configured schemas or error.
+type mockSchemaFetcher struct {
+	schemas []mcp.ToolSchema
+	err     error
+}
+
+func (m *mockSchemaFetcher) FetchSchemas(_ context.Context, _ mcp.Tool) ([]mcp.ToolSchema, error) {
+	return m.schemas, m.err
+}
+
+// mockExecutor is a test executor that returns configured results or errors.
+type mockExecutor struct {
+	result *mcp.ExecutionResult
+	err    error
+}
+
+func (m *mockExecutor) Execute(_ context.Context, inv *mcp.Invocation) (*mcp.ExecutionResult, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.result != nil {
+		return m.result, nil
+	}
+	return &mcp.ExecutionResult{
+		Status:      mcp.ExecutionStatusSuccess,
+		Output:      map[string]any{},
+		Correlation: inv.Correlation,
+	}, nil
+}
+
+func (m *mockExecutor) Close() error {
+	return nil
+}
+
+// mockExecutorFactory creates executors for testing executor recovery.
+type mockExecutorFactory struct {
+	executor mcp.ToolExecutor
+	err      error
+}
+
+func (m *mockExecutorFactory) Create(_ context.Context, _ mcp.Tool, _ map[string]string) (mcp.ToolExecutor, error) {
+	return m.executor, m.err
+}
+
 // failingAuditSink is a test sink that returns an error on Write.
 type failingAuditSink struct{}
 
@@ -218,6 +263,16 @@ func (a *testAllowEvaluator) Evaluate(_ context.Context, _ mcp.PolicyInput) *mcp
 	return nil
 }
 
+// dynamicMockSchemaFetcher is a test SchemaFetcher that calls a function on each invocation,
+// allowing per-call behavior (e.g. succeed first, fail second).
+type dynamicMockSchemaFetcher struct {
+	fn func() ([]mcp.ToolSchema, error)
+}
+
+func (m *dynamicMockSchemaFetcher) FetchSchemas(_ context.Context, _ mcp.Tool) ([]mcp.ToolSchema, error) {
+	return m.fn()
+}
+
 func spawnTestSupervisor(t *testing.T, tool mcp.Tool) (goaktactor.ActorSystem, *goaktactor.PID, func()) {
 	t.Helper()
 	ctx := context.Background()
@@ -225,7 +280,8 @@ func spawnTestSupervisor(t *testing.T, tool mcp.Tool) (goaktactor.ActorSystem, *
 	_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
 	require.NoError(t, err)
 	name := mcp.ToolSupervisorName(tool.ID)
-	pid, err := system.Spawn(ctx, name, newToolSupervisor())
+	sup := goaktsupervisor.NewSupervisor(goaktsupervisor.WithAnyErrorDirective(goaktsupervisor.ResumeDirective))
+	pid, err := system.Spawn(ctx, name, newToolSupervisor(), goaktactor.WithSupervisor(sup))
 	require.NoError(t, err)
 	waitForActors()
 	return system, pid, stop

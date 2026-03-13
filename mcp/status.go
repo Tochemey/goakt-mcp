@@ -37,6 +37,8 @@ type ToolStatus struct {
 	// When draining, the supervisor rejects new sessions but existing sessions
 	// continue until they passivate or complete.
 	Draining bool
+	// Schemas holds the MCP tool schemas discovered from the backend server.
+	Schemas []ToolSchema
 }
 
 // GatewayStatus describes the current operational state of the gateway.

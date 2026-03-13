@@ -25,6 +25,7 @@ package actor
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -690,6 +691,273 @@ func TestRegistryActor(t *testing.T) {
 		require.True(t, ok)
 		assert.Empty(t, result.Sessions)
 		probe.Stop()
+	})
+
+	t.Run("GetToolSchema returns cached schemas for registered tool", func(t *testing.T) {
+		schemas := []mcp.ToolSchema{
+			{Name: "read_file", Description: "Read a file", InputSchema: []byte(`{"type":"object","properties":{"path":{"type":"string"}}}`)},
+		}
+		fetcher := &mockSchemaFetcher{schemas: schemas}
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(
+				actorextension.NewToolConfigExtension(),
+				actorextension.NewConfigExtension(cfg),
+				actorextension.NewSchemaFetcherExtension(fetcher),
+			),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("schema-tool")
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.GetToolSchema{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.GetToolSchemaResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		require.Len(t, result.Schemas, 1)
+		assert.Equal(t, "read_file", result.Schemas[0].Name)
+	})
+
+	t.Run("GetToolSchema returns ErrToolNotFound for unknown tool", func(t *testing.T) {
+		kit, ctx := newTestKit(t)
+
+		kit.ActorSystem().Spawn(ctx, "reg-schema-nf", newRegistrar())
+		waitForActors()
+
+		probe := kit.NewProbe(ctx)
+		probe.SendSync("reg-schema-nf", &runtime.GetToolSchema{ToolID: "nonexistent"}, askTimeout)
+		resp := probe.ExpectAnyMessage()
+		result, ok := resp.(*runtime.GetToolSchemaResult)
+		require.True(t, ok)
+		require.Error(t, result.Err)
+		assert.ErrorIs(t, result.Err, mcp.ErrToolNotFound)
+		probe.Stop()
+	})
+
+	t.Run("ListTools includes cached schemas on returned tools", func(t *testing.T) {
+		schemas := []mcp.ToolSchema{
+			{Name: "list_dir", Description: "List directory"},
+		}
+		fetcher := &mockSchemaFetcher{schemas: schemas}
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(
+				actorextension.NewToolConfigExtension(),
+				actorextension.NewConfigExtension(cfg),
+				actorextension.NewSchemaFetcherExtension(fetcher),
+			),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("list-schema-tool")
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.ListTools{}, askTimeout)
+		require.NoError(t, err)
+		listResult, ok := resp.(*runtime.ListToolsResult)
+		require.True(t, ok)
+		require.Len(t, listResult.Tools, 1)
+		assert.Len(t, listResult.Tools[0].Schemas, 1)
+		assert.Equal(t, "list_dir", listResult.Tools[0].Schemas[0].Name)
+	})
+
+	t.Run("RemoveTool cleans up cached schemas", func(t *testing.T) {
+		schemas := []mcp.ToolSchema{
+			{Name: "tool_func", Description: "A function"},
+		}
+		fetcher := &mockSchemaFetcher{schemas: schemas}
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(
+				actorextension.NewToolConfigExtension(),
+				actorextension.NewConfigExtension(cfg),
+				actorextension.NewSchemaFetcherExtension(fetcher),
+			),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("remove-schema-tool")
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		// Schemas cached
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.GetToolSchema{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		schemaResult := resp.(*runtime.GetToolSchemaResult)
+		require.Len(t, schemaResult.Schemas, 1)
+
+		// Remove tool
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RemoveTool{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		// Schemas gone
+		resp, err = goaktactor.Ask(ctx, pid, &runtime.GetToolSchema{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		schemaResult = resp.(*runtime.GetToolSchemaResult)
+		require.Error(t, schemaResult.Err)
+		assert.ErrorIs(t, schemaResult.Err, mcp.ErrToolNotFound)
+	})
+
+	t.Run("GetToolStatus includes schemas", func(t *testing.T) {
+		schemas := []mcp.ToolSchema{
+			{Name: "status_func", Description: "Status function"},
+		}
+		fetcher := &mockSchemaFetcher{schemas: schemas}
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(
+				actorextension.NewToolConfigExtension(),
+				actorextension.NewConfigExtension(cfg),
+				actorextension.NewSchemaFetcherExtension(fetcher),
+			),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("status-schema-tool")
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.GetToolStatus{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.GetToolStatusResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		require.Len(t, result.Status.Schemas, 1)
+		assert.Equal(t, "status_func", result.Status.Schemas[0].Name)
+	})
+
+	t.Run("schema fetch failure does not prevent tool registration", func(t *testing.T) {
+		fetcher := &mockSchemaFetcher{err: errors.New("connection refused")}
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(
+				actorextension.NewToolConfigExtension(),
+				actorextension.NewConfigExtension(cfg),
+				actorextension.NewSchemaFetcherExtension(fetcher),
+			),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("fetch-fail-tool")
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		regResult := resp.(*runtime.RegisterToolResult)
+		require.NoError(t, regResult.Err)
+
+		// Tool registered but no schemas
+		schemaResp, err := goaktactor.Ask(ctx, pid, &runtime.GetToolSchema{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		schemaResult := schemaResp.(*runtime.GetToolSchemaResult)
+		require.NoError(t, schemaResult.Err)
+		assert.Empty(t, schemaResult.Schemas)
+	})
+
+	t.Run("re-registration clears stale schemas when fetch fails", func(t *testing.T) {
+		// First registration succeeds with schemas, second fails — stale schemas must be cleared.
+		callCount := 0
+		schemas := []mcp.ToolSchema{{Name: "old_func", Description: "Old"}}
+
+		dynamicFetcher := &dynamicMockSchemaFetcher{
+			fn: func() ([]mcp.ToolSchema, error) {
+				callCount++
+				if callCount == 1 {
+					return schemas, nil
+				}
+				return nil, errors.New("backend unavailable")
+			},
+		}
+
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(
+				actorextension.NewToolConfigExtension(),
+				actorextension.NewConfigExtension(cfg),
+				actorextension.NewSchemaFetcherExtension(dynamicFetcher),
+			),
+		)
+		defer stop()
+
+		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		require.NoError(t, err)
+
+		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		require.NoError(t, err)
+		waitForActors()
+
+		tool := validStdioTool("stale-schema-tool")
+
+		// First registration — schemas fetched successfully
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.GetToolSchema{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		schemaResult := resp.(*runtime.GetToolSchemaResult)
+		require.NoError(t, schemaResult.Err)
+		require.Len(t, schemaResult.Schemas, 1)
+		assert.Equal(t, "old_func", schemaResult.Schemas[0].Name)
+
+		// Re-register same tool — fetch fails, stale schemas must be cleared
+		_, err = goaktactor.Ask(ctx, pid, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		require.NoError(t, err)
+		waitForActors()
+
+		resp, err = goaktactor.Ask(ctx, pid, &runtime.GetToolSchema{ToolID: tool.ID}, askTimeout)
+		require.NoError(t, err)
+		schemaResult = resp.(*runtime.GetToolSchemaResult)
+		require.NoError(t, schemaResult.Err)
+		assert.Empty(t, schemaResult.Schemas, "stale schemas should have been cleared")
 	})
 
 	t.Run("ListAllSessions fans out to running supervisors", func(t *testing.T) {

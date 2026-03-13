@@ -107,6 +107,10 @@ type Tool struct {
 	// When > 0, the router rejects new work (backpressure) when the supervisor's
 	// session count reaches this limit. Zero means no limit.
 	MaxSessionsPerTool int
+
+	// Schemas holds the MCP tool schemas discovered from the backend server via
+	// tools/list. Populated by the runtime at registration time; ignored on input.
+	Schemas []ToolSchema
 }
 
 // IsStdio reports whether the tool uses the stdio transport.
