@@ -35,6 +35,8 @@ import (
 
 	"github.com/tochemey/goakt-mcp/internal/egress"
 	ingresshttp "github.com/tochemey/goakt-mcp/internal/ingress/http"
+	ingresssse "github.com/tochemey/goakt-mcp/internal/ingress/sse"
+	ingressws "github.com/tochemey/goakt-mcp/internal/ingress/ws"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
@@ -244,6 +246,27 @@ func (g *Gateway) Handler(cfg mcp.IngressConfig) (http.Handler, error) {
 	return ingresshttp.New(g, cfg)
 }
 
+// SSEHandler returns an [http.Handler] that serves MCP SSE sessions
+// (2024-11-05 spec version), routing each tool call through this gateway.
+//
+// SSEHandler validates that cfg.IdentityResolver is set and delegates to
+// [ingresssse.New]. The gateway does not need to be running at the time
+// SSEHandler is called; tool discovery happens lazily per session.
+func (g *Gateway) SSEHandler(cfg mcp.IngressConfig) (http.Handler, error) {
+	return ingresssse.New(g, cfg)
+}
+
+// WSHandler returns an [http.Handler] that upgrades HTTP connections to
+// WebSocket and serves MCP sessions over the WebSocket transport.
+//
+// WSHandler validates that cfg.IdentityResolver is set and delegates to
+// [ingressws.New]. The wsCfg parameter is optional; nil uses defaults.
+// The gateway does not need to be running at the time WSHandler is called;
+// tool discovery happens lazily per session.
+func (g *Gateway) WSHandler(cfg mcp.IngressConfig, wsCfg *ingressws.Config) (http.Handler, error) {
+	return ingressws.New(g, cfg, wsCfg)
+}
+
 func (g *Gateway) remoteOptions() []remote.Option {
 	opts := []remote.Option{
 		remote.WithSerializables(
@@ -281,6 +304,8 @@ func (g *Gateway) remoteOptions() []remote.Option {
 			(*runtime.GetOrCreateSessionResult)(nil),
 			(*runtime.SessionInvoke)(nil),
 			(*runtime.SessionInvokeResult)(nil),
+			(*runtime.SessionInvokeStream)(nil),
+			(*runtime.SessionInvokeStreamResult)(nil),
 
 			(*runtime.RecordAuditEvent)(nil),
 

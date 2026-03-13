@@ -65,6 +65,39 @@ func (g *Gateway) Invoke(ctx context.Context, inv *mcp.Invocation) (*mcp.Executi
 	return result.Result, nil
 }
 
+// InvokeStream sends a tool invocation through the gateway with streaming
+// progress support. If the underlying executor supports streaming, the
+// returned StreamingResult delivers progress events as they arrive, followed
+// by the final ExecutionResult. If the executor does not support streaming,
+// the StreamingResult's Progress channel is immediately closed and the final
+// result is delivered on the Final channel.
+//
+// Callers that do not need progress can use StreamingResult.Collect() to
+// drain progress and get the final result directly. For non-streaming callers,
+// the standard Invoke method is preferred.
+func (g *Gateway) InvokeStream(ctx context.Context, inv *mcp.Invocation) (*mcp.StreamingResult, error) {
+	// InvokeStream currently delegates to Invoke and wraps the result in a
+	// StreamingResult. Full router-level streaming support (routing
+	// SessionInvokeStream to the session) is a future enhancement; this
+	// provides the public API surface immediately.
+	result, err := g.Invoke(ctx, inv)
+	if err != nil {
+		return nil, err
+	}
+
+	progressCh := make(chan mcp.ProgressEvent)
+	close(progressCh)
+
+	finalCh := make(chan *mcp.ExecutionResult, 1)
+	finalCh <- result
+	close(finalCh)
+
+	return &mcp.StreamingResult{
+		Progress: progressCh,
+		Final:    finalCh,
+	}, nil
+}
+
 // ListTools returns all tools currently registered in the gateway.
 func (g *Gateway) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 	system, err := g.requireRunning()

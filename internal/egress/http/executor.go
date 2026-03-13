@@ -38,12 +38,19 @@ import (
 
 // HTTPExecutor executes MCP tool invocations over HTTP using the streamable transport.
 // Each executor owns a single MCP client session and is bound to one tool endpoint.
+// It implements both [mcp.ToolExecutor] and [mcp.ToolStreamExecutor].
 type HTTPExecutor struct {
 	client   *sdkmcp.Client
 	sess     *sdkmcp.ClientSession
 	closed   sync.Once
 	closeErr error
 }
+
+// Compile-time check that HTTPExecutor satisfies both executor interfaces.
+var (
+	_ mcp.ToolExecutor       = (*HTTPExecutor)(nil)
+	_ mcp.ToolStreamExecutor = (*HTTPExecutor)(nil)
+)
 
 // Execute runs the MCP tools/call invocation and returns the result.
 // The context should carry a request-scoped deadline. Execute does not
@@ -89,6 +96,39 @@ func (e *HTTPExecutor) Execute(ctx context.Context, inv *mcp.Invocation) (*mcp.E
 		Output:      output,
 		Err:         rErr,
 		Correlation: inv.Correlation,
+	}, nil
+}
+
+// ExecuteStream runs the MCP tools/call invocation and returns a StreamingResult.
+//
+// The HTTP executor does not forward progress notifications from the backend
+// MCP server. The Progress channel is provided for interface compatibility but
+// will always be empty and closed immediately before the final result arrives.
+// Use the standard Execute method when progress forwarding is not required.
+func (e *HTTPExecutor) ExecuteStream(ctx context.Context, inv *mcp.Invocation) (*mcp.StreamingResult, error) {
+	progressCh := make(chan mcp.ProgressEvent)
+	finalCh := make(chan *mcp.ExecutionResult, 1)
+
+	go func() {
+		defer close(finalCh)
+		defer close(progressCh)
+
+		// Execute always returns a nil Go error; all failures are expressed in
+		// the returned ExecutionResult. The underscore is intentional.
+		result, _ := e.Execute(ctx, inv)
+		if result == nil {
+			result = &mcp.ExecutionResult{
+				Status:      mcp.ExecutionStatusFailure,
+				Err:         mcp.NewRuntimeError(mcp.ErrCodeInternal, "nil result from execute"),
+				Correlation: inv.Correlation,
+			}
+		}
+		finalCh <- result
+	}()
+
+	return &mcp.StreamingResult{
+		Progress: progressCh,
+		Final:    finalCh,
 	}, nil
 }
 

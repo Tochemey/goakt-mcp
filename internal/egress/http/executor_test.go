@@ -257,6 +257,139 @@ func writeSelfSignedCert(t *testing.T, certFile, keyFile string) {
 	require.NoError(t, os.WriteFile(keyFile, keyPEM, 0o600))
 }
 
+func TestHTTPExecutor_ExecuteStream_Success(t *testing.T) {
+	url, cleanup := startMCPHTTPServer(t)
+	defer cleanup()
+
+	cfg := &mcp.HTTPTransportConfig{URL: url}
+	exec, err := NewHTTPExecutor(cfg, nil, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	inv := &mcp.Invocation{
+		ToolID: "echo",
+		Method: "tools/call",
+		Params: map[string]any{
+			"name":      "echo",
+			"arguments": map[string]any{"message": "stream-hello"},
+		},
+		Correlation: mcp.CorrelationMeta{RequestID: "req-stream-1"},
+	}
+	sr, err := exec.ExecuteStream(context.Background(), inv)
+	require.NoError(t, err)
+	require.NotNil(t, sr)
+
+	for range sr.Progress { //nolint:revive // intentional channel drain
+	}
+
+	result := <-sr.Final
+	require.NotNil(t, result)
+	assert.Equal(t, mcp.ExecutionStatusSuccess, result.Status)
+	assert.Nil(t, result.Err)
+	require.NotNil(t, result.Output)
+	content, ok := result.Output["content"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, content, 1)
+	assert.Equal(t, "stream-hello", content[0]["text"])
+}
+
+func TestHTTPExecutor_ExecuteStream_Collect(t *testing.T) {
+	url, cleanup := startMCPHTTPServer(t)
+	defer cleanup()
+
+	cfg := &mcp.HTTPTransportConfig{URL: url}
+	exec, err := NewHTTPExecutor(cfg, nil, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	inv := &mcp.Invocation{
+		ToolID: "echo",
+		Method: "tools/call",
+		Params: map[string]any{
+			"name":      "echo",
+			"arguments": map[string]any{"message": "collect-test"},
+		},
+		Correlation: mcp.CorrelationMeta{RequestID: "req-collect-1"},
+	}
+	sr, err := exec.ExecuteStream(context.Background(), inv)
+	require.NoError(t, err)
+
+	result := sr.Collect()
+	require.NotNil(t, result)
+	assert.Equal(t, mcp.ExecutionStatusSuccess, result.Status)
+}
+
+func TestHTTPExecutor_ExecuteStream_NilSession(t *testing.T) {
+	e := &HTTPExecutor{}
+	inv := &mcp.Invocation{
+		ToolID:      "test",
+		Correlation: mcp.CorrelationMeta{RequestID: "req-nil-sess"},
+	}
+	sr, err := e.ExecuteStream(context.Background(), inv)
+	require.NoError(t, err)
+	require.NotNil(t, sr)
+
+	result := sr.Collect()
+	require.NotNil(t, result)
+	assert.Equal(t, mcp.ExecutionStatusFailure, result.Status)
+	require.NotNil(t, result.Err)
+	assert.Equal(t, mcp.ErrCodeTransportFailure, result.Err.Code)
+}
+
+func TestHTTPExecutor_ExecuteStream_Timeout(t *testing.T) {
+	url, cleanup := startMCPHTTPServer(t)
+	defer cleanup()
+
+	cfg := &mcp.HTTPTransportConfig{URL: url}
+	exec, err := NewHTTPExecutor(cfg, nil, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	inv := &mcp.Invocation{
+		ToolID:      "echo",
+		Method:      "tools/call",
+		Params:      map[string]any{"name": "echo", "arguments": map[string]any{}},
+		Correlation: mcp.CorrelationMeta{RequestID: "req-stream-timeout"},
+	}
+	sr, err := exec.ExecuteStream(ctx, inv)
+	require.NoError(t, err)
+
+	result := sr.Collect()
+	require.NotNil(t, result)
+	assert.Equal(t, mcp.ExecutionStatusTimeout, result.Status)
+	require.NotNil(t, result.Err)
+	assert.Equal(t, mcp.ErrCodeInvocationTimeout, result.Err.Code)
+}
+
+func TestHTTPExecutor_ExecuteStream_IsError(t *testing.T) {
+	url, cleanup := startMCPHTTPServer(t)
+	defer cleanup()
+
+	cfg := &mcp.HTTPTransportConfig{URL: url}
+	exec, err := NewHTTPExecutor(cfg, nil, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	inv := &mcp.Invocation{
+		ToolID:      "error_tool",
+		Method:      "tools/call",
+		Params:      map[string]any{"name": "error_tool", "arguments": map[string]any{}},
+		Correlation: mcp.CorrelationMeta{RequestID: "req-stream-err"},
+	}
+	sr, err := exec.ExecuteStream(context.Background(), inv)
+	require.NoError(t, err)
+
+	result := sr.Collect()
+	require.NotNil(t, result)
+	assert.Equal(t, mcp.ExecutionStatusFailure, result.Status)
+	require.NotNil(t, result.Err)
+	assert.Equal(t, mcp.ErrCodeInternal, result.Err.Code)
+	assert.Contains(t, result.Err.Message, "tool error")
+}
+
 func TestBuildHTTPClient(t *testing.T) {
 	t.Run("nil TLS uses fallback client", func(t *testing.T) {
 		fallback := &http.Client{}
@@ -309,6 +442,21 @@ func TestBuildHTTPClient(t *testing.T) {
 		require.True(t, ok)
 		require.NotNil(t, transport.TLSClientConfig)
 		assert.True(t, transport.TLSClientConfig.InsecureSkipVerify) //nolint:gosec
+	})
+
+	t.Run("TLS with valid CA cert and default transport", func(t *testing.T) {
+		dir := t.TempDir()
+		caFile := filepath.Join(dir, "ca.crt")
+		keyFile := filepath.Join(dir, "ca.key")
+		writeSelfSignedCert(t, caFile, keyFile)
+
+		cfg := &mcp.HTTPTransportConfig{
+			URL: "https://example.com",
+			TLS: &mcp.TLSClientConfig{CACertFile: caFile},
+		}
+		client, err := buildHTTPClient(cfg, nil)
+		require.NoError(t, err)
+		require.NotNil(t, client)
 	})
 
 	t.Run("TLS with valid client cert and fallback http.Transport", func(t *testing.T) {

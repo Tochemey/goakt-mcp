@@ -19,3 +19,4 @@ bench/*.txt
 .gomodcache/
 .local/
 bin/
+.claude/

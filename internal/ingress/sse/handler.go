@@ -21,10 +21,11 @@
 // SOFTWARE.
 //
 
-package http
+package sse
 
 import (
-	"context"
+	"errors"
+	"net/http"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -32,38 +33,22 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-// The functions below delegate to [shared] so that internal tests in this
-// package (conv_test.go) continue to compile and pass without changes to
-// their call sites. New code should import [shared] directly.
+// New returns an [http.Handler] that serves MCP SSE sessions (2024-11-05 spec)
+// and routes each tool call through gw.
+//
+// Identity (tenantID + clientID) is resolved once per new MCP session via
+// cfg.IdentityResolver. On resolution failure, getServer returns nil which
+// causes the SDK to reply with HTTP 400 Bad Request. The Stateless and
+// SessionIdleTimeout fields of cfg are not used by the SSE transport; session
+// lifetime is controlled by the client's GET connection.
+//
+// New validates that cfg.IdentityResolver is non-nil and returns an error
+// if it is not.
+func New(gw shared.Invoker, cfg mcp.IngressConfig) (http.Handler, error) {
+	if cfg.IdentityResolver == nil {
+		return nil, errors.New("ingress/sse: IdentityResolver must not be nil")
+	}
 
-func dispatchToolCall(
-	ctx context.Context,
-	gw Invoker,
-	req *sdkmcp.CallToolRequest,
-	toolID mcp.ToolID,
-	tenantID mcp.TenantID,
-	clientID mcp.ClientID,
-) (*sdkmcp.CallToolResult, error) {
-	return shared.DispatchToolCall(ctx, gw, req, toolID, tenantID, clientID)
-}
-
-func requestToInvocation(
-	req *sdkmcp.CallToolRequest,
-	toolID mcp.ToolID,
-	tenantID mcp.TenantID,
-	clientID mcp.ClientID,
-) (*mcp.Invocation, error) {
-	return shared.RequestToInvocation(req, toolID, tenantID, clientID)
-}
-
-func executionResultToCallToolResult(res *mcp.ExecutionResult, gwErr error) *sdkmcp.CallToolResult {
-	return shared.ExecutionResultToCallToolResult(res, gwErr)
-}
-
-func outputToCallToolResult(output map[string]any) *sdkmcp.CallToolResult {
-	return shared.OutputToCallToolResult(output)
-}
-
-func newRequestID() mcp.RequestID {
-	return shared.NewRequestID()
+	getServer := shared.BuildGetServer(gw, cfg.IdentityResolver)
+	return sdkmcp.NewSSEHandler(getServer, nil), nil
 }
