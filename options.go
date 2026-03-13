@@ -29,23 +29,28 @@ import (
 	goaktlog "github.com/tochemey/goakt/v4/log"
 )
 
-// LogLevel wraps goaktlog.Level for gateway logging configuration.
-// Use with WithLogger to configure the gateway's log level.
-type LogLevel = goaktlog.Level
-
 // Option configures a Gateway.
 type Option func(*Gateway)
 
-// WithLogger sets the log level for the gateway. When set, the gateway uses
-// GoAkt's slog-based logger at the specified level. Pass goaktlog.InvalidLevel
-// to suppress all output (e.g. in tests).
-func WithLogger(level LogLevel) Option {
+// WithLogger plugs in a custom logger. The gateway wraps it internally to
+// satisfy the underlying engine's logging interface. Pass nil to disable
+// logging (equivalent to no option).
+func WithLogger(logger Logger) Option {
 	return func(g *Gateway) {
-		if level == goaktlog.InvalidLevel {
+		if logger == nil {
 			g.logger = goaktlog.DiscardLogger
-		} else {
-			g.logger = goaktlog.NewSlog(level, os.Stdout)
+			return
 		}
+		g.logger = &loggerAdapter{inner: logger}
+	}
+}
+
+// WithDebug enables verbose debug logging from the underlying engine to
+// os.Stdout using the built-in structured logger. This is useful for
+// diagnosing actor lifecycle, message routing, and cluster events.
+func WithDebug() Option {
+	return func(g *Gateway) {
+		g.logger = goaktlog.NewSlog(goaktlog.DebugLevel, os.Stdout)
 	}
 }
 

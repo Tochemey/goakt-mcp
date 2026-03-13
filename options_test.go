@@ -42,46 +42,58 @@ func withSystemForTesting(system goaktactor.ActorSystem) Option {
 	}
 }
 
+// noopLogger is a Logger implementation that discards all output, used in tests
+// to silence the gateway without importing goaktlog.
+type noopLogger struct{}
+
+func (noopLogger) Debug(_ string, _ ...any) {}
+func (noopLogger) Info(_ string, _ ...any)  {}
+func (noopLogger) Warn(_ string, _ ...any)  {}
+func (noopLogger) Error(_ string, _ ...any) {}
+
 func TestWithLogger(t *testing.T) {
-	t.Run("InvalidLevel sets DiscardLogger", func(t *testing.T) {
-		gw, err := New(mcp.Config{}, WithLogger(goaktlog.InvalidLevel))
+	t.Run("nil logger sets DiscardLogger", func(t *testing.T) {
+		gw, err := New(mcp.Config{}, WithLogger(nil))
 		require.NoError(t, err)
 		require.NotNil(t, gw)
 		assert.Equal(t, goaktlog.DiscardLogger, gw.logger)
 	})
 
-	t.Run("DebugLevel sets slog logger", func(t *testing.T) {
-		gw, err := New(mcp.Config{}, WithLogger(goaktlog.DebugLevel))
+	t.Run("custom logger wraps in adapter", func(t *testing.T) {
+		gw, err := New(mcp.Config{}, WithLogger(noopLogger{}))
 		require.NoError(t, err)
 		require.NotNil(t, gw)
 		assert.NotNil(t, gw.logger)
 		assert.NotEqual(t, goaktlog.DiscardLogger, gw.logger)
-	})
-
-	t.Run("InfoLevel sets slog logger", func(t *testing.T) {
-		gw, err := New(mcp.Config{}, WithLogger(goaktlog.InfoLevel))
-		require.NoError(t, err)
-		require.NotNil(t, gw)
-		assert.NotNil(t, gw.logger)
+		_, ok := gw.logger.(*loggerAdapter)
+		assert.True(t, ok)
 	})
 }
 
+func TestWithDebug(t *testing.T) {
+	gw, err := New(mcp.Config{}, WithDebug())
+	require.NoError(t, err)
+	require.NotNil(t, gw)
+	assert.NotNil(t, gw.logger)
+	assert.NotEqual(t, goaktlog.DiscardLogger, gw.logger)
+}
+
 func TestWithMetrics(t *testing.T) {
-	gw, err := New(mcp.Config{}, WithLogger(goaktlog.InvalidLevel), WithMetrics())
+	gw, err := New(mcp.Config{}, WithMetrics())
 	require.NoError(t, err)
 	require.NotNil(t, gw)
 	assert.True(t, gw.metrics)
 }
 
 func TestWithTracing(t *testing.T) {
-	gw, err := New(mcp.Config{}, WithLogger(goaktlog.InvalidLevel), WithTracing())
+	gw, err := New(mcp.Config{}, WithTracing())
 	require.NoError(t, err)
 	require.NotNil(t, gw)
 	assert.True(t, gw.tracing)
 }
 
 func TestOptions_Combined(t *testing.T) {
-	gw, err := New(mcp.Config{}, WithLogger(goaktlog.InvalidLevel), WithMetrics(), WithTracing())
+	gw, err := New(mcp.Config{}, WithLogger(nil), WithMetrics(), WithTracing())
 	require.NoError(t, err)
 	require.NotNil(t, gw)
 	assert.Equal(t, goaktlog.DiscardLogger, gw.logger)

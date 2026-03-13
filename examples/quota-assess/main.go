@@ -44,8 +44,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	goaktlog "github.com/tochemey/goakt/v4/log"
-
 	goaktmcp "github.com/tochemey/goakt-mcp"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
@@ -85,7 +83,7 @@ func main() {
 		},
 	}
 
-	gw, err := goaktmcp.New(config, goaktmcp.WithLogger(goaktlog.InvalidLevel))
+	gw, err := goaktmcp.New(config)
 	if err != nil {
 		log.Fatalf("create gateway: %v", err)
 	}
