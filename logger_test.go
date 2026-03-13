@@ -346,9 +346,53 @@ func TestLoggerAdapterEnabled(t *testing.T) {
 }
 
 func TestLoggerAdapterWith(t *testing.T) {
-	a := newAdapter(&spyLogger{})
-	result := a.With("key", "value")
-	assert.Equal(t, a, result, "With should return the same adapter")
+	t.Run("no args returns same adapter", func(t *testing.T) {
+		a := newAdapter(&spyLogger{})
+		result := a.With()
+		assert.Same(t, a, result)
+	})
+	t.Run("returns new adapter with accumulated fields", func(t *testing.T) {
+		spy := &spyLogger{}
+		a := newAdapter(spy)
+		child := a.With("tenant", "t1")
+		assert.NotSame(t, a, child)
+
+		// child should carry the fields
+		child.Info("hello")
+		assert.Equal(t, "info", spy.lastMethod)
+		assert.Equal(t, "hello", spy.lastMsg)
+		assert.Equal(t, []any{"tenant", "t1"}, spy.lastFields)
+
+		// original adapter should not have the fields
+		a.Info("plain")
+		assert.Equal(t, "plain", spy.lastMsg)
+		assert.Empty(t, spy.lastFields)
+	})
+	t.Run("fields accumulate across chained With calls", func(t *testing.T) {
+		spy := &spyLogger{}
+		a := newAdapter(spy)
+		child := a.With("k1", "v1").With("k2", "v2")
+		child.Info("msg")
+		assert.Equal(t, []any{"k1", "v1", "k2", "v2"}, spy.lastFields)
+	})
+	t.Run("preserves LogLevel and Enabled", func(t *testing.T) {
+		spy := &leveledSpyLogger{spyLogger: spyLogger{}, level: "error"}
+		a := newLoggerAdapter(spy)
+		child := a.With("key", "value")
+		la := child.(*loggerAdapter)
+		assert.Equal(t, goaktlog.ErrorLevel, la.LogLevel())
+		assert.True(t, la.Enabled(goaktlog.ErrorLevel))
+		assert.False(t, la.Enabled(goaktlog.DebugLevel))
+	})
+	t.Run("fields are prepended to formatted log methods", func(t *testing.T) {
+		spy := &spyLogger{}
+		a := newAdapter(spy)
+		child := a.With("rid", "123")
+		child.(*loggerAdapter).Debugf("count=%d", 5)
+		assert.Equal(t, "debug", spy.lastMethod)
+		assert.Equal(t, "count=5", spy.lastMsg)
+		assert.Equal(t, []any{"rid", "123"}, spy.lastFields)
+	})
 }
 
 func TestLoggerAdapterLogOutput(t *testing.T) {
