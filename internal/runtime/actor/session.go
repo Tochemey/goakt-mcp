@@ -67,12 +67,13 @@ import (
 //
 // All fields are unexported to enforce actor immutability rules.
 type session struct {
-	tenantID mcp.TenantID
-	clientID mcp.ClientID
-	toolID   mcp.ToolID
-	tool     mcp.Tool
-	executor mcp.ToolExecutor
-	logger   goaktlog.Logger
+	tenantID    mcp.TenantID
+	clientID    mcp.ClientID
+	toolID      mcp.ToolID
+	tool        mcp.Tool
+	executor    mcp.ToolExecutor
+	credentials map[string]string
+	logger      goaktlog.Logger
 }
 
 var _ goaktactor.Actor = (*session)(nil)
@@ -95,6 +96,7 @@ func (x *session) PreStart(ctx *goaktactor.Context) error {
 			x.toolID = dep.ToolID()
 			x.tool = dep.Tool()
 			x.executor = dep.Executor()
+			x.credentials = dep.Credentials()
 		}
 	}
 
@@ -201,14 +203,28 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 		result, err = x.executor.Execute(execCtx, msg.Invocation)
 		duration := time.Since(start)
 		if err != nil {
-			log.Warnf("actor session:%s-%s-%s execution failed: %v", x.tenantID, x.clientID, x.toolID, err)
-			result = &mcp.ExecutionResult{
-				Status:      mcp.ExecutionStatusFailure,
-				Err:         mcp.WrapRuntimeError(mcp.ErrCodeInternal, "execution failed", err),
-				Duration:    duration,
-				Correlation: msg.Invocation.Correlation,
+			log.Warnf("actor session:%s-%s-%s execution failed, attempting recovery: %v", x.tenantID, x.clientID, x.toolID, err)
+			if recovered := x.tryRecoverExecutor(ctx); recovered {
+				log.Infof("actor session:%s-%s-%s executor recovered, retrying", x.tenantID, x.clientID, x.toolID)
+				// Create a fresh timeout context for the retry — the original
+				// execCtx may be nearly exhausted or already cancelled.
+				retryCtx, retryCancel := context.WithTimeout(ctx.Context(), timeout)
+				defer retryCancel()
+				retryStart := time.Now()
+				result, err = x.executor.Execute(retryCtx, msg.Invocation)
+				duration = time.Since(retryStart)
 			}
-		} else if result != nil && result.Duration == 0 {
+			if err != nil {
+				log.Warnf("actor session:%s-%s-%s execution failed: %v", x.tenantID, x.clientID, x.toolID, err)
+				result = &mcp.ExecutionResult{
+					Status:      mcp.ExecutionStatusFailure,
+					Err:         mcp.WrapRuntimeError(mcp.ErrCodeInternal, "execution failed", err),
+					Duration:    duration,
+					Correlation: msg.Invocation.Correlation,
+				}
+			}
+		}
+		if err == nil && result != nil && result.Duration == 0 {
 			result.Duration = duration
 		}
 	} else {
@@ -229,6 +245,30 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 
 	// Resume passivation now that invocation is complete.
 	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.ResumePassivation{})
+}
+
+// tryRecoverExecutor attempts to replace a failed executor with a fresh one
+// created via the ExecutorFactory extension. Returns true if a new executor was
+// successfully created and installed. The old executor is closed before replacement.
+func (x *session) tryRecoverExecutor(ctx *goaktactor.ReceiveContext) bool {
+	ext := ctx.Extension(actorextension.ExecutorFactoryExtensionID)
+	ef, ok := ext.(*actorextension.ExecutorFactoryExtension)
+	if !ok || ef == nil {
+		return false
+	}
+
+	newExec, err := ef.Factory().Create(ctx.Context(), x.tool, x.credentials)
+	if err != nil {
+		x.logger.Warnf("actor session:%s-%s-%s executor recovery failed: %v", x.tenantID, x.clientID, x.toolID, err)
+		return false
+	}
+
+	// Close the old executor before replacing.
+	if x.executor != nil {
+		_ = x.executor.Close()
+	}
+	x.executor = newExec
+	return true
 }
 
 // reportOutcomeToSupervisor notifies the ToolSupervisor of invocation success or

@@ -46,10 +46,11 @@ func dispatchToolCall(
 	ctx context.Context,
 	gw Invoker,
 	req *sdkmcp.CallToolRequest,
+	toolID mcp.ToolID,
 	tenantID mcp.TenantID,
 	clientID mcp.ClientID,
 ) (*sdkmcp.CallToolResult, error) {
-	inv, err := requestToInvocation(req, tenantID, clientID)
+	inv, err := requestToInvocation(req, toolID, tenantID, clientID)
 	if err != nil {
 		r := new(sdkmcp.CallToolResult)
 		r.SetError(err)
@@ -81,6 +82,7 @@ func dispatchToolCall(
 // entire args map is forwarded as arguments.
 func requestToInvocation(
 	req *sdkmcp.CallToolRequest,
+	toolID mcp.ToolID,
 	tenantID mcp.TenantID,
 	clientID mcp.ClientID,
 ) (*mcp.Invocation, error) {
@@ -109,7 +111,7 @@ func requestToInvocation(
 	}
 
 	return &mcp.Invocation{
-		ToolID: mcp.ToolID(req.Params.Name),
+		ToolID: toolID,
 		Method: "tools/call",
 		Params: map[string]any{
 			"name":      backendName,

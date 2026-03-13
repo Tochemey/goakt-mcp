@@ -172,6 +172,50 @@ func newTestKit(t *testing.T, opts ...testkit.Option) (*testkit.TestKit, context
 	return kit, ctx
 }
 
+// mockSchemaFetcher is a test SchemaFetcher that returns configured schemas or error.
+type mockSchemaFetcher struct {
+	schemas []mcp.ToolSchema
+	err     error
+}
+
+func (m *mockSchemaFetcher) FetchSchemas(_ context.Context, _ mcp.Tool) ([]mcp.ToolSchema, error) {
+	return m.schemas, m.err
+}
+
+// mockExecutor is a test executor that returns configured results or errors.
+type mockExecutor struct {
+	result *mcp.ExecutionResult
+	err    error
+}
+
+func (m *mockExecutor) Execute(_ context.Context, inv *mcp.Invocation) (*mcp.ExecutionResult, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.result != nil {
+		return m.result, nil
+	}
+	return &mcp.ExecutionResult{
+		Status:      mcp.ExecutionStatusSuccess,
+		Output:      map[string]any{},
+		Correlation: inv.Correlation,
+	}, nil
+}
+
+func (m *mockExecutor) Close() error {
+	return nil
+}
+
+// mockExecutorFactory creates executors for testing executor recovery.
+type mockExecutorFactory struct {
+	executor mcp.ToolExecutor
+	err      error
+}
+
+func (m *mockExecutorFactory) Create(_ context.Context, _ mcp.Tool, _ map[string]string) (mcp.ToolExecutor, error) {
+	return m.executor, m.err
+}
+
 // failingAuditSink is a test sink that returns an error on Write.
 type failingAuditSink struct{}
 

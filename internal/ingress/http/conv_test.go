@@ -55,7 +55,7 @@ func TestRequestToInvocation(t *testing.T) {
 		// Client passes flat arguments with no "name" key.
 		// Gateway tool ID is used as the backend tool name; args forwarded as-is.
 		req := makeCallToolRequest("my-tool", map[string]any{"key": "val"})
-		inv, err := requestToInvocation(req, "tenant-1", "client-1")
+		inv, err := requestToInvocation(req, "my-tool", "tenant-1", "client-1")
 		require.NoError(t, err)
 
 		assert.Equal(t, mcp.ToolID("my-tool"), inv.ToolID)
@@ -78,7 +78,7 @@ func TestRequestToInvocation(t *testing.T) {
 			"name":      "list_directory",
 			"arguments": map[string]any{"path": "/tmp"},
 		})
-		inv, err := requestToInvocation(req, "acme", "agent-1")
+		inv, err := requestToInvocation(req, "filesystem", "acme", "agent-1")
 		require.NoError(t, err)
 
 		assert.Equal(t, mcp.ToolID("filesystem"), inv.ToolID)
@@ -93,20 +93,20 @@ func TestRequestToInvocation(t *testing.T) {
 		req := &sdkmcp.CallToolRequest{
 			Params: &sdkmcp.CallToolParamsRaw{Name: "tool-x"},
 		}
-		inv, err := requestToInvocation(req, "t", "c")
+		inv, err := requestToInvocation(req, "tool-x", "t", "c")
 		require.NoError(t, err)
 		assert.Equal(t, "tool-x", inv.Params["name"])
 		assert.Nil(t, inv.Params["arguments"])
 	})
 
 	t.Run("nil request returns error", func(t *testing.T) {
-		_, err := requestToInvocation(nil, "t", "c")
+		_, err := requestToInvocation(nil, "tool", "t", "c")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "request and params are required")
 	})
 
 	t.Run("nil params returns error", func(t *testing.T) {
-		_, err := requestToInvocation(&sdkmcp.CallToolRequest{}, "t", "c")
+		_, err := requestToInvocation(&sdkmcp.CallToolRequest{}, "tool", "t", "c")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "request and params are required")
 	})
@@ -118,7 +118,7 @@ func TestRequestToInvocation(t *testing.T) {
 				Arguments: json.RawMessage(`not-json`),
 			},
 		}
-		_, err := requestToInvocation(req, "t", "c")
+		_, err := requestToInvocation(req, "tool-y", "t", "c")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid tool arguments")
 	})
@@ -286,7 +286,7 @@ func TestDispatchToolCall(t *testing.T) {
 			},
 		}
 		req := makeCallToolRequest("tool-a", map[string]any{"x": 1})
-		r, err := dispatchToolCall(context.Background(), gw, req, "t1", "c1")
+		r, err := dispatchToolCall(context.Background(), gw, req, "tool-a", "t1", "c1")
 		require.NoError(t, err)
 		require.NotNil(t, r)
 		assert.False(t, r.IsError)
@@ -300,7 +300,7 @@ func TestDispatchToolCall(t *testing.T) {
 				Arguments: json.RawMessage(`{bad json`),
 			},
 		}
-		r, err := dispatchToolCall(context.Background(), gw, req, "t1", "c1")
+		r, err := dispatchToolCall(context.Background(), gw, req, "tool-b", "t1", "c1")
 		require.NoError(t, err) // must not propagate as Go error
 		require.NotNil(t, r)
 		assert.True(t, r.IsError)
@@ -309,7 +309,7 @@ func TestDispatchToolCall(t *testing.T) {
 	t.Run("gateway invoke error is surfaced as tool error", func(t *testing.T) {
 		gw := &stubInvoker{err: errors.New("internal failure")}
 		req := makeCallToolRequest("tool-c", nil)
-		r, err := dispatchToolCall(context.Background(), gw, req, "t1", "c1")
+		r, err := dispatchToolCall(context.Background(), gw, req, "tool-c", "t1", "c1")
 		require.NoError(t, err)
 		require.NotNil(t, r)
 		assert.True(t, r.IsError)

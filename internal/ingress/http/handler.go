@@ -48,12 +48,8 @@ type Invoker interface {
 	ListTools(ctx context.Context) ([]mcp.Tool, error)
 }
 
-// openObjectSchema is the minimal JSON Schema that permits any JSON object.
-//
-// All gateway tools are registered with this pass-through schema because the
-// ingress layer does not know the per-tool input schemas — it forwards
-// arguments verbatim to the backend MCP server. The SDK validates incoming
-// arguments against this schema, which accepts any JSON object.
+// openObjectSchema is the fallback JSON Schema that permits any JSON object.
+// Used when no backend schema is available for a tool.
 var openObjectSchema = json.RawMessage(`{"type":"object"}`)
 
 // New returns an [http.Handler] that serves MCP Streamable HTTP sessions and
@@ -123,14 +119,16 @@ func buildGetServer(gw Invoker, resolver mcp.IdentityResolver) func(*http.Reques
 	}
 }
 
-// registerTool adds a single tool to srv with a handler closure that captures
-// the resolved session identity. The input schema is always [openObjectSchema],
-// which accepts any JSON object, because the gateway forwards arguments
-// verbatim to the backend server.
+// registerTool adds tool capabilities to srv with handler closures that capture
+// the resolved session identity.
+//
+// When the tool has cached backend schemas (from tools/list at registration),
+// each schema is registered as a separate SDK tool with its actual name,
+// description, and input schema. When no schemas are available, a single
+// pass-through registration with [openObjectSchema] is used as a fallback.
 //
 // The handler is deliberately kept allocation-free on the hot path: the
-// tenantID and clientID values are captured by value in the closure and the
-// tool name is a string already held by the Tool struct.
+// tenantID and clientID values are captured by value in the closure.
 func registerTool(
 	srv *sdkmcp.Server,
 	gw Invoker,
@@ -138,12 +136,30 @@ func registerTool(
 	tenantID mcp.TenantID,
 	clientID mcp.ClientID,
 ) {
-	sdkTool := &sdkmcp.Tool{
-		Name:        string(t.ID),
-		InputSchema: openObjectSchema,
+	toolID := t.ID
+	if len(t.Schemas) == 0 {
+		sdkTool := &sdkmcp.Tool{
+			Name:        string(t.ID),
+			InputSchema: openObjectSchema,
+		}
+		srv.AddTool(sdkTool, func(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+			return dispatchToolCall(ctx, gw, req, toolID, tenantID, clientID)
+		})
+		return
 	}
 
-	srv.AddTool(sdkTool, func(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
-		return dispatchToolCall(ctx, gw, req, tenantID, clientID)
-	})
+	for _, schema := range t.Schemas {
+		inputSchema := schema.InputSchema
+		if inputSchema == nil {
+			inputSchema = openObjectSchema
+		}
+		sdkTool := &sdkmcp.Tool{
+			Name:        schema.Name,
+			Description: schema.Description,
+			InputSchema: inputSchema,
+		}
+		srv.AddTool(sdkTool, func(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+			return dispatchToolCall(ctx, gw, req, toolID, tenantID, clientID)
+		})
+	}
 }

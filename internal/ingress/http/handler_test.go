@@ -200,6 +200,81 @@ func TestHandler_IdentityResolutionFailure(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestHandler_ToolWithSchemasRegistersPerSchema(t *testing.T) {
+	gw := &fakeInvoker{
+		tools: []mcp.Tool{{
+			ID: "multi-tool",
+			Schemas: []mcp.ToolSchema{
+				{Name: "read_file", Description: "Read a file", InputSchema: []byte(`{"type":"object","properties":{"path":{"type":"string"}}}`)},
+				{Name: "write_file", Description: "Write a file", InputSchema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}}}`)},
+			},
+		}},
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"content": []map[string]any{
+					{"type": "text", "text": "ok"},
+				},
+			},
+		},
+	}
+
+	cfg := mcp.IngressConfig{
+		IdentityResolver: &fixedResolver{tenantID: "acme", clientID: "c1"},
+		Stateless:        true,
+	}
+
+	session := newTestSession(t, gw, cfg)
+
+	// List tools should return both schema-derived tools
+	toolsResult, err := session.ListTools(context.Background(), &sdkmcp.ListToolsParams{})
+	require.NoError(t, err)
+	require.Len(t, toolsResult.Tools, 2)
+
+	names := make(map[string]bool)
+	for _, tool := range toolsResult.Tools {
+		names[tool.Name] = true
+	}
+	assert.True(t, names["read_file"])
+	assert.True(t, names["write_file"])
+
+	// Call one of the schema-derived tools
+	result, err := session.CallTool(context.Background(), &sdkmcp.CallToolParams{
+		Name:      "read_file",
+		Arguments: map[string]any{"path": "/tmp/test"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.IsError)
+}
+
+func TestHandler_ToolWithoutSchemasFallsBackToOpenObject(t *testing.T) {
+	gw := &fakeInvoker{
+		tools: []mcp.Tool{{ID: "simple-tool"}},
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"content": []map[string]any{
+					{"type": "text", "text": "ok"},
+				},
+			},
+		},
+	}
+
+	cfg := mcp.IngressConfig{
+		IdentityResolver: &fixedResolver{tenantID: "acme", clientID: "c1"},
+		Stateless:        true,
+	}
+
+	session := newTestSession(t, gw, cfg)
+
+	// List tools should return the single tool with its ID as name
+	toolsResult, err := session.ListTools(context.Background(), &sdkmcp.ListToolsParams{})
+	require.NoError(t, err)
+	require.Len(t, toolsResult.Tools, 1)
+	assert.Equal(t, "simple-tool", toolsResult.Tools[0].Name)
+}
+
 func TestHandler_ListToolsFailure(t *testing.T) {
 	// When ListTools fails, getServer returns nil → SDK replies 400.
 	gw := &fakeInvoker{listErr: errors.New("registry unavailable")}

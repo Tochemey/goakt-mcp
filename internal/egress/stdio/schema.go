@@ -1,0 +1,72 @@
+// MIT License
+//
+// Copyright (c) 2026 GoAkt Team
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
+
+package stdio
+
+import (
+	"context"
+	"os/exec"
+	"time"
+
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/tochemey/goakt-mcp/internal/egress/schemaconv"
+	"github.com/tochemey/goakt-mcp/mcp"
+)
+
+// FetchSchemas connects to the stdio backend, calls tools/list, and returns the
+// discovered tool schemas. The connection is closed before returning.
+func FetchSchemas(ctx context.Context, cfg *mcp.StdioTransportConfig, startupTimeout time.Duration) ([]mcp.ToolSchema, error) {
+	if cfg == nil || cfg.Command == "" {
+		return nil, mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "stdio config required")
+	}
+
+	cmd := exec.Command(cfg.Command, cfg.Args...) //nolint:gosec // command and args are from admin-controlled tool configuration, not user input
+	if cfg.WorkingDirectory != "" {
+		cmd.Dir = cfg.WorkingDirectory
+	}
+	cmd.Env = envSlice(cfg.Env)
+
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "goakt-mcp-schema", Version: mcp.Version()}, nil)
+	transport := &sdkmcp.CommandTransport{Command: cmd}
+
+	connectCtx := ctx
+	if startupTimeout > 0 {
+		var cancel context.CancelFunc
+		connectCtx, cancel = context.WithTimeout(connectCtx, startupTimeout)
+		defer cancel()
+	}
+
+	sess, err := client.Connect(connectCtx, transport, nil)
+	if err != nil {
+		return nil, mcp.WrapRuntimeError(mcp.ErrCodeTransportFailure, "stdio schema connect failed", err)
+	}
+	defer sess.Close()
+
+	result, err := sess.ListTools(ctx, nil)
+	if err != nil {
+		return nil, mcp.WrapRuntimeError(mcp.ErrCodeTransportFailure, "stdio list tools failed", err)
+	}
+
+	return schemaconv.SDKToolsToSchemas(result.Tools), nil
+}

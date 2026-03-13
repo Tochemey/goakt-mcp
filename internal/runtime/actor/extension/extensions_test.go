@@ -24,6 +24,7 @@
 package extension
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -127,7 +128,7 @@ func TestSessionDependency(t *testing.T) {
 	toolID := mcp.ToolID("tool-1")
 	tool := stdioTool(toolID)
 
-	dep := NewSessionDependency(tenantID, clientID, toolID, tool, nil)
+	dep := NewSessionDependency(tenantID, clientID, toolID, tool, nil, nil)
 
 	t.Run("ID returns SessionDependencyID", func(t *testing.T) {
 		assert.Equal(t, SessionDependencyID, dep.ID())
@@ -167,4 +168,25 @@ func TestConfigExtension(t *testing.T) {
 	require.NotNil(t, ext)
 	require.Equal(t, ConfigExtensionID, ext.ID())
 	require.Equal(t, conf, ext.Config())
+}
+
+func TestSchemaFetcherExtension(t *testing.T) {
+	fetcher := &mockSchemaFetcher{}
+	ext := NewSchemaFetcherExtension(fetcher)
+	require.NotNil(t, ext)
+	assert.Equal(t, SchemaFetcherExtensionID, ext.ID())
+	assert.Equal(t, fetcher, ext.Fetcher())
+}
+
+func TestSessionDependencyCredentials(t *testing.T) {
+	creds := map[string]string{"api-key": "secret"}
+	dep := NewSessionDependency("t1", "c1", "tool1", stdioTool("tool1"), nil, creds)
+	assert.Equal(t, creds, dep.Credentials())
+}
+
+// mockSchemaFetcher is a test SchemaFetcher.
+type mockSchemaFetcher struct{}
+
+func (m *mockSchemaFetcher) FetchSchemas(_ context.Context, _ mcp.Tool) ([]mcp.ToolSchema, error) {
+	return nil, nil
 }

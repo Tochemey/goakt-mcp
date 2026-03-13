@@ -25,6 +25,7 @@ package actor
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -50,7 +51,7 @@ func TestSessionActor(t *testing.T) {
 		tool := validStdioTool("session-tool")
 		tool.IdleTimeout = 5 * time.Minute
 
-		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil)
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
 		name := mcp.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
@@ -77,7 +78,7 @@ func TestSessionActor(t *testing.T) {
 		tool := validStdioTool("session-nil")
 		tool.IdleTimeout = 5 * time.Minute
 
-		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil)
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
 		name := mcp.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
@@ -99,7 +100,7 @@ func TestSessionActor(t *testing.T) {
 		tool := validStdioTool("session-tool")
 		tool.IdleTimeout = 5 * time.Minute
 
-		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil)
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
 		name := mcp.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
@@ -115,6 +116,75 @@ func TestSessionActor(t *testing.T) {
 		require.Error(t, result.Err)
 	})
 
+	t.Run("recovers executor on execution failure and retries", func(t *testing.T) {
+		failingExec := &mockExecutor{err: errors.New("connection reset")}
+		successExec := &mockExecutor{}
+		factory := &mockExecutorFactory{executor: successExec}
+
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(
+				actorextension.NewExecutorFactoryExtension(factory),
+				actorextension.NewConfigExtension(cfg),
+			),
+		)
+		defer stop()
+
+		tool := validStdioTool("recovery-tool")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, failingExec, nil)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := sessionInvocation(tool.ID, "tenant1", "client1")
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvoke{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeResult)
+		require.True(t, ok)
+		require.NotNil(t, result.Result)
+		assert.True(t, result.Result.Succeeded(), "retry with recovered executor should succeed")
+	})
+
+	t.Run("executor recovery failure returns original error", func(t *testing.T) {
+		failingExec := &mockExecutor{err: errors.New("connection reset")}
+		factory := &mockExecutorFactory{err: errors.New("cannot create executor")}
+
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(
+				actorextension.NewExecutorFactoryExtension(factory),
+				actorextension.NewConfigExtension(cfg),
+			),
+		)
+		defer stop()
+
+		tool := validStdioTool("recovery-fail-tool")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, failingExec, nil)
+		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := sessionInvocation(tool.ID, "tenant1", "client1")
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvoke{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeResult)
+		require.True(t, ok)
+		require.NotNil(t, result.Result)
+		assert.Equal(t, mcp.ExecutionStatusFailure, result.Result.Status)
+	})
+
 	t.Run("passivates after idle timeout", func(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
@@ -122,7 +192,7 @@ func TestSessionActor(t *testing.T) {
 		tool := validStdioTool("passivate-tool")
 		tool.IdleTimeout = 200 * time.Millisecond
 
-		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil)
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
 		name := mcp.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
@@ -238,7 +308,7 @@ func TestGetOrCreateSession(t *testing.T) {
 
 func TestSessionDependencyMarshalUnmarshal(t *testing.T) {
 	tool := validStdioTool("marshal-tool")
-	dep := actorextension.NewSessionDependency("tenant-1", "client-1", "marshal-tool", tool, nil)
+	dep := actorextension.NewSessionDependency("tenant-1", "client-1", "marshal-tool", tool, nil, nil)
 
 	data, err := dep.MarshalBinary()
 	require.NoError(t, err)

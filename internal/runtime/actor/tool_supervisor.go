@@ -251,7 +251,7 @@ func (x *toolSupervisor) handleGetOrCreateSession(ctx *goaktactor.ReceiveContext
 		}
 	}
 
-	sessDep := actorextension.NewSessionDependency(msg.TenantID, msg.ClientID, msg.ToolID, x.tool, executor)
+	sessDep := actorextension.NewSessionDependency(msg.TenantID, msg.ClientID, msg.ToolID, x.tool, executor, msg.Credentials)
 	idleTimeout := sessionIdleTimeout(x.tool)
 
 	pid, err := x.self.SpawnChild(ctx.Context(), name, newSession(),

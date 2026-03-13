@@ -54,6 +54,7 @@ import (
 //     as a cluster kind in cluster.BuildOptions.
 type registrar struct {
 	tools       map[mcp.ToolID]mcp.Tool
+	schemas     map[mcp.ToolID][]mcp.ToolSchema
 	supervisors map[mcp.ToolID]*goaktactor.PID
 	logger      goaktlog.Logger
 }
@@ -73,6 +74,7 @@ func NewRegistrar() goaktactor.Actor { return newRegistrar() }
 func (x *registrar) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
 	x.tools = make(map[mcp.ToolID]mcp.Tool)
+	x.schemas = make(map[mcp.ToolID][]mcp.ToolSchema)
 	x.supervisors = make(map[mcp.ToolID]*goaktactor.PID)
 	ctx.Logger().Infof("actor=%s starting", mcp.ActorNameRegistrar)
 	return nil
@@ -113,6 +115,8 @@ func (x *registrar) Receive(ctx *goaktactor.ReceiveContext) {
 		x.handleDrainTool(ctx, msg)
 	case *runtime.ListAllSessions:
 		x.handleListAllSessions(ctx)
+	case *runtime.GetToolSchema:
+		x.handleGetToolSchema(ctx, msg)
 	default:
 		ctx.Unhandled()
 	}
@@ -140,12 +144,13 @@ func (x *registrar) handleRegisterTool(ctx *goaktactor.ReceiveContext, msg *runt
 
 	x.stopSupervisorIfExists(ctx, tool.ID)
 	x.tools[tool.ID] = tool
+	x.fetchAndCacheSchemas(ctx, tool)
 	pid := x.spawnSupervisor(ctx, tool)
 	if pid != nil {
 		x.supervisors[tool.ID] = pid
 	}
 
-	x.logger.Infof("actor=%s registered tool=%s", mcp.ActorNameRegistrar, tool.ID)
+	x.logger.Infof("actor=%s registered tool=%s schemas=%d", mcp.ActorNameRegistrar, tool.ID, len(x.schemas[tool.ID]))
 	x.respondIfAsk(ctx, &runtime.RegisterToolResult{})
 }
 
@@ -206,6 +211,7 @@ func (x *registrar) handleRemoveTool(ctx *goaktactor.ReceiveContext, msg *runtim
 
 	x.stopSupervisorIfExists(ctx, msg.ToolID)
 	delete(x.tools, msg.ToolID)
+	delete(x.schemas, msg.ToolID)
 	delete(x.supervisors, msg.ToolID)
 	x.logger.Infof("actor=%s removed tool=%s", mcp.ActorNameRegistrar, msg.ToolID)
 	x.respondIfAsk(ctx, &runtime.RemoveToolResult{})
@@ -248,10 +254,11 @@ func (x *registrar) handleBootstrapTools(ctx *goaktactor.ReceiveContext, msg *ru
 		}
 		x.stopSupervisorIfExists(ctx, tool.ID)
 		x.tools[tool.ID] = tool
+		x.fetchAndCacheSchemas(ctx, tool)
 		if pid := x.spawnSupervisor(ctx, tool); pid != nil {
 			x.supervisors[tool.ID] = pid
 		}
-		x.logger.Infof("actor=%s bootstrap registered tool=%s", mcp.ActorNameRegistrar, tool.ID)
+		x.logger.Infof("actor=%s bootstrap registered tool=%s schemas=%d", mcp.ActorNameRegistrar, tool.ID, len(x.schemas[tool.ID]))
 	}
 }
 
@@ -266,10 +273,11 @@ func (x *registrar) handleGetSupervisor(ctx *goaktactor.ReceiveContext, msg *run
 	x.respondIfAsk(ctx, &runtime.GetSupervisorResult{Supervisor: pid, Found: true})
 }
 
-// handleListTools returns all registered tools. Used by HealthActor for probing.
+// handleListTools returns all registered tools with their cached schemas attached.
 func (x *registrar) handleListTools(ctx *goaktactor.ReceiveContext) {
 	tools := make([]mcp.Tool, 0, len(x.tools))
 	for _, t := range x.tools {
+		t.Schemas = x.schemas[t.ID]
 		tools = append(tools, t)
 	}
 	x.respondIfAsk(ctx, &runtime.ListToolsResult{Tools: tools})
@@ -400,6 +408,7 @@ func (x *registrar) handleGetToolStatus(ctx *goaktactor.ReceiveContext, msg *run
 		x.respondIfAsk(ctx, &runtime.GetToolStatusResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInternal, "unexpected response type")})
 		return
 	}
+	result.Status.Schemas = x.schemas[msg.ToolID]
 	x.respondIfAsk(ctx, result)
 }
 
@@ -506,6 +515,36 @@ func (x *registrar) runningSupervisors() []*goaktactor.PID {
 		}
 	}
 	return running
+}
+
+// fetchAndCacheSchemas resolves the SchemaFetcherExtension from the actor system,
+// fetches tool schemas from the backend MCP server, and stores them in the
+// schemas map. Fetch failures are logged and result in an empty schema cache
+// for the tool, allowing the runtime to operate without schemas.
+func (x *registrar) fetchAndCacheSchemas(ctx *goaktactor.ReceiveContext, tool mcp.Tool) {
+	ext := ctx.Extension(actorextension.SchemaFetcherExtensionID)
+	fetcherExt, ok := ext.(*actorextension.SchemaFetcherExtension)
+	if !ok || fetcherExt == nil {
+		x.logger.Warnf("actor=%s schema fetcher extension not available for tool=%s", mcp.ActorNameRegistrar, tool.ID)
+		return
+	}
+
+	schemas, err := fetcherExt.Fetcher().FetchSchemas(ctx.Context(), tool)
+	if err != nil {
+		x.logger.Warnf("actor=%s schema fetch failed for tool=%s: %v", mcp.ActorNameRegistrar, tool.ID, err)
+		return
+	}
+	x.schemas[tool.ID] = schemas
+}
+
+// handleGetToolSchema returns the cached schemas for a tool.
+// Returns ErrToolNotFound when the tool is not registered.
+func (x *registrar) handleGetToolSchema(ctx *goaktactor.ReceiveContext, msg *runtime.GetToolSchema) {
+	if _, ok := x.tools[msg.ToolID]; !ok {
+		x.respondIfAsk(ctx, &runtime.GetToolSchemaResult{Err: mcp.ErrToolNotFound})
+		return
+	}
+	x.respondIfAsk(ctx, &runtime.GetToolSchemaResult{Schemas: x.schemas[msg.ToolID]})
 }
 
 // respondIfAsk sends the response when the message was delivered via Ask.

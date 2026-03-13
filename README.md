@@ -95,6 +95,7 @@ The `Gateway` is the sole public entry point. Construct it with a `mcp.Config` a
 | `RemoveTool(ctx, toolID)`    | Remove a tool                                     |
 | `Handler(cfg)`               | Return an HTTP handler for MCP clients            |
 | `GetToolStatus(ctx, toolID)` | Return circuit state, session count, drain status |
+| `GetToolSchema(ctx, toolID)` | Return cached MCP tool schemas for a tool         |
 | `GetGatewayStatus(ctx)`      | Return overall gateway health and counts          |
 | `ListSessions(ctx)`          | List all active sessions across all tools         |
 | `DrainTool(ctx, toolID)`     | Stop accepting new sessions for a tool            |
@@ -135,6 +136,7 @@ err = gw.ResetCircuit(ctx, "my-tool")
 | `Circuit`      | `mcp.CircuitState` | Circuit breaker state (`closed`, `open`, `half_open`).            |
 | `SessionCount` | `int`              | Number of active sessions for this tool.                          |
 | `Draining`     | `bool`             | `true` when the tool is draining (no new sessions accepted).      |
+| `Schemas`      | `[]mcp.ToolSchema` | MCP tool schemas discovered from the backend via `tools/list`.    |
 
 **`mcp.GatewayStatus` fields**
 
@@ -152,6 +154,36 @@ err = gw.ResetCircuit(ctx, "my-tool")
 | `ToolID`   | `mcp.ToolID`   | Tool the session is bound to.            |
 | `TenantID` | `mcp.TenantID` | Tenant the session was created for.      |
 | `ClientID` | `mcp.ClientID` | Client the session was created for.      |
+
+### Tool Schema Discovery
+
+When a tool is registered (via `RegisterTool` or config bootstrap), the gateway connects to the backend MCP server, calls `tools/list`, and caches the returned schemas. These schemas contain the tool's name, description, and JSON Schema for input parameters.
+
+Cached schemas are:
+- Returned by `GetToolSchema(ctx, toolID)` for programmatic access
+- Included in `ToolStatus` via `GetToolStatus`
+- Attached to tools returned by `ListTools`
+- Used by the ingress handler to register tools with their actual schema instead of a permissive fallback
+
+If schema fetching fails (backend unreachable, timeout), the tool is still registered and operates with a pass-through `{"type":"object"}` schema.
+
+```go
+schemas, err := gw.GetToolSchema(ctx, "my-tool")
+for _, s := range schemas {
+    fmt.Println(s.Name, s.Description, string(s.InputSchema))
+}
+```
+
+### Session Executor Recovery
+
+When a tool invocation fails due to a transport error (HTTP connection drop, stdio process crash), the session actor transparently attempts recovery:
+
+1. The failed executor is closed
+2. A fresh executor is created via the `ExecutorFactory`
+3. The invocation is retried once with the new executor
+4. If recovery fails, the error is returned and reported to the circuit breaker
+
+This eliminates the need to wait for session passivation and recreation on transient failures.
 
 ### MCP Streamable HTTP ingress
 

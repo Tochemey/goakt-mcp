@@ -44,11 +44,12 @@ const SessionDependencyID = "session"
 // for injection into SessionActor. When Executor is non-nil, the session uses
 // it for real MCP execution; otherwise it returns stub results.
 type SessionDependency struct {
-	tenantID mcp.TenantID
-	clientID mcp.ClientID
-	toolID   mcp.ToolID
-	tool     mcp.Tool
-	executor mcp.ToolExecutor
+	tenantID    mcp.TenantID
+	clientID    mcp.ClientID
+	toolID      mcp.ToolID
+	tool        mcp.Tool
+	executor    mcp.ToolExecutor
+	credentials map[string]string
 }
 
 var _ goaktextension.Dependency = (*SessionDependency)(nil)
@@ -63,13 +64,14 @@ type sessionDependencyPayload struct {
 
 // NewSessionDependency creates a dependency for the given session identity and
 // tool. Pass nil for executor to use stub execution.
-func NewSessionDependency(tenantID mcp.TenantID, clientID mcp.ClientID, toolID mcp.ToolID, tool mcp.Tool, executor mcp.ToolExecutor) *SessionDependency {
+func NewSessionDependency(tenantID mcp.TenantID, clientID mcp.ClientID, toolID mcp.ToolID, tool mcp.Tool, executor mcp.ToolExecutor, credentials map[string]string) *SessionDependency {
 	return &SessionDependency{
-		tenantID: tenantID,
-		clientID: clientID,
-		toolID:   toolID,
-		tool:     tool,
-		executor: executor,
+		tenantID:    tenantID,
+		clientID:    clientID,
+		toolID:      toolID,
+		tool:        tool,
+		executor:    executor,
+		credentials: credentials,
 	}
 }
 
@@ -123,3 +125,7 @@ func (s *SessionDependency) Tool() mcp.Tool { return s.tool }
 // Executor returns the optional tool executor for real MCP execution.
 // Nil means stub mode.
 func (s *SessionDependency) Executor() mcp.ToolExecutor { return s.executor }
+
+// Credentials returns the credentials used to create the executor.
+// Used by session executor recovery to recreate a failed executor.
+func (s *SessionDependency) Credentials() map[string]string { return s.credentials }
