@@ -531,11 +531,17 @@ func (x *registrar) fetchAndCacheSchemas(ctx *goaktactor.ReceiveContext, tool mc
 	ext := ctx.Extension(actorextension.SchemaFetcherExtensionID)
 	fetcherExt, ok := ext.(*actorextension.SchemaFetcherExtension)
 	if !ok || fetcherExt == nil {
-		x.logger.Warnf("actor=%s schema fetcher extension not available for tool=%s", mcp.ActorNameRegistrar, tool.ID)
+		x.logger.Debugf("actor=%s schema fetcher extension not configured, skipping schema fetch for tool=%s", mcp.ActorNameRegistrar, tool.ID)
 		return
 	}
 
-	schemas, err := fetcherExt.Fetcher().FetchSchemas(ctx.Context(), tool)
+	fetcher := fetcherExt.Fetcher()
+	if fetcher == nil {
+		x.logger.Debugf("actor=%s schema fetcher is nil, skipping schema fetch for tool=%s", mcp.ActorNameRegistrar, tool.ID)
+		return
+	}
+
+	schemas, err := fetcher.FetchSchemas(ctx.Context(), tool)
 	if err != nil {
 		x.logger.Warnf("actor=%s schema fetch failed for tool=%s: %v", mcp.ActorNameRegistrar, tool.ID, err)
 		return

@@ -278,7 +278,13 @@ func (x *session) tryRecoverExecutor(ctx *goaktactor.ReceiveContext) bool {
 		return false
 	}
 
-	newExec, err := ef.Factory().Create(ctx.Context(), x.tool, x.credentials)
+	factory := ef.Factory()
+	if factory == nil {
+		x.logger.Warnf("actor session:%s-%s-%s executor recovery skipped: factory is nil", x.tenantID, x.clientID, x.toolID)
+		return false
+	}
+
+	newExec, err := factory.Create(ctx.Context(), x.tool, x.credentials)
 	if err != nil {
 		x.logger.Warnf("actor session:%s-%s-%s executor recovery failed: %v", x.tenantID, x.clientID, x.toolID, err)
 		return false
