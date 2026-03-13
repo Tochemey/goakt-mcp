@@ -78,7 +78,7 @@ func (f *fakeInvoker) ListTools(_ context.Context) ([]mcp.Tool, error) {
 
 // --- helpers -----------------------------------------------------------------
 
-func startWSServer(t *testing.T, gw *fakeInvoker, cfg mcp.IngressConfig, wsCfg *ingressws.Config) *httptest.Server {
+func startWSServer(t *testing.T, gw *fakeInvoker, cfg mcp.IngressConfig, wsCfg *mcp.WSConfig) *httptest.Server {
 	t.Helper()
 	h, err := ingressws.New(gw, cfg, wsCfg)
 	require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestNew_DefaultConfig(t *testing.T) {
 func TestNew_CustomConfig(t *testing.T) {
 	h, err := ingressws.New(&fakeInvoker{}, mcp.IngressConfig{
 		IdentityResolver: &fixedResolver{tenantID: "acme", clientID: "c1"},
-	}, &ingressws.Config{
+	}, &mcp.WSConfig{
 		ReadBufferSize:  8192,
 		WriteBufferSize: 8192,
 		PingInterval:    10 * time.Second,

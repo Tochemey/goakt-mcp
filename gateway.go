@@ -263,7 +263,7 @@ func (g *Gateway) SSEHandler(cfg mcp.IngressConfig) (http.Handler, error) {
 // [ingressws.New]. The wsCfg parameter is optional; nil uses defaults.
 // The gateway does not need to be running at the time WSHandler is called;
 // tool discovery happens lazily per session.
-func (g *Gateway) WSHandler(cfg mcp.IngressConfig, wsCfg *ingressws.Config) (http.Handler, error) {
+func (g *Gateway) WSHandler(cfg mcp.IngressConfig, wsCfg *mcp.WSConfig) (http.Handler, error) {
 	return ingressws.New(g, cfg, wsCfg)
 }
 

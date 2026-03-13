@@ -37,6 +37,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // echoWSServer creates a test server that upgrades to WebSocket and echoes messages.
@@ -241,30 +243,30 @@ func TestNewSessionID(t *testing.T) {
 
 func TestConfig_Methods(t *testing.T) {
 	t.Run("nil config returns defaults", func(t *testing.T) {
-		var c *Config
-		assert.Equal(t, defaultReadBufferSize, c.readBufferSize())
-		assert.Equal(t, defaultWriteBufferSize, c.writeBufferSize())
-		assert.Equal(t, defaultPingInterval, c.pingInterval())
-		assert.NotNil(t, c.checkOrigin())
+		var c *mcp.WSConfig
+		assert.Equal(t, defaultReadBufferSize, readBufferSize(c))
+		assert.Equal(t, defaultWriteBufferSize, writeBufferSize(c))
+		assert.Equal(t, defaultPingInterval, pingInterval(c))
+		assert.NotNil(t, checkOrigin(c))
 	})
 
 	t.Run("zero values return defaults", func(t *testing.T) {
-		c := &Config{}
-		assert.Equal(t, defaultReadBufferSize, c.readBufferSize())
-		assert.Equal(t, defaultWriteBufferSize, c.writeBufferSize())
-		assert.Equal(t, defaultPingInterval, c.pingInterval())
+		c := &mcp.WSConfig{}
+		assert.Equal(t, defaultReadBufferSize, readBufferSize(c))
+		assert.Equal(t, defaultWriteBufferSize, writeBufferSize(c))
+		assert.Equal(t, defaultPingInterval, pingInterval(c))
 	})
 
 	t.Run("custom values used", func(t *testing.T) {
-		c := &Config{
+		c := &mcp.WSConfig{
 			ReadBufferSize:  8192,
 			WriteBufferSize: 16384,
 			PingInterval:    10 * time.Second,
 			CheckOrigin:     func(_ *http.Request) bool { return false },
 		}
-		assert.Equal(t, 8192, c.readBufferSize())
-		assert.Equal(t, 16384, c.writeBufferSize())
-		assert.Equal(t, 10*time.Second, c.pingInterval())
-		assert.False(t, c.checkOrigin()(nil))
+		assert.Equal(t, 8192, readBufferSize(c))
+		assert.Equal(t, 16384, writeBufferSize(c))
+		assert.Equal(t, 10*time.Second, pingInterval(c))
+		assert.False(t, checkOrigin(c)(nil))
 	})
 }

@@ -43,47 +43,28 @@ const (
 	defaultPingInterval    = 30 * time.Second
 )
 
-// Config holds WebSocket-specific configuration for the ingress handler.
-type Config struct {
-	// ReadBufferSize specifies the I/O buffer size in bytes for reading
-	// WebSocket frames. Zero uses the default (4096).
-	ReadBufferSize int
-
-	// WriteBufferSize specifies the I/O buffer size in bytes for writing
-	// WebSocket frames. Zero uses the default (4096).
-	WriteBufferSize int
-
-	// PingInterval is how often the server sends WebSocket ping frames to
-	// keep the connection alive. Zero uses the default (30s).
-	PingInterval time.Duration
-
-	// CheckOrigin is an optional function that returns true if the request
-	// origin is acceptable. When nil, any origin is accepted.
-	CheckOrigin func(r *http.Request) bool
-}
-
-func (c *Config) readBufferSize() int {
+func readBufferSize(c *mcp.WSConfig) int {
 	if c != nil && c.ReadBufferSize > 0 {
 		return c.ReadBufferSize
 	}
 	return defaultReadBufferSize
 }
 
-func (c *Config) writeBufferSize() int {
+func writeBufferSize(c *mcp.WSConfig) int {
 	if c != nil && c.WriteBufferSize > 0 {
 		return c.WriteBufferSize
 	}
 	return defaultWriteBufferSize
 }
 
-func (c *Config) pingInterval() time.Duration {
+func pingInterval(c *mcp.WSConfig) time.Duration {
 	if c != nil && c.PingInterval > 0 {
 		return c.PingInterval
 	}
 	return defaultPingInterval
 }
 
-func (c *Config) checkOrigin() func(r *http.Request) bool {
+func checkOrigin(c *mcp.WSConfig) func(r *http.Request) bool {
 	if c != nil && c.CheckOrigin != nil {
 		return c.CheckOrigin
 	}
@@ -99,7 +80,7 @@ func (c *Config) checkOrigin() func(r *http.Request) bool {
 //
 // New validates that cfg.IdentityResolver is non-nil and returns an error
 // if it is not.
-func New(gw shared.Invoker, cfg mcp.IngressConfig, wsCfg *Config) (http.Handler, error) {
+func New(gw shared.Invoker, cfg mcp.IngressConfig, wsCfg *mcp.WSConfig) (http.Handler, error) {
 	if cfg.IdentityResolver == nil {
 		return nil, errors.New("ingress/ws: IdentityResolver must not be nil")
 	}
@@ -107,15 +88,15 @@ func New(gw shared.Invoker, cfg mcp.IngressConfig, wsCfg *Config) (http.Handler,
 	getServer := shared.BuildGetServer(gw, cfg.IdentityResolver)
 
 	upgrader := &websocket.Upgrader{
-		ReadBufferSize:  wsCfg.readBufferSize(),
-		WriteBufferSize: wsCfg.writeBufferSize(),
-		CheckOrigin:     wsCfg.checkOrigin(),
+		ReadBufferSize:  readBufferSize(wsCfg),
+		WriteBufferSize: writeBufferSize(wsCfg),
+		CheckOrigin:     checkOrigin(wsCfg),
 	}
 
 	return &wsHandler{
 		getServer:    getServer,
 		upgrader:     upgrader,
-		pingInterval: wsCfg.pingInterval(),
+		pingInterval: pingInterval(wsCfg),
 	}, nil
 }
 

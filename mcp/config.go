@@ -23,7 +23,10 @@
 
 package mcp
 
-import "time"
+import (
+	"net/http"
+	"time"
+)
 
 // Default configuration values applied when fields are not explicitly set.
 const (
@@ -219,4 +222,24 @@ type HealthProbeConfig struct {
 	// Timeout is the maximum duration for a single probe cycle.
 	// When zero, DefaultHealthProbeTimeout is used.
 	Timeout time.Duration
+}
+
+// WSConfig holds WebSocket-specific configuration for [Gateway.WSHandler].
+// All zero values use built-in defaults.
+type WSConfig struct {
+	// ReadBufferSize specifies the I/O buffer size in bytes for reading
+	// WebSocket frames. Zero uses the default (4096).
+	ReadBufferSize int
+
+	// WriteBufferSize specifies the I/O buffer size in bytes for writing
+	// WebSocket frames. Zero uses the default (4096).
+	WriteBufferSize int
+
+	// PingInterval is how often the server sends WebSocket ping frames to
+	// keep the connection alive. Zero uses the default (30s).
+	PingInterval time.Duration
+
+	// CheckOrigin is an optional function that returns true if the request
+	// origin is acceptable. When nil, any origin is accepted.
+	CheckOrigin func(r *http.Request) bool
 }

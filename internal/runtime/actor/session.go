@@ -278,9 +278,12 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 		_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.ResumePassivation{})
 	}()
 
-	// Check if the executor supports streaming.
+	// Check if the executor supports streaming. The nil check must precede the
+	// type assertion: a nil interface asserted in the two-value form yields
+	// (nil, false), but a non-nil interface holding a nil pointer can produce
+	// ok==true with a nil ToolStreamExecutor.
 	streamExec, ok := x.executor.(mcp.ToolStreamExecutor)
-	if !ok || x.executor == nil {
+	if x.executor == nil || !ok {
 		// Fall back to standard execution.
 		start := time.Now()
 		var result *mcp.ExecutionResult
@@ -341,13 +344,39 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 		return
 	}
 
-	ctx.Response(&runtime.SessionInvokeStreamResult{StreamResult: sr})
+	// Fan out sr.Progress and sr.Final so the caller and this handler do not
+	// race on the same channels. A goroutine is the sole reader of the
+	// underlying executor channels; it forwards events to callerProg/callerFinal
+	// and signals the handler via supervisorFinal so the supervisor report can
+	// be made while ctx is still valid.
+	callerProg := make(chan mcp.ProgressEvent)
+	callerFinal := make(chan *mcp.ExecutionResult, 1)
+	supervisorFinal := make(chan *mcp.ExecutionResult, 1)
 
-	// Wait for the final result for supervisor reporting.
-	// Drain progress, then read final.
-	for range sr.Progress { //nolint:revive // intentional channel drain
-	}
-	if final := <-sr.Final; final != nil {
+	go func() {
+		for evt := range sr.Progress {
+			callerProg <- evt
+		}
+		close(callerProg)
+		final := <-sr.Final
+		if final != nil {
+			callerFinal <- final
+			supervisorFinal <- final
+		}
+		close(callerFinal)
+		close(supervisorFinal)
+	}()
+
+	ctx.Response(&runtime.SessionInvokeStreamResult{
+		StreamResult: &mcp.StreamingResult{
+			Progress: callerProg,
+			Final:    callerFinal,
+		},
+	})
+
+	// Block until the fan-out goroutine delivers the final result, keeping ctx
+	// alive for the supervisor report.
+	if final := <-supervisorFinal; final != nil {
 		x.reportOutcomeToSupervisor(ctx, final)
 	}
 }
