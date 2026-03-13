@@ -236,15 +236,16 @@ func RecordSessionDestroyed(ctx context.Context, toolID mcp.ToolID, tenantID mcp
 }
 
 // RecordSessionPassivated records a session idle passivation event.
+// Keyed by tool_id only; tenant_id is not available from the GoAkt
+// ActorPassivated event stream where this is recorded.
 // No-op when metrics are not registered.
-func RecordSessionPassivated(ctx context.Context, toolID mcp.ToolID, tenantID mcp.TenantID) {
+func RecordSessionPassivated(ctx context.Context, toolID mcp.ToolID) {
 	m := metricsPtr.Load()
 	if m == nil {
 		return
 	}
 	m.sessionPassivated.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("tool_id", string(toolID)),
-		attribute.String("tenant_id", string(tenantID)),
 	))
 }
 

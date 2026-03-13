@@ -908,3 +908,42 @@ func TestGatewayStop(t *testing.T) {
 		require.NoError(t, gw.Stop(ctx)) // second stop must not error
 	})
 }
+
+func TestToolIDFromPassivatedAddress(t *testing.T) {
+	tests := []struct {
+		name     string
+		address  string
+		expected mcp.ToolID
+	}{
+		{
+			name:     "valid session address",
+			address:  "goakt://goakt-mcp@127.0.0.1:0/supervisor-my-tool/session-t1-c1-my-tool",
+			expected: mcp.ToolID("my-tool"),
+		},
+		{
+			name:     "non-session actor",
+			address:  "goakt://goakt-mcp@127.0.0.1:0/registrar/supervisor-my-tool",
+			expected: "",
+		},
+		{
+			name:     "no slash",
+			address:  "session-t1-c1-tool",
+			expected: "",
+		},
+		{
+			name:     "empty address",
+			address:  "",
+			expected: "",
+		},
+		{
+			name:     "single path component",
+			address:  "goakt://goakt-mcp@127.0.0.1:0/session-t1-c1-tool",
+			expected: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, toolIDFromPassivatedAddress(tt.address))
+		})
+	}
+}

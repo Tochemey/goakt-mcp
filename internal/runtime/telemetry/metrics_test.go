@@ -44,7 +44,7 @@ func TestRecordFunctions_NoPanicWhenUnregistered(t *testing.T) {
 	assert.NotPanics(t, func() { RecordCircuitState(ctx, mcp.ToolID("tool1"), "open") })
 	assert.NotPanics(t, func() { RecordSessionCreated(ctx, mcp.ToolID("tool1"), mcp.TenantID("tenant1")) })
 	assert.NotPanics(t, func() { RecordSessionDestroyed(ctx, mcp.ToolID("tool1"), mcp.TenantID("tenant1")) })
-	assert.NotPanics(t, func() { RecordSessionPassivated(ctx, mcp.ToolID("tool1"), mcp.TenantID("tenant1")) })
+	assert.NotPanics(t, func() { RecordSessionPassivated(ctx, mcp.ToolID("tool1")) })
 	assert.NotPanics(t, func() { RecordCredentialCacheResult(ctx, mcp.ToolID("tool1"), mcp.TenantID("tenant1"), true) })
 	assert.NotPanics(t, func() { RecordPolicyEvaluationLatency(ctx, mcp.TenantID("tenant1"), "allow", 1.5) })
 }
@@ -106,7 +106,7 @@ func TestRecordFunctions_WithRegisteredMetrics(t *testing.T) {
 
 	t.Run("RecordSessionPassivated does not panic when registered", func(t *testing.T) {
 		assert.NotPanics(t, func() {
-			RecordSessionPassivated(ctx, mcp.ToolID("tool-a"), mcp.TenantID("tenant-1"))
+			RecordSessionPassivated(ctx, mcp.ToolID("tool-a"))
 		})
 	})
 

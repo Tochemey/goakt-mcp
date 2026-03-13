@@ -370,9 +370,13 @@ func (x *router) evaluatePolicy(goCtx context.Context, inv *mcp.Invocation, tool
 	}
 
 	result, ok := resp.(*policy.EvaluateResult)
-	if !ok || !result.Result.Allowed() {
+	if !ok {
+		telemetry.RecordPolicyEvaluationLatency(goCtx, tenantID, "error", policyLatencyMs)
+		return mcp.NewRuntimeError(mcp.ErrCodeInternal, "invalid policy response type")
+	}
+	if !result.Result.Allowed() {
 		telemetry.RecordPolicyEvaluationLatency(goCtx, tenantID, "deny", policyLatencyMs)
-		if result != nil && result.Result.Err != nil {
+		if result.Result.Err != nil {
 			return result.Result.Err
 		}
 		return mcp.NewRuntimeError(mcp.ErrCodePolicyDenied, "policy evaluation failed")

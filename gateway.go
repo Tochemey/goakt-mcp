@@ -26,9 +26,12 @@ package goaktmcp
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync"
+	"time"
 
 	goaktactor "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/eventstream"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 	"github.com/tochemey/goakt/v4/remote"
 	gtls "github.com/tochemey/goakt/v4/tls"
@@ -65,6 +68,10 @@ type Gateway struct {
 	mu       sync.RWMutex
 	system   goaktactor.ActorSystem
 	draining bool
+
+	// eventSub receives actor system events (e.g. ActorPassivated) for metrics.
+	eventSub    eventstream.Subscriber
+	eventStopCh chan struct{}
 
 	// this is only set for testing and is used to inject a pre-started actor system, so Start doesn't create a new one
 	testSystem goaktactor.ActorSystem
@@ -153,6 +160,11 @@ func (g *Gateway) Start(ctx context.Context) error {
 	g.mu.Lock()
 	g.system = system
 	g.mu.Unlock()
+
+	if g.metrics {
+		g.startEventConsumer(system)
+	}
+
 	return nil
 }
 
@@ -170,6 +182,8 @@ func (g *Gateway) Stop(ctx context.Context) error {
 	g.draining = true
 	system := g.system
 	g.mu.Unlock()
+
+	g.stopEventConsumer(system)
 
 	if err := system.Stop(ctx); err != nil {
 		g.mu.Lock()
@@ -266,6 +280,103 @@ func (g *Gateway) SSEHandler(cfg mcp.IngressConfig) (http.Handler, error) {
 // tool discovery happens lazily per session.
 func (g *Gateway) WSHandler(cfg mcp.IngressConfig, wsCfg *mcp.WSConfig) (http.Handler, error) {
 	return ingressws.New(g, cfg, wsCfg)
+}
+
+// startEventConsumer subscribes to the actor system event stream and starts a
+// background goroutine that polls for ActorPassivated events. This is the only
+// reliable way to detect session passivation: GoAkt publishes ActorPassivated
+// exclusively when the passivation strategy fires, not on explicit stops.
+func (g *Gateway) startEventConsumer(system goaktactor.ActorSystem) {
+	sub, err := system.Subscribe()
+	if err != nil {
+		g.logger.Warnf("failed to subscribe to event stream for passivation metrics: %v", err)
+		return
+	}
+
+	stopCh := make(chan struct{})
+
+	g.mu.Lock()
+	g.eventSub = sub
+	g.eventStopCh = stopCh
+	g.mu.Unlock()
+
+	go g.consumePassivationEvents(sub, stopCh)
+}
+
+// stopEventConsumer signals the background event consumer to stop and
+// unsubscribes from the actor system event stream.
+func (g *Gateway) stopEventConsumer(system goaktactor.ActorSystem) {
+	g.mu.Lock()
+	sub := g.eventSub
+	stopCh := g.eventStopCh
+	g.eventSub = nil
+	g.eventStopCh = nil
+	g.mu.Unlock()
+
+	if stopCh != nil {
+		close(stopCh)
+	}
+	if sub != nil {
+		_ = system.Unsubscribe(sub)
+	}
+}
+
+// consumePassivationEvents periodically drains the event stream subscriber and
+// records a passivation metric for each ActorPassivated event whose address
+// identifies a session actor. The tool ID is extracted from the supervisor
+// parent component of the actor address.
+func (g *Gateway) consumePassivationEvents(sub eventstream.Subscriber, stopCh <-chan struct{}) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stopCh:
+			return
+		case <-ticker.C:
+			for msg := range sub.Iterator() {
+				ev, ok := msg.Payload().(*goaktactor.ActorPassivated)
+				if !ok {
+					continue
+				}
+				toolID := toolIDFromPassivatedAddress(ev.Address())
+				if !toolID.IsZero() {
+					telemetry.RecordSessionPassivated(context.Background(), toolID)
+				}
+			}
+		}
+	}
+}
+
+// toolIDFromPassivatedAddress extracts the tool ID from a passivated session's
+// address. Session addresses follow the pattern:
+//
+//	goakt://system@host:port/supervisor-{toolID}/session-...
+//
+// The function finds the supervisor parent component and strips the "supervisor-"
+// prefix to recover the tool ID. Returns a zero ToolID when the address does not
+// match a session actor.
+func toolIDFromPassivatedAddress(address string) mcp.ToolID {
+	// Only session actors have passivation enabled; verify the name component.
+	lastSlash := strings.LastIndex(address, "/")
+	if lastSlash < 0 {
+		return ""
+	}
+	name := address[lastSlash+1:]
+	if !strings.HasPrefix(name, "session-") {
+		return ""
+	}
+
+	// Extract the parent path component (supervisor name).
+	parent := address[:lastSlash]
+	parentSlash := strings.LastIndex(parent, "/")
+	if parentSlash < 0 {
+		return ""
+	}
+	supervisorName := parent[parentSlash+1:]
+	if !strings.HasPrefix(supervisorName, "supervisor-") {
+		return ""
+	}
+	return mcp.ToolIDFromSupervisorName(supervisorName)
 }
 
 func (g *Gateway) remoteOptions() []remote.Option {
