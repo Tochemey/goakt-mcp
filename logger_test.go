@@ -526,6 +526,15 @@ func TestLoggerWriterTrimsNewline(t *testing.T) {
 	assert.False(t, strings.HasSuffix(spy.lastMsg, "\n"))
 }
 
+func TestLoggerWriterTrimsCRLF(t *testing.T) {
+	spy := &spyLogger{}
+	w := &loggerWriter{inner: spy}
+	n, err := w.Write([]byte("hello\r\n"))
+	require.NoError(t, err)
+	assert.Equal(t, 7, n)
+	assert.Equal(t, "hello", spy.lastMsg)
+}
+
 func TestLoggerWriterNoNewline(t *testing.T) {
 	spy := &spyLogger{}
 	w := &loggerWriter{inner: spy}

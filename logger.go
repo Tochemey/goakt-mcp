@@ -248,6 +248,6 @@ type loggerWriter struct {
 }
 
 func (w *loggerWriter) Write(p []byte) (int, error) {
-	w.inner.Info(strings.TrimRight(string(p), "\n"))
+	w.inner.Info(strings.TrimRight(string(p), "\r\n"))
 	return len(p), nil
 }
