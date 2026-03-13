@@ -34,6 +34,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
+	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
 // credentialCacheEntry holds cached credentials with expiration.
@@ -121,11 +122,13 @@ func (x *credentialBroker) handleResolve(ctx *goaktactor.ReceiveContext, msg *ru
 	if cachingEnabled {
 		if entry, ok := x.cache[cacheKey]; ok && time.Now().Before(entry.expiresAt) {
 			entry.lastAccess = time.Now()
+			telemetry.RecordCredentialCacheResult(ctx.Context(), msg.ToolID, msg.TenantID, true)
 			credsCopy := make(map[string]string, len(entry.creds))
 			maps.Copy(credsCopy, entry.creds)
 			ctx.Response(&runtime.ResolveResult{Credentials: &mcp.Credentials{Values: credsCopy}})
 			return
 		}
+		telemetry.RecordCredentialCacheResult(ctx.Context(), msg.ToolID, msg.TenantID, false)
 	}
 
 	goCtx := ctx.Context()

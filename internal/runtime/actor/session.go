@@ -67,13 +67,14 @@ import (
 //
 // All fields are unexported to enforce actor immutability rules.
 type session struct {
-	tenantID    mcp.TenantID
-	clientID    mcp.ClientID
-	toolID      mcp.ToolID
-	tool        mcp.Tool
-	executor    mcp.ToolExecutor
-	credentials map[string]string
-	logger      goaktlog.Logger
+	tenantID         mcp.TenantID
+	clientID         mcp.ClientID
+	toolID           mcp.ToolID
+	tool             mcp.Tool
+	executor         mcp.ToolExecutor
+	credentials      map[string]string
+	logger           goaktlog.Logger
+	invocationActive bool
 }
 
 var _ goaktactor.Actor = (*session)(nil)
@@ -104,6 +105,7 @@ func (x *session) PreStart(ctx *goaktactor.Context) error {
 		return mcp.NewRuntimeError(mcp.ErrCodeInternal, "session dependency not found")
 	}
 
+	telemetry.RecordSessionCreated(ctx.Context(), x.toolID, x.tenantID)
 	x.logger.Infof("actor session:%s-%s-%s started", x.tenantID, x.clientID, x.toolID)
 	return nil
 }
@@ -134,6 +136,12 @@ func (x *session) PostStop(ctx *goaktactor.Context) error {
 	if x.executor != nil {
 		_ = x.executor.Close()
 	}
+
+	telemetry.RecordSessionDestroyed(ctx.Context(), x.toolID, x.tenantID)
+	if !x.invocationActive {
+		telemetry.RecordSessionPassivated(ctx.Context(), x.toolID, x.tenantID)
+	}
+
 	x.logger.Infof("actor session:%s-%s-%s stopped", x.tenantID, x.clientID, x.toolID)
 	return nil
 }
@@ -167,6 +175,7 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 
 	// Pause passivation during invocation so we are not passivated while
 	// waiting for transport or during processing.
+	x.invocationActive = true
 	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.PausePassivation{})
 
 	start := time.Now()
@@ -256,6 +265,7 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 	x.reportOutcomeToSupervisor(ctx, result)
 
 	// Resume passivation now that invocation is complete.
+	x.invocationActive = false
 	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.ResumePassivation{})
 }
 
@@ -273,8 +283,10 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 		return
 	}
 
+	x.invocationActive = true
 	_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.PausePassivation{})
 	defer func() {
+		x.invocationActive = false
 		_ = goaktactor.Tell(ctx.Context(), ctx.Self(), &goaktactor.ResumePassivation{})
 	}()
 

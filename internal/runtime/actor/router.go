@@ -361,18 +361,23 @@ func (x *router) evaluatePolicy(goCtx context.Context, inv *mcp.Invocation, tool
 		ActiveSessionCount: activeSessions,
 	}
 
+	policyStart := time.Now()
 	resp, err := goaktactor.Ask(goCtx, x.policyMaker, &policy.EvaluateRequest{Input: in}, x.requestTimeout)
+	policyLatencyMs := float64(time.Since(policyStart).Microseconds()) / 1000.0
 	if err != nil {
+		telemetry.RecordPolicyEvaluationLatency(goCtx, tenantID, "error", policyLatencyMs)
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "policy evaluation failed", err)
 	}
 
 	result, ok := resp.(*policy.EvaluateResult)
 	if !ok || !result.Result.Allowed() {
+		telemetry.RecordPolicyEvaluationLatency(goCtx, tenantID, "deny", policyLatencyMs)
 		if result != nil && result.Result.Err != nil {
 			return result.Result.Err
 		}
 		return mcp.NewRuntimeError(mcp.ErrCodePolicyDenied, "policy evaluation failed")
 	}
+	telemetry.RecordPolicyEvaluationLatency(goCtx, tenantID, "allow", policyLatencyMs)
 	return nil
 }
 
