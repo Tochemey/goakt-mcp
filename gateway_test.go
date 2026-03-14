@@ -723,6 +723,7 @@ func TestGatewayAPI_ClusterMode(t *testing.T) {
 		cfg.Cluster.DiscoveryProvider = &noopDiscovery{}
 		// Use high ports to avoid conflicts with other processes
 		cfg.Cluster.PeersPort = freePort(t)
+		cfg.Cluster.DiscoveryPort = freePort(t)
 		cfg.Cluster.RemotingPort = freePort(t)
 		cfg.Tools = []mcp.Tool{
 			{
@@ -735,7 +736,7 @@ func TestGatewayAPI_ClusterMode(t *testing.T) {
 		gw, err := New(cfg)
 		require.NoError(t, err)
 		if err := gw.Start(ctx); err != nil {
-			t.Skipf("cluster gateway start failed (dnssd may be unavailable): %v", err)
+			t.Skipf("cluster gateway start failed (discovery provider may be unavailable): %v", err)
 		}
 		waitForActors()
 		time.Sleep(2 * time.Second) // allow cluster to form and singleton to be elected
