@@ -39,8 +39,6 @@ import (
 type Config = mcp.Config
 type RuntimeConfig = mcp.RuntimeConfig
 type ClusterConfig = mcp.ClusterConfig
-type KubernetesDiscoveryConfig = mcp.KubernetesDiscoveryConfig
-type DNSSDDiscoveryConfig = mcp.DNSSDDiscoveryConfig
 type TelemetryConfig = mcp.TelemetryConfig
 type AuditConfig = mcp.AuditConfig
 type CredentialsConfig = mcp.CredentialsConfig

@@ -166,8 +166,8 @@ func (x *GatewayManager) spawnRegistrar(ctx *goaktactor.ReceiveContext) *goaktac
 		sys := ctx.Self().ActorSystem()
 
 		var opts []goaktactor.ClusterSingletonOption
-		if x.config.Cluster.SingletonRole != "" {
-			opts = append(opts, goaktactor.WithSingletonRole(x.config.Cluster.SingletonRole))
+		if x.config.Cluster.RegistrarRole != "" {
+			opts = append(opts, goaktactor.WithSingletonRole(x.config.Cluster.RegistrarRole))
 		}
 
 		pid, err := sys.SpawnSingleton(ctx.Context(), mcp.ActorNameRegistrar, newRegistrar(), opts...)

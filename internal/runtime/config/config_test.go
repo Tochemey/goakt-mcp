@@ -24,6 +24,7 @@
 package config
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -58,27 +59,28 @@ func TestRuntimeConfig(t *testing.T) {
 	assert.Equal(t, 10*time.Second, cfg.StartupTimeout)
 }
 
+// testDiscoveryProvider is a minimal DiscoveryProvider for config tests.
+type testDiscoveryProvider struct{}
+
+func (t *testDiscoveryProvider) ID() string                                        { return "test" }
+func (t *testDiscoveryProvider) Start(_ context.Context) error                     { return nil }
+func (t *testDiscoveryProvider) DiscoverPeers(_ context.Context) ([]string, error) { return nil, nil }
+func (t *testDiscoveryProvider) Stop(_ context.Context) error                      { return nil }
+
 func TestClusterConfig(t *testing.T) {
 	cfg := ClusterConfig{
-		Enabled:       true,
-		Discovery:     "kubernetes",
-		SingletonRole: "control-plane",
-		Kubernetes: KubernetesDiscoveryConfig{
-			Namespace:         "default",
-			DiscoveryPortName: "gossip",
-			RemotingPortName:  "remoting",
-			PeersPortName:     "cluster",
-			PodLabels:         map[string]string{"app": "goakt-mcp"},
-		},
+		Enabled:           true,
+		DiscoveryProvider: &testDiscoveryProvider{},
+		RegistrarRole:     "control-plane",
+		PeersPort:         15000,
+		RemotingPort:      15001,
 	}
 	assert.True(t, cfg.Enabled)
-	assert.Equal(t, "kubernetes", cfg.Discovery)
-	assert.Equal(t, "control-plane", cfg.SingletonRole)
-	assert.Equal(t, "default", cfg.Kubernetes.Namespace)
-	assert.Equal(t, "gossip", cfg.Kubernetes.DiscoveryPortName)
-	assert.Equal(t, "remoting", cfg.Kubernetes.RemotingPortName)
-	assert.Equal(t, "cluster", cfg.Kubernetes.PeersPortName)
-	assert.Equal(t, map[string]string{"app": "goakt-mcp"}, cfg.Kubernetes.PodLabels)
+	assert.NotNil(t, cfg.DiscoveryProvider)
+	assert.Equal(t, "test", cfg.DiscoveryProvider.ID())
+	assert.Equal(t, "control-plane", cfg.RegistrarRole)
+	assert.Equal(t, 15000, cfg.PeersPort)
+	assert.Equal(t, 15001, cfg.RemotingPort)
 }
 
 func TestTelemetryConfig(t *testing.T) {
@@ -293,16 +295,9 @@ func TestFullConfig(t *testing.T) {
 			StartupTimeout:     DefaultStartupTimeout,
 		},
 		Cluster: ClusterConfig{
-			Enabled:       true,
-			Discovery:     "kubernetes",
-			SingletonRole: "control-plane",
-			Kubernetes: KubernetesDiscoveryConfig{
-				Namespace:         "default",
-				DiscoveryPortName: "gossip",
-				RemotingPortName:  "remoting",
-				PeersPortName:     "cluster",
-				PodLabels:         map[string]string{"app": "goakt-mcp"},
-			},
+			Enabled:           true,
+			DiscoveryProvider: &testDiscoveryProvider{},
+			RegistrarRole:     "control-plane",
 		},
 		Telemetry: TelemetryConfig{OTLPEndpoint: "http://otel-collector:4318"},
 		Tenants: []TenantConfig{

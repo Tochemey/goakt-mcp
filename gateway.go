@@ -108,8 +108,8 @@ func New(cfg mcp.Config, opts ...Option) (*Gateway, error) {
 // Start creates and starts the GoAkt actor system, then spawns GatewayManager
 // as the runtime composition root.
 //
-// When Cluster.Enabled is true, Start validates that discovery is configured
-// (kubernetes or dnssd with valid config). If not, Start returns an error.
+// When Cluster.Enabled is true, Start validates that a DiscoveryProvider is
+// configured. If not, Start returns an error.
 //
 // Start must not be called more than once without an intervening Stop.
 func (g *Gateway) Start(ctx context.Context) error {
@@ -143,7 +143,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 		}
 	}
 
-	system, err := goaktactor.NewActorSystem(gatewayActorSystemName, g.actorSystemOptions(tlsInfo)...)
+	system, err := goaktactor.NewActorSystem(gatewayActorSystemName, g.actorSystemOptions(ctx, tlsInfo)...)
 	if err != nil {
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to create actor system", err)
 	}
@@ -230,7 +230,7 @@ func (g *Gateway) requireRunning() (goaktactor.ActorSystem, error) {
 func (g *Gateway) validateClusterConfig() error {
 	if g.config.Cluster.Enabled && !cluster.IsClusterConfigured(g.config) {
 		return mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest,
-			"cluster is enabled but discovery is not configured: set Discovery to \"kubernetes\" or \"dnssd\" with valid config")
+			"cluster is enabled but no DiscoveryProvider is configured")
 	}
 	return nil
 }
@@ -452,7 +452,7 @@ func (g *Gateway) remoteOptions() []remote.Option {
 	return opts
 }
 
-func (g *Gateway) actorSystemOptions(tlsInfo *gtls.Info) []goaktactor.Option {
+func (g *Gateway) actorSystemOptions(ctx context.Context, tlsInfo *gtls.Info) []goaktactor.Option {
 	execFactory := egress.NewCompositeExecutorFactory(g.config.Runtime.StartupTimeout, nil)
 	schemaFetcher := egress.NewCompositeSchemaFetcher(g.config.Runtime.StartupTimeout, nil)
 	opts := []goaktactor.Option{
@@ -470,7 +470,7 @@ func (g *Gateway) actorSystemOptions(tlsInfo *gtls.Info) []goaktactor.Option {
 		opts = append(opts, goaktactor.WithTLS(tlsInfo))
 	}
 
-	if clusterOpts := cluster.BuildOptions(g.config, g.remoteOptions(), actor.NewRegistrar()); len(clusterOpts) > 0 {
+	if clusterOpts := cluster.BuildOptions(ctx, g.config, g.remoteOptions(), actor.NewRegistrar()); len(clusterOpts) > 0 {
 		opts = append(opts, clusterOpts...)
 	}
 	return opts

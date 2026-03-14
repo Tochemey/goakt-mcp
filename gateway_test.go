@@ -52,6 +52,16 @@ func (r *fixedIdentityResolver) ResolveIdentity(_ *http.Request) (mcp.TenantID, 
 	return r.tenantID, r.clientID, nil
 }
 
+// noopDiscovery is a test DiscoveryProvider that returns a static peer list.
+type noopDiscovery struct {
+	peers []string
+}
+
+func (n *noopDiscovery) ID() string                                        { return "noop" }
+func (n *noopDiscovery) Start(_ context.Context) error                     { return nil }
+func (n *noopDiscovery) DiscoverPeers(_ context.Context) ([]string, error) { return n.peers, nil }
+func (n *noopDiscovery) Stop(_ context.Context) error                      { return nil }
+
 // freePort returns an available port for use in tests.
 func freePort(t *testing.T) int {
 	t.Helper()
@@ -200,11 +210,9 @@ func TestGatewayStartStop(t *testing.T) {
 		require.NoError(t, gw.Stop(ctx))
 	})
 
-	t.Run("Start returns error when Cluster.Enabled but discovery not configured", func(t *testing.T) {
+	t.Run("Start returns error when Cluster.Enabled but no DiscoveryProvider", func(t *testing.T) {
 		cfg := testConfig()
 		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "kubernetes"
-		cfg.Cluster.Kubernetes = mcp.KubernetesDiscoveryConfig{}
 
 		gw, err := New(cfg)
 		require.NoError(t, err)
@@ -214,30 +222,13 @@ func TestGatewayStartStop(t *testing.T) {
 		var rErr *mcp.RuntimeError
 		require.ErrorAs(t, err, &rErr)
 		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
-		assert.Contains(t, err.Error(), "cluster is enabled but discovery is not configured")
-	})
-
-	t.Run("Start returns error when Cluster.Enabled with dnssd but empty DomainName", func(t *testing.T) {
-		cfg := testConfig()
-		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = mcp.DNSSDDiscoveryConfig{DomainName: ""}
-
-		gw, err := New(cfg)
-		require.NoError(t, err)
-
-		err = gw.Start(ctx)
-		require.Error(t, err)
-		var rErr *mcp.RuntimeError
-		require.ErrorAs(t, err, &rErr)
-		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
+		assert.Contains(t, err.Error(), "no DiscoveryProvider is configured")
 	})
 
 	t.Run("Start returns error when Cluster.TLS has invalid cert paths", func(t *testing.T) {
 		cfg := testConfig()
 		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = mcp.DNSSDDiscoveryConfig{DomainName: "local."}
+		cfg.Cluster.DiscoveryProvider = &noopDiscovery{}
 		cfg.Cluster.TLS = &mcp.RemotingTLSConfig{
 			CertFile: "/nonexistent/cert.pem",
 			KeyFile:  "/nonexistent/key.pem",
@@ -729,8 +720,7 @@ func TestGatewayAPI_ClusterMode(t *testing.T) {
 	t.Run("API with cluster mode uses system-wide Registrar and Router", func(t *testing.T) {
 		cfg := testConfig()
 		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = mcp.DNSSDDiscoveryConfig{DomainName: "local."}
+		cfg.Cluster.DiscoveryProvider = &noopDiscovery{}
 		// Use high ports to avoid conflicts with other processes
 		cfg.Cluster.PeersPort = freePort(t)
 		cfg.Cluster.RemotingPort = freePort(t)

@@ -45,10 +45,10 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
-// validateCluster ensures a discovery method is specified when clustering is on.
+// validateCluster ensures a discovery provider is set when clustering is on.
 func validateCluster(c *ClusterConfig) error {
-	if c.Enabled && c.Discovery == "" {
-		return fmt.Errorf("cluster.discovery is required when cluster is enabled")
+	if c.Enabled && c.DiscoveryProvider == nil {
+		return fmt.Errorf("cluster.discovery_provider is required when cluster is enabled")
 	}
 	return nil
 }

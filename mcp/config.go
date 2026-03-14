@@ -97,32 +97,34 @@ type RuntimeConfig struct {
 
 // ClusterConfig holds multi-node operation settings.
 //
-// Supported discovery backends:
-//   - "kubernetes": for production and cloud platforms (in-cluster pod discovery)
-//   - "dnssd": for local development (DNS-based service discovery)
+// When Enabled is true a DiscoveryProvider must be set so that the cluster
+// subsystem can locate peer nodes. The provider is a user-supplied
+// implementation of the DiscoveryProvider interface — the gateway does not
+// embed any built-in discovery backends.
 type ClusterConfig struct {
 	// Enabled activates multi-node cluster mode. When false the gateway runs
 	// in single-node mode with no distributed coordination.
 	Enabled bool
-	// Discovery selects the peer discovery backend: "kubernetes" or "dnssd".
+	// DiscoveryProvider is the peer discovery implementation.
 	// Required when Enabled is true.
-	Discovery string
-	// SingletonRole is the cluster role name used to elect the singleton
-	// GatewayManager (registrar, router, policy). Only one node in the cluster
-	// holds this role at a time.
-	SingletonRole string
+	DiscoveryProvider DiscoveryProvider
+	// RegistrarRole is the cluster role that determines which nodes are
+	// eligible to host the registrar singleton. When empty, all nodes in the
+	// cluster are eligible.
+	RegistrarRole string
+	// DiscoveryPort is the TCP port the DiscoveryProvider advertises so that
+	// peers can locate this node. Zero means use the default (15000).
+	DiscoveryPort int
 	// PeersPort is the TCP port used for memberlist (gossip) communication
-	// between cluster nodes.
+	// between cluster nodes. Zero means use the default (15000).
 	PeersPort int
 	// RemotingPort is the TCP port used for GoAkt remoting (actor message
-	// passing) between cluster nodes.
+	// passing) between cluster nodes. Zero means use the default (15001).
 	RemotingPort int
 	// TLS configures TLS for remoting and cluster communication.
 	// When set, both the remoting server and client use TLS; cluster memberlist
 	// and remoting traffic are encrypted. All nodes must share the same root CA.
-	TLS        *RemotingTLSConfig
-	Kubernetes KubernetesDiscoveryConfig
-	DNSSD      DNSSDDiscoveryConfig
+	TLS *RemotingTLSConfig
 }
 
 // RemotingTLSConfig holds TLS settings for GoAkt remoting and cluster.
@@ -147,21 +149,6 @@ type RemotingTLSConfig struct {
 	ClientKeyFile  string
 	// InsecureSkipVerify skips server cert verification. Use only for dev/testing.
 	InsecureSkipVerify bool
-}
-
-// KubernetesDiscoveryConfig holds settings for Kubernetes pod discovery.
-type KubernetesDiscoveryConfig struct {
-	Namespace         string
-	DiscoveryPortName string
-	RemotingPortName  string
-	PeersPortName     string
-	PodLabels         map[string]string
-}
-
-// DNSSDDiscoveryConfig holds settings for DNS-based service discovery.
-type DNSSDDiscoveryConfig struct {
-	DomainName string
-	IPv6       bool
 }
 
 // TelemetryConfig holds OpenTelemetry export settings.
