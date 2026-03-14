@@ -33,8 +33,9 @@ import (
 )
 
 // discoveryAdapter wraps an mcp.DiscoveryProvider to satisfy GoAkt's
-// discovery.Provider interface. The caller-supplied context is derived into a
-// cancellable child and passed to the provider on every call.
+// discovery.Provider interface. The adapter owns a background-derived context
+// that is cancelled on Close, keeping the discovery lifecycle independent of
+// any caller-scoped context.
 type discoveryAdapter struct {
 	provider mcp.DiscoveryProvider
 	ctx      context.Context

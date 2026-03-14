@@ -33,6 +33,7 @@ import (
 	"github.com/tochemey/goakt/v4/remote"
 
 	runtimeConfig "github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 const (
@@ -45,7 +46,7 @@ const (
 // DiscoveryProvider is set. Use this to decide whether to use SpawnSingleton
 // (cluster) vs Spawn (single-node) for actors like the registry.
 func IsClusterConfigured(config runtimeConfig.Config) bool {
-	return config.Cluster.Enabled && config.Cluster.DiscoveryProvider != nil
+	return config.Cluster.Enabled && !mcp.IsNilDiscoveryProvider(config.Cluster.DiscoveryProvider)
 }
 
 // BuildOptions returns actor system options for cluster mode when enabled.
@@ -83,7 +84,7 @@ func BuildOptions(config runtimeConfig.Config, remoteOpts []remote.Option, kinds
 	remoteCfg := remote.NewConfig("0.0.0.0", remotingPort, remoteOpts...)
 	opts = append(opts, goaktactor.WithRemote(remoteCfg))
 
-	if clConfig.DiscoveryProvider == nil {
+	if mcp.IsNilDiscoveryProvider(clConfig.DiscoveryProvider) {
 		return opts
 	}
 

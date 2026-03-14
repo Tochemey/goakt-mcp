@@ -23,7 +23,10 @@
 
 package mcp
 
-import "context"
+import (
+	"context"
+	"reflect"
+)
 
 // DiscoveryProvider is the abstraction for cluster peer discovery.
 //
@@ -50,4 +53,15 @@ type DiscoveryProvider interface {
 	// Called once during gateway shutdown. No further calls to DiscoverPeers
 	// will be made after Stop returns.
 	Stop(ctx context.Context) error
+}
+
+// IsNilDiscoveryProvider returns true when p is nil or is an interface wrapping
+// a nil pointer (typed-nil). This prevents panics when a caller assigns a nil
+// concrete pointer to the DiscoveryProvider interface field.
+func IsNilDiscoveryProvider(p DiscoveryProvider) bool {
+	if p == nil {
+		return true
+	}
+	v := reflect.ValueOf(p)
+	return v.Kind() == reflect.Ptr && v.IsNil()
 }

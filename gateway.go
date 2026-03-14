@@ -228,7 +228,7 @@ func (g *Gateway) requireRunning() (goaktactor.ActorSystem, error) {
 }
 
 func (g *Gateway) validateClusterConfig() error {
-	if g.config.Cluster.Enabled && !cluster.IsClusterConfigured(g.config) {
+	if g.config.Cluster.Enabled && mcp.IsNilDiscoveryProvider(g.config.Cluster.DiscoveryProvider) {
 		return mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest,
 			"cluster is enabled but no DiscoveryProvider is configured")
 	}
