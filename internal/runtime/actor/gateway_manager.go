@@ -160,14 +160,14 @@ func (x *GatewayManager) spawnCredentialBroker(ctx *goaktactor.ReceiveContext) *
 }
 
 // spawnRegistrar spawns the Registry Actor. When cluster is configured (enabled with
-// valid kubernetes or dnssd discovery), uses SpawnSingleton so the registry is a cluster singleton.
+// a user-supplied DiscoveryProvider), uses SpawnSingleton so the registry is a cluster singleton.
 func (x *GatewayManager) spawnRegistrar(ctx *goaktactor.ReceiveContext) *goaktactor.PID {
 	if cluster.IsClusterConfigured(x.config) {
 		sys := ctx.Self().ActorSystem()
 
 		var opts []goaktactor.ClusterSingletonOption
-		if x.config.Cluster.SingletonRole != "" {
-			opts = append(opts, goaktactor.WithSingletonRole(x.config.Cluster.SingletonRole))
+		if x.config.Cluster.RegistrarRole != "" {
+			opts = append(opts, goaktactor.WithSingletonRole(x.config.Cluster.RegistrarRole))
 		}
 
 		pid, err := sys.SpawnSingleton(ctx.Context(), mcp.ActorNameRegistrar, newRegistrar(), opts...)

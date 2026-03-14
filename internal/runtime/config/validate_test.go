@@ -70,7 +70,7 @@ func TestValidate(t *testing.T) {
 			cfg: Config{
 				Cluster: ClusterConfig{Enabled: true},
 			},
-			wantErr: "cluster.discovery is required",
+			wantErr: "cluster.discovery_provider is required",
 		},
 		{
 			name: "tenant with empty id",

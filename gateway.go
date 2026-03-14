@@ -108,8 +108,8 @@ func New(cfg mcp.Config, opts ...Option) (*Gateway, error) {
 // Start creates and starts the GoAkt actor system, then spawns GatewayManager
 // as the runtime composition root.
 //
-// When Cluster.Enabled is true, Start validates that discovery is configured
-// (kubernetes or dnssd with valid config). If not, Start returns an error.
+// When Cluster.Enabled is true, Start validates that a DiscoveryProvider is
+// configured. If not, Start returns an error.
 //
 // Start must not be called more than once without an intervening Stop.
 func (g *Gateway) Start(ctx context.Context) error {
@@ -228,9 +228,9 @@ func (g *Gateway) requireRunning() (goaktactor.ActorSystem, error) {
 }
 
 func (g *Gateway) validateClusterConfig() error {
-	if g.config.Cluster.Enabled && !cluster.IsClusterConfigured(g.config) {
+	if g.config.Cluster.Enabled && mcp.IsNilDiscoveryProvider(g.config.Cluster.DiscoveryProvider) {
 		return mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest,
-			"cluster is enabled but discovery is not configured: set Discovery to \"kubernetes\" or \"dnssd\" with valid config")
+			"cluster is enabled but no DiscoveryProvider is configured")
 	}
 	return nil
 }

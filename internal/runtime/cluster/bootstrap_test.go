@@ -24,84 +24,47 @@
 package cluster
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
+
+// staticDiscovery is a test implementation of mcp.DiscoveryProvider.
+type staticDiscovery struct {
+	id    string
+	peers []string
+}
+
+var _ mcp.DiscoveryProvider = (*staticDiscovery)(nil)
+
+func (s *staticDiscovery) ID() string                                        { return s.id }
+func (s *staticDiscovery) Start(_ context.Context) error                     { return nil }
+func (s *staticDiscovery) DiscoverPeers(_ context.Context) ([]string, error) { return s.peers, nil }
+func (s *staticDiscovery) Stop(_ context.Context) error                      { return nil }
 
 func TestIsClusterConfigured(t *testing.T) {
 	t.Run("returns false when Cluster.Enabled is false", func(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = false
-		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = config.DNSSDDiscoveryConfig{DomainName: "goakt-mcp.local"}
+		cfg.Cluster.DiscoveryProvider = &staticDiscovery{id: "static"}
 		assert.False(t, IsClusterConfigured(cfg))
 	})
 
-	t.Run("returns false when Discovery is unsupported", func(t *testing.T) {
+	t.Run("returns false when DiscoveryProvider is nil", func(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "consul"
 		assert.False(t, IsClusterConfigured(cfg))
 	})
 
-	t.Run("returns false when kubernetes config is nil", func(t *testing.T) {
+	t.Run("returns true when enabled with DiscoveryProvider set", func(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "kubernetes"
-		cfg.Cluster.Kubernetes = config.KubernetesDiscoveryConfig{}
-		assert.False(t, IsClusterConfigured(cfg))
-	})
-
-	t.Run("returns false when kubernetes config is incomplete", func(t *testing.T) {
-		cfg := config.Config{}
-		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "kubernetes"
-		cfg.Cluster.Kubernetes = config.KubernetesDiscoveryConfig{
-			Namespace: "default",
-			// missing DiscoveryPortName, RemotingPortName, PeersPortName, PodLabels
-		}
-		assert.False(t, IsClusterConfigured(cfg))
-	})
-
-	t.Run("returns true when enabled with valid kubernetes discovery", func(t *testing.T) {
-		cfg := config.Config{}
-		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "kubernetes"
-		cfg.Cluster.Kubernetes = config.KubernetesDiscoveryConfig{
-			Namespace:         "default",
-			DiscoveryPortName: "gossip",
-			RemotingPortName:  "remoting",
-			PeersPortName:     "cluster",
-			PodLabels:         map[string]string{"app": "goakt-mcp"},
-		}
-		assert.True(t, IsClusterConfigured(cfg))
-	})
-
-	t.Run("returns false when dnssd config is nil", func(t *testing.T) {
-		cfg := config.Config{}
-		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = config.DNSSDDiscoveryConfig{}
-		assert.False(t, IsClusterConfigured(cfg))
-	})
-
-	t.Run("returns false when dnssd DomainName is empty", func(t *testing.T) {
-		cfg := config.Config{}
-		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = config.DNSSDDiscoveryConfig{DomainName: ""}
-		assert.False(t, IsClusterConfigured(cfg))
-	})
-
-	t.Run("returns true when enabled with valid dnssd discovery", func(t *testing.T) {
-		cfg := config.Config{}
-		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = config.DNSSDDiscoveryConfig{DomainName: "goakt-mcp.default.svc.cluster.local"}
+		cfg.Cluster.DiscoveryProvider = &staticDiscovery{id: "static"}
 		assert.True(t, IsClusterConfigured(cfg))
 	})
 }
@@ -114,40 +77,40 @@ func TestBuildOptions(t *testing.T) {
 		assert.Nil(t, opts)
 	})
 
-	t.Run("returns only WithRemote when enabled but discovery invalid", func(t *testing.T) {
+	t.Run("returns only WithRemote when enabled but DiscoveryProvider is nil", func(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "kubernetes"
-		cfg.Cluster.Kubernetes = config.KubernetesDiscoveryConfig{}
 		opts := BuildOptions(cfg, nil)
 		require.NotNil(t, opts)
-		// Should have WithRemote but not WithCluster (cluster requires valid discovery)
-		assert.GreaterOrEqual(t, len(opts), 1)
+		assert.Len(t, opts, 1, "expect only WithRemote")
 	})
 
-	t.Run("returns WithRemote and WithCluster when kubernetes discovery configured", func(t *testing.T) {
+	t.Run("returns WithRemote and WithCluster when DiscoveryProvider is set", func(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "kubernetes"
-		cfg.Cluster.Kubernetes = config.KubernetesDiscoveryConfig{
-			Namespace:         "default",
-			DiscoveryPortName: "gossip",
-			RemotingPortName:  "remoting",
-			PeersPortName:     "cluster",
-			PodLabels:         map[string]string{"app": "goakt-mcp"},
-		}
+		cfg.Cluster.DiscoveryProvider = &staticDiscovery{id: "test", peers: []string{"peer1:8080"}}
 		opts := BuildOptions(cfg, nil)
 		require.NotNil(t, opts)
 		assert.GreaterOrEqual(t, len(opts), 2, "expect WithRemote and WithCluster")
 	})
 
-	t.Run("returns WithRemote and WithCluster when dnssd discovery configured", func(t *testing.T) {
+	t.Run("applies default ports when not specified", func(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
-		cfg.Cluster.Discovery = "dnssd"
-		cfg.Cluster.DNSSD = config.DNSSDDiscoveryConfig{DomainName: "goakt-mcp.local"}
+		cfg.Cluster.DiscoveryProvider = &staticDiscovery{id: "test"}
 		opts := BuildOptions(cfg, nil)
 		require.NotNil(t, opts)
-		assert.GreaterOrEqual(t, len(opts), 2, "expect WithRemote and WithCluster")
+		assert.GreaterOrEqual(t, len(opts), 2)
+	})
+
+	t.Run("uses custom ports when specified", func(t *testing.T) {
+		cfg := config.Config{}
+		cfg.Cluster.Enabled = true
+		cfg.Cluster.DiscoveryProvider = &staticDiscovery{id: "test"}
+		cfg.Cluster.PeersPort = 20000
+		cfg.Cluster.RemotingPort = 20001
+		opts := BuildOptions(cfg, nil)
+		require.NotNil(t, opts)
+		assert.GreaterOrEqual(t, len(opts), 2)
 	})
 }
