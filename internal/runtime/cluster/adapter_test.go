@@ -72,14 +72,14 @@ func (r *recordingProvider) Stop(_ context.Context) error {
 
 func TestDiscoveryAdapter_ID(t *testing.T) {
 	provider := &recordingProvider{id: "test-provider"}
-	adapter := newDiscoveryAdapter(context.Background(), provider)
+	adapter := newDiscoveryAdapter(provider)
 	assert.Equal(t, "test-provider", adapter.ID())
 }
 
 func TestDiscoveryAdapter_Initialize(t *testing.T) {
 	t.Run("delegates to Start", func(t *testing.T) {
 		provider := &recordingProvider{id: "test"}
-		adapter := newDiscoveryAdapter(context.Background(), provider)
+		adapter := newDiscoveryAdapter(provider)
 		err := adapter.Initialize()
 		require.NoError(t, err)
 		assert.True(t, provider.startCalled.Load())
@@ -87,7 +87,7 @@ func TestDiscoveryAdapter_Initialize(t *testing.T) {
 
 	t.Run("propagates Start error", func(t *testing.T) {
 		provider := &recordingProvider{id: "test", startErr: errors.New("start failed")}
-		adapter := newDiscoveryAdapter(context.Background(), provider)
+		adapter := newDiscoveryAdapter(provider)
 		err := adapter.Initialize()
 		require.Error(t, err)
 		assert.Equal(t, "start failed", err.Error())
@@ -96,14 +96,14 @@ func TestDiscoveryAdapter_Initialize(t *testing.T) {
 
 func TestDiscoveryAdapter_Register(t *testing.T) {
 	provider := &recordingProvider{id: "test"}
-	adapter := newDiscoveryAdapter(context.Background(), provider)
+	adapter := newDiscoveryAdapter(provider)
 	err := adapter.Register()
 	require.NoError(t, err)
 }
 
 func TestDiscoveryAdapter_Deregister(t *testing.T) {
 	provider := &recordingProvider{id: "test"}
-	adapter := newDiscoveryAdapter(context.Background(), provider)
+	adapter := newDiscoveryAdapter(provider)
 	err := adapter.Deregister()
 	require.NoError(t, err)
 }
@@ -111,7 +111,7 @@ func TestDiscoveryAdapter_Deregister(t *testing.T) {
 func TestDiscoveryAdapter_DiscoverPeers(t *testing.T) {
 	t.Run("returns peers from provider", func(t *testing.T) {
 		provider := &recordingProvider{id: "test", peers: []string{"host1:8080", "host2:8080"}}
-		adapter := newDiscoveryAdapter(context.Background(), provider)
+		adapter := newDiscoveryAdapter(provider)
 		peers, err := adapter.DiscoverPeers()
 		require.NoError(t, err)
 		assert.Equal(t, []string{"host1:8080", "host2:8080"}, peers)
@@ -120,7 +120,7 @@ func TestDiscoveryAdapter_DiscoverPeers(t *testing.T) {
 
 	t.Run("propagates discover error", func(t *testing.T) {
 		provider := &recordingProvider{id: "test", discoverErr: errors.New("network error")}
-		adapter := newDiscoveryAdapter(context.Background(), provider)
+		adapter := newDiscoveryAdapter(provider)
 		_, err := adapter.DiscoverPeers()
 		require.Error(t, err)
 		assert.Equal(t, "network error", err.Error())
@@ -130,7 +130,7 @@ func TestDiscoveryAdapter_DiscoverPeers(t *testing.T) {
 func TestDiscoveryAdapter_Close(t *testing.T) {
 	t.Run("calls Stop and cancels context", func(t *testing.T) {
 		provider := &recordingProvider{id: "test"}
-		adapter := newDiscoveryAdapter(context.Background(), provider)
+		adapter := newDiscoveryAdapter(provider)
 
 		// Initialize first to capture the context
 		_ = adapter.Initialize()
@@ -146,7 +146,7 @@ func TestDiscoveryAdapter_Close(t *testing.T) {
 
 	t.Run("propagates Stop error", func(t *testing.T) {
 		provider := &recordingProvider{id: "test", stopErr: errors.New("stop failed")}
-		adapter := newDiscoveryAdapter(context.Background(), provider)
+		adapter := newDiscoveryAdapter(provider)
 		err := adapter.Close()
 		require.Error(t, err)
 		assert.Equal(t, "stop failed", err.Error())
@@ -155,7 +155,7 @@ func TestDiscoveryAdapter_Close(t *testing.T) {
 
 func TestDiscoveryAdapter_ContextPropagation(t *testing.T) {
 	provider := &recordingProvider{id: "test", peers: []string{"peer:8080"}}
-	adapter := newDiscoveryAdapter(context.Background(), provider)
+	adapter := newDiscoveryAdapter(provider)
 
 	_ = adapter.Initialize()
 	_, _ = adapter.DiscoverPeers()

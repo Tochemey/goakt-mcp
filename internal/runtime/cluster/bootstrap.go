@@ -27,7 +27,6 @@
 package cluster
 
 import (
-	"context"
 	"time"
 
 	goaktactor "github.com/tochemey/goakt/v4/actor"
@@ -51,12 +50,13 @@ func IsClusterConfigured(config runtimeConfig.Config) bool {
 
 // BuildOptions returns actor system options for cluster mode when enabled.
 //
-// When cfg.Cluster.Enabled is false or no DiscoveryProvider is set, returns nil
-// (single-node, no cluster options). The provided context controls the lifetime
-// of the discovery adapter. remoteOpts are forwarded to [remote.NewConfig]
-// (e.g., serializer registrations via [remote.WithSerializables]). kinds are
-// the actor instances to register for cluster (e.g., RegistryActor).
-func BuildOptions(ctx context.Context, config runtimeConfig.Config, remoteOpts []remote.Option, kinds ...goaktactor.Actor) []goaktactor.Option {
+// When cfg.Cluster.Enabled is false, returns nil (single-node, no cluster
+// options). When cluster is enabled but no DiscoveryProvider is set, returns
+// a slice containing only WithRemote (remoting without discovery).
+// remoteOpts are forwarded to [remote.NewConfig] (e.g., serializer
+// registrations via [remote.WithSerializables]). kinds are the actor instances
+// to register for cluster (e.g., RegistryActor).
+func BuildOptions(config runtimeConfig.Config, remoteOpts []remote.Option, kinds ...goaktactor.Actor) []goaktactor.Option {
 	if !config.Cluster.Enabled {
 		return nil
 	}
@@ -87,7 +87,7 @@ func BuildOptions(ctx context.Context, config runtimeConfig.Config, remoteOpts [
 		return opts
 	}
 
-	discoveryProvider := newDiscoveryAdapter(ctx, clConfig.DiscoveryProvider)
+	discoveryProvider := newDiscoveryAdapter(clConfig.DiscoveryProvider)
 
 	clusterConfig := goaktactor.NewClusterConfig().
 		WithDiscovery(discoveryProvider).

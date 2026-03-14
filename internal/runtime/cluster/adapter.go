@@ -25,6 +25,7 @@ package cluster
 
 import (
 	"context"
+	"time"
 
 	"github.com/tochemey/goakt/v4/discovery"
 
@@ -44,11 +45,12 @@ type discoveryAdapter struct {
 var _ discovery.Provider = (*discoveryAdapter)(nil)
 
 // newDiscoveryAdapter creates an adapter that bridges the simplified
-// mcp.DiscoveryProvider to GoAkt's discovery.Provider. The provided context
-// controls the adapter's lifetime — when it is cancelled, in-flight provider
-// calls are signaled to abort.
-func newDiscoveryAdapter(ctx context.Context, provider mcp.DiscoveryProvider) *discoveryAdapter {
-	ctx, cancel := context.WithCancel(ctx)
+// mcp.DiscoveryProvider to GoAkt's discovery.Provider. The adapter owns its
+// own background-derived context so the discovery lifecycle is independent of
+// any caller-scoped context (e.g. a startup context with a deadline). The
+// adapter context is cancelled when Close is called.
+func newDiscoveryAdapter(provider mcp.DiscoveryProvider) *discoveryAdapter {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &discoveryAdapter{
 		provider: provider,
 		ctx:      ctx,
@@ -86,9 +88,11 @@ func (a *discoveryAdapter) DiscoverPeers() ([]string, error) {
 }
 
 // Close cancels the adapter context (aborting any in-flight DiscoverPeers
-// calls) and delegates to the provider's Stop method with a fresh
-// background context so cleanup work is not prematurely cancelled.
+// calls) and delegates to the provider's Stop method with a bounded timeout
+// so a stuck provider cannot block actor system shutdown indefinitely.
 func (a *discoveryAdapter) Close() error {
 	a.cancel()
-	return a.provider.Stop(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return a.provider.Stop(ctx)
 }

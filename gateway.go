@@ -143,7 +143,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 		}
 	}
 
-	system, err := goaktactor.NewActorSystem(gatewayActorSystemName, g.actorSystemOptions(ctx, tlsInfo)...)
+	system, err := goaktactor.NewActorSystem(gatewayActorSystemName, g.actorSystemOptions(tlsInfo)...)
 	if err != nil {
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to create actor system", err)
 	}
@@ -452,7 +452,7 @@ func (g *Gateway) remoteOptions() []remote.Option {
 	return opts
 }
 
-func (g *Gateway) actorSystemOptions(ctx context.Context, tlsInfo *gtls.Info) []goaktactor.Option {
+func (g *Gateway) actorSystemOptions(tlsInfo *gtls.Info) []goaktactor.Option {
 	execFactory := egress.NewCompositeExecutorFactory(g.config.Runtime.StartupTimeout, nil)
 	schemaFetcher := egress.NewCompositeSchemaFetcher(g.config.Runtime.StartupTimeout, nil)
 	opts := []goaktactor.Option{
@@ -470,7 +470,7 @@ func (g *Gateway) actorSystemOptions(ctx context.Context, tlsInfo *gtls.Info) []
 		opts = append(opts, goaktactor.WithTLS(tlsInfo))
 	}
 
-	if clusterOpts := cluster.BuildOptions(ctx, g.config, g.remoteOptions(), actor.NewRegistrar()); len(clusterOpts) > 0 {
+	if clusterOpts := cluster.BuildOptions(g.config, g.remoteOptions(), actor.NewRegistrar()); len(clusterOpts) > 0 {
 		opts = append(opts, clusterOpts...)
 	}
 	return opts

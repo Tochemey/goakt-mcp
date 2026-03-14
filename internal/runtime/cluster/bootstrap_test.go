@@ -73,14 +73,14 @@ func TestBuildOptions(t *testing.T) {
 	t.Run("returns nil when Cluster.Enabled is false", func(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = false
-		opts := BuildOptions(context.Background(), cfg, nil)
+		opts := BuildOptions(cfg, nil)
 		assert.Nil(t, opts)
 	})
 
 	t.Run("returns only WithRemote when enabled but DiscoveryProvider is nil", func(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
-		opts := BuildOptions(context.Background(), cfg, nil)
+		opts := BuildOptions(cfg, nil)
 		require.NotNil(t, opts)
 		assert.Len(t, opts, 1, "expect only WithRemote")
 	})
@@ -89,7 +89,7 @@ func TestBuildOptions(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.DiscoveryProvider = &staticDiscovery{id: "test", peers: []string{"peer1:8080"}}
-		opts := BuildOptions(context.Background(), cfg, nil)
+		opts := BuildOptions(cfg, nil)
 		require.NotNil(t, opts)
 		assert.GreaterOrEqual(t, len(opts), 2, "expect WithRemote and WithCluster")
 	})
@@ -98,7 +98,7 @@ func TestBuildOptions(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.DiscoveryProvider = &staticDiscovery{id: "test"}
-		opts := BuildOptions(context.Background(), cfg, nil)
+		opts := BuildOptions(cfg, nil)
 		require.NotNil(t, opts)
 		assert.GreaterOrEqual(t, len(opts), 2)
 	})
@@ -109,7 +109,7 @@ func TestBuildOptions(t *testing.T) {
 		cfg.Cluster.DiscoveryProvider = &staticDiscovery{id: "test"}
 		cfg.Cluster.PeersPort = 20000
 		cfg.Cluster.RemotingPort = 20001
-		opts := BuildOptions(context.Background(), cfg, nil)
+		opts := BuildOptions(cfg, nil)
 		require.NotNil(t, opts)
 		assert.GreaterOrEqual(t, len(opts), 2)
 	})
