@@ -3,17 +3,9 @@
   Distributed MCP Gateway Library
 </h2>
 
-<p align="center">
-  <a href="https://github.com/Tochemey/goakt-mcp/actions/workflows/gha-pipeline.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/Tochemey/goakt-mcp/gha-pipeline.yml" alt="Build Status"/>
-  </a>
-  <a href="https://codecov.io/gh/Tochemey/goakt-mcp">
-    <img src="https://codecov.io/gh/Tochemey/goakt-mcp/graph/badge.svg?token=EkuaJqCDZr" alt="Code Coverage"/>
-  </a>
-  <a href="https://go.dev/doc/install">
-    <img src="https://badges.chse.dev/github/go-mod/go-version/Tochemey/goakt-mcp" alt="Go Version"/>
-  </a>
-</p>
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Tochemey/goakt-mcp/gha-pipeline.yml)](https://github.com/Tochemey/goakt-mcp/actions/workflows/gha-pipeline.yml)
+[![codecov](https://codecov.io/gh/Tochemey/goakt-mcp/graph/badge.svg?token=EkuaJqCDZr)](https://codecov.io/gh/Tochemey/goakt-mcp)
+[![GitHub go.mod Go version](https://badges.chse.dev/github/go-mod/go-version/Tochemey/goakt-mcp)](https://go.dev/doc/install)
 
 **goakt-mcp** is a production-ready MCP (Model Context Protocol) gateway library for Go. It goes far beyond a thin JSON-RPC proxy — it is an operational control plane for MCP workloads that manages tool lifecycle, session affinity, credential brokering, policy enforcement, circuit breaking, auditing, and cluster-aware routing behind a single, clean `Gateway` API.
 
@@ -34,8 +26,8 @@ The actor model is a strong fit for this problem space. Each tool has a dedicate
 ## ✨ Features
 
 - 🔄 **Dual transport egress** — invoke tools over stdio (child process) or HTTP (remote MCP server)
-- 🌐 **Three ingress transports** — serve MCP clients via Streamable HTTP, Server-Sent Events, or WebSocket
-- 🏢 **Multi-tenancy** — per-tenant quota enforcement (rate limiting + concurrency caps) and pluggable policy evaluation
+- 🚪 **Three ingress transports** — serve MCP clients via Streamable HTTP, Server-Sent Events, or WebSocket
+- 🧑‍🤝‍🧑 **Multi-tenancy** — per-tenant quota enforcement (rate limiting + concurrency caps) and pluggable policy evaluation
 - 🔐 **Credential brokering** — resolve secrets from any source (vault, env, KMS) and inject them into invocations, with a configurable LRU cache
 - ⚡ **Session affinity** — sticky session ownership per tenant + client + tool; or least-loaded balancing for stateless tools
 - 🛡️ **Circuit breakers** — per-tool circuit breakers with configurable failure thresholds, open durations, and half-open probing
@@ -45,11 +37,11 @@ The actor model is a strong fit for this problem space. Each tool has a dedicate
 - 📡 **Schema discovery** — automatically fetches and caches MCP tool schemas from backends at registration time
 - 📊 **OpenTelemetry** — traces and metrics exported via OTLP; W3C trace-context propagated on egress
 - 📋 **Durable audit trail** — every policy decision, invocation, circuit state change, and health transition is written to a pluggable `AuditSink`
-- 🌐 **Cluster mode** — multi-node operation with gossip membership, distributed actor messaging, cluster-singleton registrar, and pluggable peer discovery (Kubernetes, DNS-SD, or custom)
+- 🕸️ **Cluster mode** — multi-node operation with gossip membership, distributed actor messaging, cluster-singleton registrar, and pluggable peer discovery (Kubernetes, DNS-SD, or custom)
 - 🔑 **TLS everywhere** — optional mutual TLS for cluster remoting and tool-backend HTTP connections
 - 🧩 **Fully pluggable** — every operational concern (identity, policy, credentials, audit, discovery) is an interface you implement
 
-## 🏛️ Architecture
+## 🏗️ Architecture
 
 goakt-mcp is structured as three layers — ingress, gateway core, and egress — connected by a supervised actor runtime.
 
@@ -170,7 +162,7 @@ sequenceDiagram
 
 Identity resolution happens once per MCP session (at `initialize` time). All subsequent requests within the session reuse the resolved identity without re-invoking the resolver. Policy evaluation, credential resolution, and audit journaling happen on every invocation.
 
-## 🚀 Transport Support
+## 🚚 Transport Support
 
 ### Ingress — serving MCP clients
 
@@ -198,7 +190,7 @@ goakt-mcp natively supports two backend transport types.
 
 Both transports fetch the backend's `tools/list` schema at registration time and cache it. The gateway uses the actual tool names, descriptions, and JSON schemas to build the ingress server's tool registry, giving MCP clients accurate, discoverable schema information.
 
-## 🏢 Multi-tenancy & Authorization
+## 🧑‍🤝‍🧑 Multi-tenancy & Authorization
 
 Every invocation is attributed to a **TenantID** and **ClientID**, resolved at session creation time by an `IdentityResolver` you provide.
 
@@ -413,7 +405,7 @@ graph TB
 - `RouterActor` runs locally on every node. It resolves the singleton registrar by name and routes invocations to local or remote supervisors transparently.
 - Tool sessions and supervisors run where the registrar places them. In current topology, they are local to the singleton node; cluster-aware routing is an evolution path.
 
-### Peer Discovery
+### Peers Discovery
 
 Implement the `DiscoveryProvider` interface to control how nodes find each other.
 
@@ -427,10 +419,6 @@ type DiscoveryProvider interface {
 ```
 
 `DiscoverPeers` returns a list of peer addresses (host:port for the discovery port). goakt-mcp ships with two ready-made implementations:
-
-**Kubernetes** (`NewKubernetesDiscovery`) — uses the Kubernetes API to list pods matching a label selector within a namespace. Requires a `ServiceAccount` with `get/list/watch` on `pods`. The cluster example in [examples/cluster](examples/cluster) provides a complete working deployment.
-
-**DNS-SD** — resolves a DNS domain name (e.g. `gateway.default.svc.cluster.local`) to find peers. Suitable for local development with `docker-compose` or any environment with DNS-based service discovery.
 
 ### TLS
 
@@ -641,18 +629,18 @@ type ExecutorFactory interface {
 
 All examples are in the [`examples/`](examples/) directory and can be run with `go run ./examples/<name>`.
 
-| Example                                 | Demonstrates                                                                                                                                                                       |
-|-----------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [`filesystem`](examples/filesystem)     | Minimal gateway with a stdio filesystem tool                                                                                                                                       |
-| [`audit-http`](examples/audit-http)     | Durable file audit sink with an HTTP egress tool                                                                                                                                   |
-| [`ingress`](examples/ingress)           | MCP Streamable HTTP ingress with header-based identity resolution                                                                                                                  |
-| [`admin-policy`](examples/admin-policy) | Full admin API and a custom `PolicyEvaluator`                                                                                                                                      |
-| [`quota-assess`](examples/quota-assess) | Per-tenant rate limiting and concurrency enforcement                                                                                                                               |
-| [`full-config`](examples/full-config)   | Complete configuration reference covering every field                                                                                                                              |
-| [`ai-hub`](examples/ai-hub)             | Production-grade multi-tenant AI tool hub: stdio + HTTP egress, Streamable HTTP ingress, pluggable policy, credential broker, durable audit, OpenTelemetry, and the full admin API |
-| [`cluster`](examples/cluster)           | Three-node Kubernetes cluster with Kubernetes peer discovery, nginx session affinity, and Jaeger tracing                                                                           |
+| Example                             | Demonstrates                                                                                                                                                                       |
+|-------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [filesystem](examples/filesystem)   | Minimal gateway with a stdio filesystem tool                                                                                                                                       |
+| [audit-http](examples/audit-http)   | Durable file audit sink with an HTTP egress tool                                                                                                                                   |
+| [ingress](examples/ingress)         | MCP Streamable HTTP ingress with header-based identity resolution                                                                                                                  |
+| [admin](examples/admin-policy)      | Full admin API and a custom `PolicyEvaluator`                                                                                                                                      |
+| [quotas](examples/quota-assess)     | Per-tenant rate limiting and concurrency enforcement                                                                                                                               |
+| [full-config](examples/full-config) | Complete configuration reference covering every field                                                                                                                              |
+| [ai-hub](examples/ai-hub)           | Production-grade multi-tenant AI tool hub: stdio + HTTP egress, Streamable HTTP ingress, pluggable policy, credential broker, durable audit, OpenTelemetry, and the full admin API |
+| [cluster](examples/cluster)         | Three-node Kubernetes cluster with Kubernetes peer discovery, nginx session affinity, and Jaeger tracing                                                                           |
 
-The [`ai-hub`](examples/ai-hub) example is the recommended starting point for understanding how all pieces fit together in a real deployment. The [`cluster`](examples/cluster) example includes a complete [Makefile](examples/cluster/Makefile) and Kubernetes manifests for deploying to a local [Kind](https://kind.sigs.k8s.io/) cluster.
+The [ai-hub](examples/ai-hub) example is the recommended starting point for understanding how all pieces fit together in a real deployment. The [cluster](examples/cluster) example includes a complete [Makefile](examples/cluster/Makefile) and Kubernetes manifests for deploying to a local [Kind](https://kind.sigs.k8s.io/) cluster.
 
 ## 🤝 Contributing
 
@@ -669,3 +657,4 @@ goakt-mcp requires Go 1.24 or later. The `mcp` package contains all public domai
 ## 📜 License
 
 This project is licensed under the terms in [LICENSE](LICENSE).
+```
