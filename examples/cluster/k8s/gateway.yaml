@@ -1,0 +1,208 @@
+---
+# RBAC — allows gateway pods to list/watch/get pods for Kubernetes discovery.
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: gateway-discovery
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "watch", "list"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: gateway-discovery
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: gateway-discovery
+  apiGroup: rbac.authorization.k8s.io
+---
+# StatefulSet for the goakt-mcp gateway cluster (3 replicas).
+#
+# Ports:
+#   8080  - MCP Streamable HTTP (/mcp) and health (/health)
+#   3321  - GoAkt remoting (actor message passing between nodes)
+#   3322  - GoAkt discovery (gossip-based cluster membership via KubernetesDiscovery)
+#   3320  - GoAkt peers (memberlist communication)
+#
+# The KubernetesDiscovery provider queries the k8s API for Running+Ready pods
+# matching the labels below and returns their IPs on port 3322.
+# RBAC above grants the pod's ServiceAccount permission to list pods.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gateway
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: MCPGateway
+    app.kubernetes.io/part-of: goakt-mcp-cluster
+spec:
+  serviceName: gateway
+  replicas: 3
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gateway
+      app.kubernetes.io/component: MCPGateway
+      app.kubernetes.io/part-of: goakt-mcp-cluster
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gateway
+        app.kubernetes.io/component: MCPGateway
+        app.kubernetes.io/part-of: goakt-mcp-cluster
+    spec:
+      restartPolicy: Always
+      # Give each pod enough time to replicate actor state to a peer and drain
+      # in-flight HTTP requests before Kubernetes sends SIGKILL.
+      terminationGracePeriodSeconds: 60
+      initContainers:
+        - name: wait-for-mcp-everything
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z mcp-everything 3001; do
+                echo "Waiting for mcp-everything..."
+                sleep 3
+              done
+              echo "mcp-everything is ready"
+      containers:
+        - name: gateway
+          image: "gateway:dev-cluster"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 3321
+              name: remoting-port
+              protocol: TCP
+            - containerPort: 3322
+              name: discovery-port
+              protocol: TCP
+            - containerPort: 3320
+              name: peers-port
+              protocol: TCP
+          env:
+            - name: HTTP_ADDR
+              value: ":8080"
+            - name: CLUSTER_ENABLED
+              value: "true"
+            - name: NAMESPACE
+              value: "default"
+            - name: DISCOVERY_PORT_NAME
+              value: "discovery-port"
+            - name: PEERS_PORT_NAME
+              value: "peers-port"
+            - name: REMOTING_PORT_NAME
+              value: "remoting-port"
+            - name: DISCOVERY_PORT
+              value: "3322"
+            - name: PEERS_PORT
+              value: "3320"
+            - name: REMOTING_PORT
+              value: "3321"
+            - name: MCP_TOOL_URL
+              value: "http://mcp-everything:3001/mcp"
+            - name: MCP_AUDIT_DIR
+              value: "/tmp/goakt-mcp-audit"
+            - name: DEBUG
+              value: "true"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "gateway"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          lifecycle:
+            preStop:
+              # Sleep before SIGTERM so Kubernetes has time to remove the pod
+              # from Service endpoints and stop routing new requests here.
+              # The cluster shutdown (state replication + memberlist leave) then
+              # completes while peers are still alive.
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+# Headless service for StatefulSet pod DNS.
+# Required for KubernetesDiscovery to resolve peer addresses.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: MCPGateway
+    app.kubernetes.io/part-of: goakt-mcp-cluster
+spec:
+  selector:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: MCPGateway
+    app.kubernetes.io/part-of: goakt-mcp-cluster
+  clusterIP: None
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: http
+      name: http
+    - protocol: TCP
+      port: 3321
+      targetPort: remoting-port
+      name: remoting-port
+    - protocol: TCP
+      port: 3322
+      targetPort: discovery-port
+      name: discovery-port
+    - protocol: TCP
+      port: 3320
+      targetPort: peers-port
+      name: peers-port
+---
+# ClusterIP service used by nginx for HTTP load balancing.
+# Kubernetes routes only to ready pods (readiness probe on /health).
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-http
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: MCPGateway
+    app.kubernetes.io/part-of: goakt-mcp-cluster
+spec:
+  selector:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: MCPGateway
+    app.kubernetes.io/part-of: goakt-mcp-cluster
+  type: ClusterIP
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: http
+      name: http

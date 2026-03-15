@@ -26,6 +26,7 @@ package goaktmcp
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +73,12 @@ type Gateway struct {
 	// eventSub receives actor system events (e.g. ActorPassivated) for metrics.
 	eventSub    eventstream.Subscriber
 	eventStopCh chan struct{}
+
+	// managerName is the actor name used for GatewayManager. In single-node mode it
+	// is always mcp.ActorNameGatewayManager. In cluster mode it is suffixed with the
+	// pod hostname so that each node can spawn its own local GatewayManager without
+	// conflicting with GoAkt's cluster-wide actor name uniqueness check.
+	managerName string
 
 	// this is only set for testing and is used to inject a pre-started actor system, so Start doesn't create a new one
 	testSystem goaktactor.ActorSystem
@@ -120,6 +127,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 	if g.testSystem != nil {
 		g.mu.Lock()
 		g.system = g.testSystem
+		g.managerName = mcp.ActorNameGatewayManager
 		g.mu.Unlock()
 		return nil
 	}
@@ -152,10 +160,12 @@ func (g *Gateway) Start(ctx context.Context) error {
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to start actor system", err)
 	}
 
-	if _, err := system.Spawn(ctx, mcp.ActorNameGatewayManager, actor.NewGatewayManager()); err != nil {
+	managerName := g.localManagerName()
+	if _, err := system.Spawn(ctx, managerName, actor.NewGatewayManager(), goaktactor.WithLongLived()); err != nil {
 		_ = system.Stop(ctx)
 		return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to spawn GatewayManager", err)
 	}
+	g.managerName = managerName
 
 	g.mu.Lock()
 	g.system = system
@@ -377,6 +387,22 @@ func toolIDFromPassivatedAddress(address string) mcp.ToolID {
 		return ""
 	}
 	return mcp.ToolIDFromSupervisorName(supervisorName)
+}
+
+// localManagerName returns the actor name to use for GatewayManager on this node.
+//
+// In single-node mode the name is always mcp.ActorNameGatewayManager.
+// In cluster mode GoAkt's system.Spawn checks actor name uniqueness across the
+// entire cluster DMap, so a fixed name would prevent every node after the first
+// from spawning its own GatewayManager. Suffixing with the pod hostname makes
+// the name cluster-globally unique while remaining stable across pod restarts.
+func (g *Gateway) localManagerName() string {
+	if g.config.Cluster.Enabled {
+		if hostname, err := os.Hostname(); err == nil && hostname != "" {
+			return mcp.ActorNameGatewayManager + "-" + hostname
+		}
+	}
+	return mcp.ActorNameGatewayManager
 }
 
 func (g *Gateway) remoteOptions() []remote.Option {
