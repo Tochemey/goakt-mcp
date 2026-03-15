@@ -115,14 +115,16 @@ func (x *GatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext)
 	if auditMailboxSize == 0 {
 		auditMailboxSize = config.DefaultAuditMailboxSize
 	}
+
 	journaler := ctx.Spawn(mcp.ActorNameJournal, newJournaler(),
-		goaktactor.WithMailbox(goaktactor.NewBoundedMailbox(auditMailboxSize)))
+		goaktactor.WithMailbox(goaktactor.NewBoundedMailbox(auditMailboxSize)),
+		goaktactor.WithLongLived())
 
 	// spawn the health actor with journal for health transition audit events
-	healthChecker := ctx.Spawn(mcp.ActorNameHealth, newHealthChecker())
+	healthChecker := ctx.Spawn(mcp.ActorNameHealth, newHealthChecker(), goaktactor.WithLongLived())
 
 	// spawn the policy maker
-	policyMaker := ctx.Spawn(mcp.ActorNamePolicy, newPolicyMaker(x.config))
+	policyMaker := ctx.Spawn(mcp.ActorNamePolicy, newPolicyMaker(x.config), goaktactor.WithLongLived())
 
 	// spawn the credential broker actor
 	credentialBroker := x.spawnCredentialBroker(ctx)
@@ -137,7 +139,7 @@ func (x *GatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext)
 
 	// spawn the router actor
 	if shouldSpawnRouter {
-		ctx.Spawn(mcp.ActorNameRouter, newRouterActor())
+		ctx.Spawn(mcp.ActorNameRouter, newRouterActor(), goaktactor.WithLongLived())
 	} else {
 		err := errors.New("router actor cannot be spawned because one or more dependencies are not running")
 		x.logger.Errorf("actor=%s cannot spawn router actor: %v", mcp.ActorNameGatewayManager, err)
@@ -156,7 +158,7 @@ func (x *GatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext)
 // spawnCredentialBroker spawns CredentialBrokerActor when providers are configured.
 // Returns nil when no providers are configured.
 func (x *GatewayManager) spawnCredentialBroker(ctx *goaktactor.ReceiveContext) *goaktactor.PID {
-	return ctx.Spawn(mcp.ActorNameCredentialBroker, newCredentialBroker())
+	return ctx.Spawn(mcp.ActorNameCredentialBroker, newCredentialBroker(), goaktactor.WithLongLived())
 }
 
 // spawnRegistrar spawns the Registry Actor. When cluster is configured (enabled with
@@ -188,7 +190,7 @@ func (x *GatewayManager) spawnRegistrar(ctx *goaktactor.ReceiveContext) *goaktac
 		}
 		return pid
 	}
-	return ctx.Spawn(mcp.ActorNameRegistrar, newRegistrar())
+	return ctx.Spawn(mcp.ActorNameRegistrar, newRegistrar(), goaktactor.WithLongLived())
 }
 
 // createAuditSink creates an audit sink from config.

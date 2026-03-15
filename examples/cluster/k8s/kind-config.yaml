@@ -1,0 +1,6 @@
+# Kind cluster config for the goakt-mcp cluster example.
+# A single control-plane node is sufficient for local testing.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane

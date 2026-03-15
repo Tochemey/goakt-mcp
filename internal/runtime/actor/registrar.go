@@ -337,7 +337,7 @@ func (x *registrar) spawnSupervisor(ctx *goaktactor.ReceiveContext, tool mcp.Too
 	}
 	name := mcp.ToolSupervisorName(tool.ID)
 	toolSupervisor := supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective))
-	return ctx.Spawn(name, newToolSupervisor(), goaktactor.WithSupervisor(toolSupervisor))
+	return ctx.Spawn(name, newToolSupervisor(), goaktactor.WithSupervisor(toolSupervisor), goaktactor.WithLongLived())
 }
 
 // stopSupervisorIfExists stops the supervisor for the given tool if one is

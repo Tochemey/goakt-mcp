@@ -273,7 +273,7 @@ func (g *Gateway) EnableTool(ctx context.Context, toolID mcp.ToolID) error {
 // resolveRegistrar finds the RegistrarActor PID, trying child lookup first and
 // falling back to system-wide lookup for cluster singletons.
 func (g *Gateway) resolveRegistrar(ctx context.Context, system goaktactor.ActorSystem) (*goaktactor.PID, error) {
-	manager, err := system.ActorOf(ctx, mcp.ActorNameGatewayManager)
+	manager, err := system.ActorOf(ctx, g.managerName)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "GatewayManager not found", err)
 	}
@@ -292,7 +292,7 @@ func (g *Gateway) resolveRegistrar(ctx context.Context, system goaktactor.ActorS
 
 // resolveRouter finds the RouterActor PID.
 func (g *Gateway) resolveRouter(ctx context.Context, system goaktactor.ActorSystem) (*goaktactor.PID, error) {
-	manager, err := system.ActorOf(ctx, mcp.ActorNameGatewayManager)
+	manager, err := system.ActorOf(ctx, g.managerName)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "GatewayManager not found", err)
 	}
