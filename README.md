@@ -108,11 +108,11 @@ graph TB
 
 **ToolSupervisor** is the actor that supervises all sessions for a single tool. It tracks the circuit breaker state, enforces `MaxSessionsPerTool` backpressure, and manages session actor lifecycle. One supervisor exists per registered tool.
 
-**SessionActor** is the actor that owns a single tool session for a specific tenant + client pair. It holds the `ToolExecutor` (the actual transport connection), handles invocations, and transparently recovers from transport failures. In sticky routing mode, sessions are reused across requests from the same client.
+**Session** is the actor that owns a single tool session for a specific tenant + client pair. It holds the `ToolExecutor` (the actual transport connection), handles invocations, and transparently recovers from transport failures. In sticky routing mode, sessions are reused across requests from the same client.
 
-**RouterActor** is the central dispatcher. It receives every invocation, evaluates policy, resolves credentials, selects the appropriate tool supervisor, and routes the request to a session. It also writes to the audit journal asynchronously.
+**Router** is the central dispatch actor. It receives every invocation, evaluates policy, resolves credentials, selects the appropriate tool supervisor, and routes the request to a session. It also writes to the audit journal asynchronously.
 
-**RegistrarActor** is the tool registry. It owns the authoritative list of registered tools and their supervisors. In cluster mode, it runs as a cluster-wide singleton — all nodes share a single registrar.
+**Registrar** is the tool registry actor. It owns the authoritative list of registered tools and their supervisors. In cluster mode, it runs as a cluster-wide singleton — all nodes share a single registrar.
 
 **Invocation** is the unit of work. It carries the tool ID, method, parameters, tenant and client identity, resolved credentials, and correlation metadata (request ID, trace ID, received timestamp).
 
