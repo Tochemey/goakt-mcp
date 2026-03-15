@@ -6,6 +6,8 @@
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Tochemey/goakt-mcp/gha-pipeline.yml)](https://github.com/Tochemey/goakt-mcp/actions/workflows/gha-pipeline.yml)
 [![codecov](https://codecov.io/gh/Tochemey/goakt-mcp/graph/badge.svg?token=EkuaJqCDZr)](https://codecov.io/gh/Tochemey/goakt-mcp)
 [![GitHub go.mod Go version](https://badges.chse.dev/github/go-mod/go-version/Tochemey/goakt-mcp)](https://go.dev/doc/install)
+[![Go Report Card](https://goreportcard.com/badge/github.com/tochemey/goakt-mcp)](https://goreportcard.com/report/github.com/tochemey/goakt-mcp)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12179/badge)](https://www.bestpractices.dev/projects/12179)
 
 **goakt-mcp** is a production-ready MCP (Model Context Protocol) gateway library for Go. It goes far beyond a thin JSON-RPC proxy — it is an operational control plane for MCP workloads that manages tool lifecycle, session affinity, credential brokering, policy enforcement, circuit breaking, auditing, and cluster-aware routing behind a single, clean `Gateway` API.
 
