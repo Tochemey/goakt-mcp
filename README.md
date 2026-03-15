@@ -652,7 +652,7 @@ Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md)
 go get github.com/tochemey/goakt-mcp
 ```
 
-goakt-mcp requires Go 1.24 or later. The `mcp` package contains all public domain types. The `goaktmcp` root package exposes the `Gateway` and its options.
+goakt-mcp requires Go 1.26 or later. The `mcp` package contains all public domain types. The `goaktmcp` root package exposes the `Gateway` and its options.
 
 ## 📜 License
 
