@@ -348,7 +348,7 @@ func (g *Gateway) consumePassivationEvents(sub eventstream.Subscriber, stopCh <-
 				if !ok {
 					continue
 				}
-				toolID := toolIDFromPassivatedAddress(ev.Address())
+				toolID := toolIDFromPath(ev.ActorPath())
 				if !toolID.IsZero() {
 					telemetry.RecordSessionPassivated(context.Background(), toolID)
 				}
@@ -357,32 +357,23 @@ func (g *Gateway) consumePassivationEvents(sub eventstream.Subscriber, stopCh <-
 	}
 }
 
-// toolIDFromPassivatedAddress extracts the tool ID from a passivated session's
-// address. Session addresses follow the pattern:
-//
-//	goakt://system@host:port/supervisor-{toolID}/session-...
-//
-// The function finds the supervisor parent component and strips the "supervisor-"
-// prefix to recover the tool ID. Returns a zero ToolID when the address does not
-// match a session actor.
-func toolIDFromPassivatedAddress(address string) mcp.ToolID {
-	// Only session actors have passivation enabled; verify the name component.
-	lastSlash := strings.LastIndex(address, "/")
-	if lastSlash < 0 {
+// toolIDFromPath extracts the tool ID from a passivated session's
+// Path. Session actors are named "session-..." and are children of a supervisor
+// actor named "supervisor-{toolID}". Returns a zero ToolID when the path does
+// not match a session actor.
+func toolIDFromPath(path goaktactor.Path) mcp.ToolID {
+	if path == nil {
 		return ""
 	}
-	name := address[lastSlash+1:]
-	if !strings.HasPrefix(name, "session-") {
+	if !strings.HasPrefix(path.Name(), "session-") {
+		return ""
+	}
+	parent := path.Parent()
+	if parent == nil {
 		return ""
 	}
 
-	// Extract the parent path component (supervisor name).
-	parent := address[:lastSlash]
-	parentSlash := strings.LastIndex(parent, "/")
-	if parentSlash < 0 {
-		return ""
-	}
-	supervisorName := parent[parentSlash+1:]
+	supervisorName := parent.Name()
 	if !strings.HasPrefix(supervisorName, "supervisor-") {
 		return ""
 	}
