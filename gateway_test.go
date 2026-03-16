@@ -900,41 +900,56 @@ func TestGatewayStop(t *testing.T) {
 	})
 }
 
-func TestToolIDFromPassivatedAddress(t *testing.T) {
+// testPath is a minimal goaktactor.Path implementation for unit tests.
+type testPath struct {
+	name   string
+	parent goaktactor.Path
+}
+
+func (p *testPath) Name() string                      { return p.name }
+func (p *testPath) Parent() goaktactor.Path           { return p.parent }
+func (p *testPath) Host() string                      { return "" }
+func (p *testPath) HostPort() string                  { return "" }
+func (p *testPath) Port() int                         { return 0 }
+func (p *testPath) String() string                    { return "" }
+func (p *testPath) System() string                    { return "" }
+func (p *testPath) Equals(other goaktactor.Path) bool { return false }
+
+func TestToolIDFromPassivatedPath(t *testing.T) {
 	tests := []struct {
 		name     string
-		address  string
+		path     goaktactor.Path
 		expected mcp.ToolID
 	}{
 		{
-			name:     "valid session address",
-			address:  "goakt://goakt-mcp@127.0.0.1:0/supervisor-my-tool/session-t1-c1-my-tool",
+			name:     "valid session path",
+			path:     &testPath{name: "session-t1-c1-my-tool", parent: &testPath{name: "supervisor-my-tool"}},
 			expected: mcp.ToolID("my-tool"),
 		},
 		{
 			name:     "non-session actor",
-			address:  "goakt://goakt-mcp@127.0.0.1:0/registrar/supervisor-my-tool",
+			path:     &testPath{name: "supervisor-my-tool", parent: &testPath{name: "registrar"}},
 			expected: "",
 		},
 		{
-			name:     "no slash",
-			address:  "session-t1-c1-tool",
+			name:     "nil path",
+			path:     nil,
 			expected: "",
 		},
 		{
-			name:     "empty address",
-			address:  "",
+			name:     "session with no parent",
+			path:     &testPath{name: "session-t1-c1-tool"},
 			expected: "",
 		},
 		{
-			name:     "single path component",
-			address:  "goakt://goakt-mcp@127.0.0.1:0/session-t1-c1-tool",
+			name:     "session with non-supervisor parent",
+			path:     &testPath{name: "session-t1-c1-tool", parent: &testPath{name: "registrar"}},
 			expected: "",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, toolIDFromPassivatedAddress(tt.address))
+			assert.Equal(t, tt.expected, toolIDFromPath(tt.path))
 		})
 	}
 }
