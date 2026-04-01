@@ -3,17 +3,19 @@
   Distributed MCP Gateway Library
 </h2>
 
-[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Tochemey/goakt-mcp/gha-pipeline.yml)](https://github.com/Tochemey/goakt-mcp/actions/workflows/gha-pipeline.yml)
-[![codecov](https://codecov.io/gh/Tochemey/goakt-mcp/graph/badge.svg?token=EkuaJqCDZr)](https://codecov.io/gh/Tochemey/goakt-mcp)
-[![GitHub go.mod Go version](https://badges.chse.dev/github/go-mod/go-version/Tochemey/goakt-mcp)](https://go.dev/doc/install)
-[![Go Report Card](https://goreportcard.com/badge/github.com/tochemey/goakt-mcp)](https://goreportcard.com/report/github.com/tochemey/goakt-mcp)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12179/badge)](https://www.bestpractices.dev/projects/12179)
+<p align="center">
+  <a href="https://github.com/Tochemey/goakt-mcp/actions/workflows/gha-pipeline.yml"><img src="https://img.shields.io/github/actions/workflow/status/Tochemey/goakt-mcp/gha-pipeline.yml" alt="GitHub Actions Workflow Status"></a>
+  <a href="https://codecov.io/gh/Tochemey/goakt-mcp"><img src="https://codecov.io/gh/Tochemey/goakt-mcp/graph/badge.svg?token=EkuaJqCDZr" alt="codecov"></a>
+  <a href="https://go.dev/doc/install"><img src="https://badges.chse.dev/github/go-mod/go-version/Tochemey/goakt-mcp" alt="GitHub go.mod Go version"></a>
+  <a href="https://goreportcard.com/report/github.com/tochemey/goakt-mcp"><img src="https://goreportcard.com/badge/github.com/tochemey/goakt-mcp" alt="Go Report Card"></a>
+  <a href="https://www.bestpractices.dev/projects/12179"><img src="https://www.bestpractices.dev/projects/12179/badge" alt="OpenSSF Best Practices"></a>
+</p>
 
 **goakt-mcp** is a production-ready MCP (Model Context Protocol) gateway library for Go. It goes far beyond a thin JSON-RPC proxy — it is an operational control plane for MCP workloads that manages tool lifecycle, session affinity, credential brokering, policy enforcement, circuit breaking, auditing, and cluster-aware routing behind a single, clean `Gateway` API.
 
 Built on [GoAkt](https://github.com/Tochemey/goakt), a high-performance Go actor framework, every tool, session, and control-plane concern is modelled as a supervised actor with clear lifecycle boundaries — making the system inherently resilient, observable, and scalable from a single node to a multi-node Kubernetes cluster.
 
-## 🎯 Why goakt-mcp
+## Why goakt-mcp
 
 MCP workloads are stateful, concurrent, and failure-prone in ways that a generic HTTP proxy cannot handle well:
 
@@ -25,25 +27,25 @@ MCP workloads are stateful, concurrent, and failure-prone in ways that a generic
 
 The actor model is a strong fit for this problem space. Each tool has a dedicated supervisor actor. Each session has its own actor, isolated from every other session. The control plane (router, credential broker, policy engine, journal) runs as supervised actors with deterministic names, clean message boundaries, and automatic restart semantics. Failures are contained, recovery is local, and the system degrades gracefully rather than catastrophically.
 
-## ✨ Features
+## Features
 
-- 🔄 **Dual transport egress** — invoke tools over stdio (child process) or HTTP (remote MCP server)
-- 🚪 **Three ingress transports** — serve MCP clients via Streamable HTTP, Server-Sent Events, or WebSocket
-- 🧑‍🤝‍🧑 **Multi-tenancy** — per-tenant quota enforcement (rate limiting + concurrency caps) and pluggable policy evaluation
-- 🔐 **Credential brokering** — resolve secrets from any source (vault, env, KMS) and inject them into invocations, with a configurable LRU cache
-- ⚡ **Session affinity** — sticky session ownership per tenant + client + tool; or least-loaded balancing for stateless tools
-- 🛡️ **Circuit breakers** — per-tool circuit breakers with configurable failure thresholds, open durations, and half-open probing
-- 🔁 **Transparent recovery** — failed sessions re-create their executor and retry automatically, without waiting for passivation
-- 🩺 **Health probing** — periodic health checks on every tool supervisor; circuit state transitions reflected in tool status
-- 🔧 **Dynamic tool management** — register, update, enable, disable, drain, and remove tools without restarting the gateway
-- 📡 **Schema discovery** — automatically fetches and caches MCP tool schemas from backends at registration time
-- 📊 **OpenTelemetry** — traces and metrics exported via OTLP; W3C trace-context propagated on egress
-- 📋 **Durable audit trail** — every policy decision, invocation, circuit state change, and health transition is written to a pluggable `AuditSink`
-- 🕸️ **Cluster mode** — multi-node operation with gossip membership, distributed actor messaging, cluster-singleton registrar, and pluggable peer discovery (Kubernetes, DNS-SD, or custom)
-- 🔑 **TLS everywhere** — optional mutual TLS for cluster remoting and tool-backend HTTP connections
-- 🧩 **Fully pluggable** — every operational concern (identity, policy, credentials, audit, discovery) is an interface you implement
+- **Dual transport egress** — invoke tools over stdio (child process) or HTTP (remote MCP server)
+- **Three ingress transports** — serve MCP clients via Streamable HTTP, Server-Sent Events, or WebSocket
+- **Multi-tenancy** — per-tenant quota enforcement (rate limiting + concurrency caps) and pluggable policy evaluation
+- **Credential brokering** — resolve secrets from any source (vault, env, KMS) and inject them into invocations, with a configurable LRU cache
+- **Session affinity** — sticky session ownership per tenant + client + tool; or least-loaded balancing for stateless tools
+- **Circuit breakers** — per-tool circuit breakers with configurable failure thresholds, open durations, and half-open probing
+- **Transparent recovery** — failed sessions re-create their executor and retry automatically, without waiting for passivation
+- **Health probing** — periodic health checks on every tool supervisor; circuit state transitions reflected in tool status
+- **Dynamic tool management** — register, update, enable, disable, drain, and remove tools without restarting the gateway
+- **Schema discovery** — automatically fetches and caches MCP tool schemas from backends at registration time
+- **OpenTelemetry** — traces and metrics exported via OTLP; W3C trace-context propagated on egress
+- **Durable audit trail** — every policy decision, invocation, circuit state change, and health transition is written to a pluggable `AuditSink`
+- **Cluster mode** — multi-node operation with gossip membership, distributed actor messaging, cluster-singleton registrar, and pluggable peer discovery (Kubernetes, DNS-SD, or custom)
+- **TLS everywhere** — optional mutual TLS for cluster remoting and tool-backend HTTP connections
+- **Fully pluggable** — every operational concern (identity, policy, credentials, audit, discovery) is an interface you implement
 
-## 🏗️ Architecture
+## Architecture
 
 goakt-mcp is structured as three layers — ingress, gateway core, and egress — connected by a supervised actor runtime.
 
@@ -100,7 +102,7 @@ graph TB
     Core --> OT
 ```
 
-## 🧩 Core Concepts
+## Core Concepts
 
 **Gateway** is the single public entry point. It owns the actor system and provides all lifecycle and management methods. You create exactly one `Gateway` per process (or per cluster node).
 
@@ -120,7 +122,7 @@ graph TB
 
 **Circuit Breaker** is per-tool. It transitions from `closed` (normal) → `open` (fail-fast after N consecutive failures) → `half-open` (probe with a limited request) → `closed` on recovery. The circuit state is visible via `GetToolStatus` and exported as a metric.
 
-## 🔄 Request Lifecycle
+## Request Lifecycle
 
 The following sequence shows the path of a `tools/call` invocation from client to backend and back.
 
@@ -164,7 +166,7 @@ sequenceDiagram
 
 Identity resolution happens once per MCP session (at `initialize` time). All subsequent requests within the session reuse the resolved identity without re-invoking the resolver. Policy evaluation, credential resolution, and audit journaling happen on every invocation.
 
-## 🚚 Transport Support
+## Transport Support
 
 ### Ingress — serving MCP clients
 
@@ -192,7 +194,7 @@ goakt-mcp natively supports two backend transport types.
 
 Both transports fetch the backend's `tools/list` schema at registration time and cache it. The gateway uses the actual tool names, descriptions, and JSON schemas to build the ingress server's tool registry, giving MCP clients accurate, discoverable schema information.
 
-## 🧑‍🤝‍🧑 Multi-tenancy & Authorization
+## Multi-tenancy & Authorization
 
 Every invocation is attributed to a **TenantID** and **ClientID**, resolved at session creation time by an `IdentityResolver` you provide.
 
@@ -234,7 +236,7 @@ type PolicyEvaluator interface {
 
 Every policy decision — allow or deny — is recorded in the audit journal.
 
-## 🔐 Credential Brokering
+## Credential Brokering
 
 Some tool backends require authentication secrets (API keys, tokens, certificates). goakt-mcp's credential broker resolves secrets on behalf of sessions and injects them into every invocation, keeping secrets out of application code and request parameters.
 
@@ -251,7 +253,7 @@ Credentials are scoped to a tenant + tool pair. This means different tenants can
 
 The `CredentialPolicy` field on each tool controls whether credentials are `optional` (proceed with empty credentials if resolution fails) or `required` (fail the invocation if resolution fails).
 
-## 🛡️ Resilience
+## Resilience
 
 ### Circuit Breakers
 
@@ -306,7 +308,7 @@ The `HealthActor` periodically probes every `ToolSupervisor` to check whether it
 
 Health state transitions are recorded in the audit journal and exported as metrics.
 
-## 🔭 Observability
+## Observability
 
 ### OpenTelemetry Metrics
 
@@ -362,7 +364,7 @@ type AuditSink interface {
 
 Each event carries the tenant ID, client ID, tool ID, request ID, trace ID, outcome, error code, and a freeform metadata map. Built-in sinks include `MemorySink` (for testing) and `FileSink` (NDJSON line-delimited file). Custom sinks can write to any durable store — Postgres, Kafka, BigQuery, S3, etc.
 
-## 🌐 Cluster Mode
+## Cluster Mode
 
 goakt-mcp supports multi-node operation. When cluster mode is enabled, gateway nodes form a peer cluster using gossip-based membership and GoAkt remoting for distributed actor communication.
 
@@ -430,7 +432,7 @@ Set `ClusterConfig.TLS` to a `RemotingTLSConfig` to enable TLS for all remoting 
 
 For clean ordered shutdown in Kubernetes, scale the StatefulSet to zero replicas before deleting it. With `podManagementPolicy: OrderedReady`, Kubernetes terminates pods in reverse ordinal order — each departing node has live peers to replicate actor state to, preventing replication errors. The [cluster example Makefile](examples/cluster/Makefile) `cluster-down` target demonstrates this pattern.
 
-## ⚙️ Configuration Reference
+## Configuration Reference
 
 Construct a `mcp.Config` and pass it to `goaktmcp.New`. Zero-valued fields are filled with safe defaults.
 
@@ -508,7 +510,7 @@ Each entry in `Config.Tools` (or a call to `RegisterTool`) accepts the following
 | `CredentialPolicy`    | `optional` (default) or `required`                                         |
 | `AuthorizationPolicy` | `tenant_allowlist` to restrict tool to specific tenants                    |
 
-## 📡 Public API
+## Public API
 
 The `Gateway` struct is the sole public entry point. All methods are safe to call concurrently from multiple goroutines.
 
@@ -568,7 +570,7 @@ These methods provide live visibility and control over a running gateway. They a
 | `WithMetrics()`             | Enable OpenTelemetry metrics export                                 |
 | `WithTracing()`             | Enable OpenTelemetry tracing and W3C trace-context propagation      |
 
-## 🔌 Key Interfaces
+## Key Interfaces
 
 The following interfaces are the extension points for customising goakt-mcp behaviour. All are defined in the `mcp` package.
 
@@ -627,7 +629,7 @@ type ExecutorFactory interface {
 }
 ```
 
-## 📚 Examples
+## Examples
 
 All examples are in the [`examples/`](examples/) directory and can be run with `go run ./examples/<name>`.
 
@@ -644,11 +646,11 @@ All examples are in the [`examples/`](examples/) directory and can be run with `
 
 The [ai-hub](examples/ai-hub) example is the recommended starting point for understanding how all pieces fit together in a real deployment. The [cluster](examples/cluster) example includes a complete [Makefile](examples/cluster/Makefile) and Kubernetes manifests for deploying to a local [Kind](https://kind.sigs.k8s.io/) cluster.
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md) for details on the development workflow, code standards, testing, and pull request process.
 
-## 🛠️ Installation
+## Installation
 
 ```bash
 go get github.com/tochemey/goakt-mcp
@@ -656,7 +658,7 @@ go get github.com/tochemey/goakt-mcp
 
 goakt-mcp requires Go 1.26 or later. The `mcp` package contains all public domain types. The `goaktmcp` root package exposes the `Gateway` and its options.
 
-## 📜 License
+## License
 
 This project is licensed under the terms in [LICENSE](LICENSE).
 ```
