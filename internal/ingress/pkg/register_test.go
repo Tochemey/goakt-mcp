@@ -157,3 +157,144 @@ func TestRegisterTool_WithSchemas(t *testing.T) {
 	assert.True(t, names["read"])
 	assert.True(t, names["write"])
 }
+
+// --- RegisterResources -------------------------------------------------------
+
+func TestRegisterResources_NoResources(t *testing.T) {
+	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "test"}, nil)
+	gw := &stubInvoker{}
+	tool := mcp.Tool{ID: "no-resources"}
+	RegisterResources(srv, gw, tool, "t1", "c1")
+
+	// Connect to verify no resources are listed.
+	serverT, clientT := sdkmcp.NewInMemoryTransports()
+	_, err := srv.Connect(context.Background(), serverT, nil)
+	require.NoError(t, err)
+
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "test-client"}, nil)
+	sess, err := client.Connect(context.Background(), clientT, nil)
+	require.NoError(t, err)
+	defer sess.Close()
+
+	resResult, err := sess.ListResources(context.Background(), nil)
+	// Server may return error if resources capability is not advertised, or empty list.
+	if err == nil && resResult != nil {
+		assert.Empty(t, resResult.Resources)
+	}
+}
+
+func TestRegisterResources_WithResources(t *testing.T) {
+	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "test"}, nil)
+	gw := &stubInvoker{
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"contents": []map[string]any{
+					{"uri": "file:///readme.md", "mimeType": "text/plain", "text": "hello"},
+				},
+			},
+		},
+	}
+	tool := mcp.Tool{
+		ID: "resource-tool",
+		Resources: []mcp.ResourceSchema{
+			{URI: "file:///readme.md", Name: "readme", Description: "The readme", MIMEType: "text/markdown"},
+			{URI: "file:///config.json", Name: "config", Description: "App config", MIMEType: "application/json"},
+		},
+	}
+	RegisterResources(srv, gw, tool, "t1", "c1")
+
+	serverT, clientT := sdkmcp.NewInMemoryTransports()
+	_, err := srv.Connect(context.Background(), serverT, nil)
+	require.NoError(t, err)
+
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "test-client"}, nil)
+	sess, err := client.Connect(context.Background(), clientT, nil)
+	require.NoError(t, err)
+	defer sess.Close()
+
+	resResult, err := sess.ListResources(context.Background(), nil)
+	require.NoError(t, err)
+	require.Len(t, resResult.Resources, 2)
+
+	names := make(map[string]bool, 2)
+	for _, r := range resResult.Resources {
+		names[r.Name] = true
+	}
+	assert.True(t, names["readme"])
+	assert.True(t, names["config"])
+}
+
+func TestRegisterResources_WithTemplates(t *testing.T) {
+	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "test"}, nil)
+	gw := &stubInvoker{
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"contents": []map[string]any{
+					{"uri": "file:///test", "text": "content"},
+				},
+			},
+		},
+	}
+	tool := mcp.Tool{
+		ID: "template-tool",
+		ResourceTemplates: []mcp.ResourceTemplateSchema{
+			{URITemplate: "file:///{path}", Name: "file", Description: "A file", MIMEType: "application/octet-stream"},
+		},
+	}
+	RegisterResources(srv, gw, tool, "t1", "c1")
+
+	serverT, clientT := sdkmcp.NewInMemoryTransports()
+	_, err := srv.Connect(context.Background(), serverT, nil)
+	require.NoError(t, err)
+
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "test-client"}, nil)
+	sess, err := client.Connect(context.Background(), clientT, nil)
+	require.NoError(t, err)
+	defer sess.Close()
+
+	tmplResult, err := sess.ListResourceTemplates(context.Background(), nil)
+	require.NoError(t, err)
+	require.Len(t, tmplResult.ResourceTemplates, 1)
+	assert.Equal(t, "file", tmplResult.ResourceTemplates[0].Name)
+	assert.Equal(t, "file:///{path}", tmplResult.ResourceTemplates[0].URITemplate)
+}
+
+func TestRegisterResources_ReadResourceDispatch(t *testing.T) {
+	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "test"}, nil)
+	gw := &stubInvoker{
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"contents": []map[string]any{
+					{"uri": "file:///readme.md", "mimeType": "text/plain", "text": "hello world"},
+				},
+			},
+		},
+	}
+	tool := mcp.Tool{
+		ID: "dispatch-tool",
+		Resources: []mcp.ResourceSchema{
+			{URI: "file:///readme.md", Name: "readme", Description: "The readme", MIMEType: "text/markdown"},
+		},
+	}
+	RegisterResources(srv, gw, tool, "t1", "c1")
+
+	serverT, clientT := sdkmcp.NewInMemoryTransports()
+	_, err := srv.Connect(context.Background(), serverT, nil)
+	require.NoError(t, err)
+
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "test-client"}, nil)
+	sess, err := client.Connect(context.Background(), clientT, nil)
+	require.NoError(t, err)
+	defer sess.Close()
+
+	// Read the registered resource
+	readResult, err := sess.ReadResource(context.Background(), &sdkmcp.ReadResourceParams{URI: "file:///readme.md"})
+	require.NoError(t, err)
+	require.NotNil(t, readResult)
+	require.Len(t, readResult.Contents, 1)
+	assert.Equal(t, "file:///readme.md", readResult.Contents[0].URI)
+	assert.Equal(t, "hello world", readResult.Contents[0].Text)
+}

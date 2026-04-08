@@ -641,6 +641,180 @@ func TestSessionInvokeStream(t *testing.T) {
 	})
 }
 
+func TestSessionResourceRead(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("resources/read delegates to ResourceExecutor", func(t *testing.T) {
+		exec := &mockResourceExecutor{}
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		tool := validStdioTool("resource-read-tool")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, exec, nil)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := &mcp.Invocation{
+			Correlation: mcp.CorrelationMeta{
+				TenantID:  "tenant1",
+				ClientID:  "client1",
+				RequestID: "req-res-1",
+			},
+			ToolID: tool.ID,
+			Method: "resources/read",
+			Params: map[string]any{"uri": "file:///test.txt"},
+		}
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvoke{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		require.NotNil(t, result.Result)
+		assert.True(t, result.Result.Succeeded())
+		contents, ok := result.Result.Output["contents"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, contents, 1)
+		assert.Equal(t, "file:///test", contents[0]["uri"])
+	})
+
+	t.Run("resources/read with non-ResourceExecutor returns failure", func(t *testing.T) {
+		exec := &mockExecutor{} // does not implement ResourceExecutor
+		system, stop := testActorSystem(t)
+		defer stop()
+
+		tool := validStdioTool("resource-no-iface")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, exec, nil)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := &mcp.Invocation{
+			Correlation: mcp.CorrelationMeta{
+				TenantID:  "tenant1",
+				ClientID:  "client1",
+				RequestID: "req-res-2",
+			},
+			ToolID: tool.ID,
+			Method: "resources/read",
+			Params: map[string]any{"uri": "file:///test.txt"},
+		}
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvoke{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeResult)
+		require.True(t, ok)
+		require.NoError(t, result.Err)
+		require.NotNil(t, result.Result)
+		assert.Equal(t, mcp.ExecutionStatusFailure, result.Result.Status)
+		assert.Contains(t, result.Result.Err.Message, "executor does not support resources")
+	})
+
+	t.Run("resources/read with ResourceExecutor error triggers recovery", func(t *testing.T) {
+		failExec := &mockResourceExecutor{
+			readErr: errors.New("resource read crashed"),
+		}
+		successExec := &mockResourceExecutor{}
+		factory := &mockExecutorFactory{executor: successExec}
+
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(
+				actorextension.NewExecutorFactoryExtension(factory),
+				actorextension.NewConfigExtension(cfg),
+			),
+		)
+		defer stop()
+
+		tool := validStdioTool("resource-recovery-tool")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, failExec, nil)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := &mcp.Invocation{
+			Correlation: mcp.CorrelationMeta{
+				TenantID:  "tenant1",
+				ClientID:  "client1",
+				RequestID: "req-res-3",
+			},
+			ToolID: tool.ID,
+			Method: "resources/read",
+			Params: map[string]any{"uri": "file:///test.txt"},
+		}
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvoke{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeResult)
+		require.True(t, ok)
+		require.NotNil(t, result.Result)
+		assert.True(t, result.Result.Succeeded(), "retry with recovered executor should succeed")
+	})
+
+	t.Run("resources/read with transport failure result triggers recovery", func(t *testing.T) {
+		transportFailExec := &mockResourceExecutor{
+			readResult: &mcp.ExecutionResult{
+				Status: mcp.ExecutionStatusFailure,
+				Err:    mcp.NewRuntimeError(mcp.ErrCodeTransportFailure, "connection reset"),
+			},
+		}
+		successExec := &mockResourceExecutor{}
+		factory := &mockExecutorFactory{executor: successExec}
+
+		cfg := testConfig()
+		cfg.Audit.Sink = audit.NewMemorySink()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(
+				actorextension.NewExecutorFactoryExtension(factory),
+				actorextension.NewConfigExtension(cfg),
+			),
+		)
+		defer stop()
+
+		tool := validStdioTool("resource-transport-fail")
+		tool.IdleTimeout = 5 * time.Minute
+
+		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, transportFailExec, nil)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
+		pid, err := system.Spawn(ctx, name, newSession(),
+			goaktactor.WithDependencies(dep),
+			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
+		require.NoError(t, err)
+		waitForActors()
+
+		inv := &mcp.Invocation{
+			Correlation: mcp.CorrelationMeta{
+				TenantID:  "tenant1",
+				ClientID:  "client1",
+				RequestID: "req-res-4",
+			},
+			ToolID: tool.ID,
+			Method: "resources/read",
+			Params: map[string]any{"uri": "file:///test.txt"},
+		}
+		resp, err := goaktactor.Ask(ctx, pid, &runtime.SessionInvoke{Invocation: inv}, askTimeout)
+		require.NoError(t, err)
+		result, ok := resp.(*runtime.SessionInvokeResult)
+		require.True(t, ok)
+		require.NotNil(t, result.Result)
+		assert.True(t, result.Result.Succeeded(), "retry after transport failure recovery should succeed")
+	})
+}
+
 func TestSessionMetricsIntegration(t *testing.T) {
 	ctx := context.Background()
 

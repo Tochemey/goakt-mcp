@@ -390,6 +390,146 @@ func TestHTTPExecutor_ExecuteStream_IsError(t *testing.T) {
 	assert.Contains(t, result.Err.Message, "tool error")
 }
 
+// startMCPHTTPServerWithResources starts an in-process MCP HTTP server with
+// an echo tool and resource support. Returns the server URL and a cleanup function.
+func startMCPHTTPServerWithResources(t *testing.T) (url string, cleanup func()) {
+	t.Helper()
+	echoTool := func(ctx context.Context, req *sdkmcp.CallToolRequest, args map[string]any) (*sdkmcp.CallToolResult, any, error) {
+		msg := "ok"
+		if v, ok := args["message"].(string); ok && v != "" {
+			msg = v
+		}
+		return &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: msg}},
+		}, nil, nil
+	}
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "test-resource", Version: "v0.1.0"}, nil)
+	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "echo", Description: "echo"}, echoTool)
+	server.AddResource(
+		&sdkmcp.Resource{URI: "file:///readme.md", Name: "readme", Description: "The readme", MIMEType: "text/markdown"},
+		func(ctx context.Context, req *sdkmcp.ReadResourceRequest) (*sdkmcp.ReadResourceResult, error) {
+			return &sdkmcp.ReadResourceResult{
+				Contents: []*sdkmcp.ResourceContents{
+					{URI: "file:///readme.md", MIMEType: "text/markdown", Text: "# Hello World"},
+				},
+			}, nil
+		},
+	)
+	server.AddResourceTemplate(
+		&sdkmcp.ResourceTemplate{URITemplate: "file:///{path}", Name: "file", Description: "A file", MIMEType: "application/octet-stream"},
+		func(ctx context.Context, req *sdkmcp.ReadResourceRequest) (*sdkmcp.ReadResourceResult, error) {
+			return &sdkmcp.ReadResourceResult{
+				Contents: []*sdkmcp.ResourceContents{
+					{URI: req.Params.URI, MIMEType: "text/plain", Text: "content of " + req.Params.URI},
+				},
+			}, nil
+		},
+	)
+	handler := sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, nil)
+	srv := httptest.NewServer(handler)
+	return srv.URL, srv.Close
+}
+
+func TestHTTPExecutor_ReadResource_NilSession(t *testing.T) {
+	e := &HTTPExecutor{}
+	inv := &mcp.Invocation{
+		ToolID: "test",
+		Method: "resources/read",
+		Params: map[string]any{"uri": "file:///a.txt"},
+		Correlation: mcp.CorrelationMeta{
+			RequestID: "req-res-1",
+		},
+	}
+	result, err := e.ReadResource(context.Background(), inv)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, mcp.ExecutionStatusFailure, result.Status)
+	assert.Equal(t, mcp.ErrCodeTransportFailure, result.Err.Code)
+}
+
+func TestHTTPExecutor_ReadResource_EmptyURI(t *testing.T) {
+	url, cleanup := startMCPHTTPServerWithResources(t)
+	defer cleanup()
+
+	cfg := &mcp.HTTPTransportConfig{URL: url}
+	exec, err := NewHTTPExecutor(cfg, nil, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	inv := &mcp.Invocation{
+		ToolID: "test",
+		Method: "resources/read",
+		Params: map[string]any{},
+		Correlation: mcp.CorrelationMeta{
+			RequestID: "req-res-2",
+		},
+	}
+	result, err := exec.ReadResource(context.Background(), inv)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, mcp.ExecutionStatusFailure, result.Status)
+	assert.Equal(t, mcp.ErrCodeInvalidRequest, result.Err.Code)
+	assert.Contains(t, result.Err.Message, "resource URI is required")
+}
+
+func TestHTTPExecutor_ReadResource_Success(t *testing.T) {
+	url, cleanup := startMCPHTTPServerWithResources(t)
+	defer cleanup()
+
+	cfg := &mcp.HTTPTransportConfig{URL: url}
+	exec, err := NewHTTPExecutor(cfg, nil, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	inv := &mcp.Invocation{
+		ToolID: "test",
+		Method: "resources/read",
+		Params: map[string]any{"uri": "file:///readme.md"},
+		Correlation: mcp.CorrelationMeta{
+			RequestID: "req-res-3",
+		},
+	}
+	result, err := exec.ReadResource(context.Background(), inv)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, mcp.ExecutionStatusSuccess, result.Status)
+	assert.Nil(t, result.Err)
+	require.NotNil(t, result.Output)
+	contents, ok := result.Output["contents"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, contents, 1)
+	assert.Equal(t, "file:///readme.md", contents[0]["uri"])
+	assert.Equal(t, "# Hello World", contents[0]["text"])
+}
+
+func TestHTTPExecutor_ReadResource_Timeout(t *testing.T) {
+	url, cleanup := startMCPHTTPServerWithResources(t)
+	defer cleanup()
+
+	cfg := &mcp.HTTPTransportConfig{URL: url}
+	exec, err := NewHTTPExecutor(cfg, nil, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	inv := &mcp.Invocation{
+		ToolID: "test",
+		Method: "resources/read",
+		Params: map[string]any{"uri": "file:///readme.md"},
+		Correlation: mcp.CorrelationMeta{
+			RequestID: "req-res-timeout",
+		},
+	}
+	result, err := exec.ReadResource(ctx, inv)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, mcp.ExecutionStatusTimeout, result.Status)
+	require.NotNil(t, result.Err)
+	assert.Equal(t, mcp.ErrCodeInvocationTimeout, result.Err.Code)
+}
+
 func TestBuildHTTPClient(t *testing.T) {
 	t.Run("nil TLS uses fallback client", func(t *testing.T) {
 		fallback := &http.Client{}

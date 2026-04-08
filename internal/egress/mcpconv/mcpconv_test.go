@@ -208,6 +208,140 @@ func TestCallResultToOutput(t *testing.T) {
 	})
 }
 
+func TestResourceParamsFromInvocation(t *testing.T) {
+	t.Run("nil invocation returns empty", func(t *testing.T) {
+		assert.Empty(t, ResourceParamsFromInvocation(nil))
+	})
+
+	t.Run("nil params returns empty", func(t *testing.T) {
+		inv := &mcp.Invocation{ToolID: "my-tool"}
+		assert.Empty(t, ResourceParamsFromInvocation(inv))
+	})
+
+	t.Run("extracts uri from params", func(t *testing.T) {
+		inv := &mcp.Invocation{
+			ToolID: "my-tool",
+			Params: map[string]any{
+				"uri": "file:///readme.md",
+			},
+		}
+		assert.Equal(t, "file:///readme.md", ResourceParamsFromInvocation(inv))
+	})
+
+	t.Run("returns empty when uri is not a string", func(t *testing.T) {
+		inv := &mcp.Invocation{
+			ToolID: "my-tool",
+			Params: map[string]any{
+				"uri": 42,
+			},
+		}
+		assert.Empty(t, ResourceParamsFromInvocation(inv))
+	})
+
+	t.Run("returns empty when uri key is absent", func(t *testing.T) {
+		inv := &mcp.Invocation{
+			ToolID: "my-tool",
+			Params: map[string]any{
+				"name": "something",
+			},
+		}
+		assert.Empty(t, ResourceParamsFromInvocation(inv))
+	})
+}
+
+func TestReadResourceResultToOutput(t *testing.T) {
+	t.Run("nil result returns nil", func(t *testing.T) {
+		assert.Nil(t, ReadResourceResultToOutput(nil))
+	})
+
+	t.Run("empty result returns map without contents key", func(t *testing.T) {
+		res := &sdkmcp.ReadResourceResult{}
+		out := ReadResourceResultToOutput(res)
+		require.NotNil(t, out)
+		_, hasContents := out["contents"]
+		assert.False(t, hasContents)
+	})
+
+	t.Run("text resource content is mapped", func(t *testing.T) {
+		res := &sdkmcp.ReadResourceResult{
+			Contents: []*sdkmcp.ResourceContents{
+				{URI: "file:///a.txt", MIMEType: "text/plain", Text: "hello world"},
+			},
+		}
+		out := ReadResourceResultToOutput(res)
+		contents, ok := out["contents"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, contents, 1)
+		assert.Equal(t, "file:///a.txt", contents[0]["uri"])
+		assert.Equal(t, "text/plain", contents[0]["mimeType"])
+		assert.Equal(t, "hello world", contents[0]["text"])
+	})
+
+	t.Run("blob resource content is mapped", func(t *testing.T) {
+		res := &sdkmcp.ReadResourceResult{
+			Contents: []*sdkmcp.ResourceContents{
+				{URI: "file:///b.bin", MIMEType: "application/octet-stream", Blob: []byte{0x01, 0x02, 0x03}},
+			},
+		}
+		out := ReadResourceResultToOutput(res)
+		contents, ok := out["contents"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, contents, 1)
+		assert.Equal(t, "file:///b.bin", contents[0]["uri"])
+		assert.Equal(t, "application/octet-stream", contents[0]["mimeType"])
+		assert.Equal(t, []byte{0x01, 0x02, 0x03}, contents[0]["blob"])
+	})
+
+	t.Run("nil content entries are skipped", func(t *testing.T) {
+		res := &sdkmcp.ReadResourceResult{
+			Contents: []*sdkmcp.ResourceContents{
+				nil,
+				{URI: "file:///c.txt", Text: "valid"},
+				nil,
+			},
+		}
+		out := ReadResourceResultToOutput(res)
+		contents, ok := out["contents"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, contents, 1)
+		assert.Equal(t, "file:///c.txt", contents[0]["uri"])
+	})
+
+	t.Run("empty optional fields are omitted", func(t *testing.T) {
+		res := &sdkmcp.ReadResourceResult{
+			Contents: []*sdkmcp.ResourceContents{
+				{URI: "file:///d.txt"},
+			},
+		}
+		out := ReadResourceResultToOutput(res)
+		contents, ok := out["contents"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, contents, 1)
+		assert.Equal(t, "file:///d.txt", contents[0]["uri"])
+		_, hasMime := contents[0]["mimeType"]
+		assert.False(t, hasMime)
+		_, hasText := contents[0]["text"]
+		assert.False(t, hasText)
+		_, hasBlob := contents[0]["blob"]
+		assert.False(t, hasBlob)
+	})
+
+	t.Run("multiple resource contents are mapped", func(t *testing.T) {
+		res := &sdkmcp.ReadResourceResult{
+			Contents: []*sdkmcp.ResourceContents{
+				{URI: "file:///e.txt", Text: "first"},
+				{URI: "file:///f.txt", MIMEType: "text/plain", Text: "second"},
+			},
+		}
+		out := ReadResourceResultToOutput(res)
+		contents, ok := out["contents"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, contents, 2)
+		assert.Equal(t, "file:///e.txt", contents[0]["uri"])
+		assert.Equal(t, "file:///f.txt", contents[1]["uri"])
+	})
+}
+
 func TestContentErrorText(t *testing.T) {
 	t.Run("nil result returns default", func(t *testing.T) {
 		assert.Equal(t, "tool error", ContentErrorText(nil))
