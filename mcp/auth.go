@@ -24,6 +24,7 @@
 package mcp
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
@@ -67,8 +68,9 @@ type EnterpriseAuthConfig struct {
 	// middleware returns HTTP 401 Unauthorized with a proper WWW-Authenticate
 	// header.
 	//
-	// Required; [Gateway.Handler], [Gateway.SSEHandler], and [Gateway.WSHandler]
-	// return an error when this field is nil.
+	// Required; [Gateway.Handler], [Gateway.SSEHandler], [Gateway.WSHandler],
+	// [Gateway.RegisterGRPCService], and [GRPCAuthInterceptors] return an error
+	// when this field is nil.
 	TokenVerifier auth.TokenVerifier
 
 	// ResourceMetadata is the OAuth 2.0 Protected Resource Metadata published
@@ -173,6 +175,57 @@ type tokenIdentityResolver struct {
 // context and delegates to the configured [IdentityMapper].
 func (r *tokenIdentityResolver) ResolveIdentity(req *http.Request) (TenantID, ClientID, error) {
 	info := auth.TokenInfoFromContext(req.Context())
+	if info == nil {
+		return "", "", NewRuntimeError(ErrCodeInvalidRequest, "missing bearer token context")
+	}
+	return r.mapper.MapIdentity(info)
+}
+
+// grpcTokenInfoKey is the context key for storing validated [auth.TokenInfo]
+// in gRPC handler contexts. The SDK's HTTP middleware uses an unexported key,
+// so gRPC needs its own. [NewGRPCTokenIdentityResolver] reads from this key.
+type grpcTokenInfoKey struct{}
+
+// GRPCContextWithTokenInfo returns a new context with the validated token info
+// stored for retrieval by [GRPCTokenInfoFromContext].
+func GRPCContextWithTokenInfo(ctx context.Context, info *auth.TokenInfo) context.Context {
+	return context.WithValue(ctx, grpcTokenInfoKey{}, info)
+}
+
+// GRPCTokenInfoFromContext returns the [auth.TokenInfo] stored in the gRPC
+// request context by the enterprise auth validation, or nil if none.
+func GRPCTokenInfoFromContext(ctx context.Context) *auth.TokenInfo {
+	info, _ := ctx.Value(grpcTokenInfoKey{}).(*auth.TokenInfo)
+	return info
+}
+
+// NewGRPCTokenIdentityResolver creates a [GRPCIdentityResolver] backed by the
+// enterprise-managed authorization extension. It reads the [auth.TokenInfo]
+// placed in the gRPC context by the handler's enterprise auth validation and
+// maps it to TenantID and ClientID using the provided [IdentityMapper].
+//
+// When mapper is nil, [DefaultIdentityMapper] is used.
+//
+// This resolver is intended for use with [EnterpriseAuthConfig] on
+// [GRPCIngressConfig]. When the context does not contain a TokenInfo (e.g.
+// enterprise auth is not configured), the resolver returns an error.
+func NewGRPCTokenIdentityResolver(mapper IdentityMapper) GRPCIdentityResolver {
+	if mapper == nil {
+		mapper = DefaultIdentityMapper()
+	}
+	return &grpcTokenIdentityResolver{mapper: mapper}
+}
+
+// grpcTokenIdentityResolver implements [GRPCIdentityResolver] by reading
+// [auth.TokenInfo] from the gRPC context.
+type grpcTokenIdentityResolver struct {
+	mapper IdentityMapper
+}
+
+// ResolveGRPCIdentity extracts the validated token claims from the gRPC
+// context and delegates to the configured [IdentityMapper].
+func (r *grpcTokenIdentityResolver) ResolveGRPCIdentity(ctx context.Context) (TenantID, ClientID, error) {
+	info := GRPCTokenInfoFromContext(ctx)
 	if info == nil {
 		return "", "", NewRuntimeError(ErrCodeInvalidRequest, "missing bearer token context")
 	}

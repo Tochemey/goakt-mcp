@@ -19,8 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tool name resolution supporting both single-schema tools (tool name matches tool ID) and multi-schema tools (schema name maps to parent tool ID)
 - Full server-streaming support via `CallToolStream` RPC delivering progress events followed by the final result
 - Proto messages use JSON-encoded bytes for arguments and schemas, enabling transport-agnostic forwarding of arbitrary tool parameters
+- Enterprise-managed authorization support via gRPC interceptors: `GRPCAuthInterceptors` returns unary and stream interceptors that validate Bearer tokens from gRPC metadata, enforce required scopes, and store validated `TokenInfo` in context
+- `NewGRPCTokenIdentityResolver` maps validated bearer token claims to `TenantID`/`ClientID` for gRPC contexts
+- `GRPCContextWithTokenInfo` / `GRPCTokenInfoFromContext` for storing and retrieving validated token info in gRPC contexts
+- Auto-install of token-based `GRPCIdentityResolver` when `EnterpriseAuth` is set and `IdentityResolver` is nil (same pattern as HTTP ingress)
+- OAuth scope propagation from validated gRPC bearer tokens through to `Invocation.Scopes` for scope-aware policy evaluation
+- Tool name TTL cache (`ToolCacheTTL` on `GRPCIngressConfig`) avoids per-request `ListTools` actor Ask with configurable TTL (default 5s, negative disables)
 - `ingress-grpc` example demonstrating metadata-based identity resolution and all three RPCs
-- Comprehensive test suite (21 tests) using `google.golang.org/grpc/test/bufconn` for in-process gRPC testing
+- Comprehensive test suite (47 tests) using `google.golang.org/grpc/test/bufconn` for in-process gRPC testing
 - Earthfile `protogen-ingress` target for generating Go code from the ingress proto definition
 
 #### gRPC Egress Transport

@@ -29,6 +29,11 @@ import (
 	"time"
 )
 
+// DefaultToolCacheTTL is the default time-to-live for the gRPC ingress tool
+// name cache. The cache avoids a ListTools actor Ask on every CallTool and
+// CallToolStream request.
+const DefaultToolCacheTTL = 5 * time.Second
+
 // IdentityResolver extracts the tenant and client identity from an incoming
 // HTTP request. Implementations may read from JWT claims, API key headers,
 // mTLS certificates, or any other source appropriate for the deployment.
@@ -93,7 +98,31 @@ type GRPCIdentityResolver interface {
 // their own [grpc.Server].
 type GRPCIngressConfig struct {
 	// IdentityResolver extracts caller identity from each incoming gRPC
-	// request context. Required; [Gateway.RegisterGRPCService] returns an
-	// error when this field is nil.
+	// request context. Required unless EnterpriseAuth is set (in which case
+	// a token-based resolver is installed automatically).
+	// [Gateway.RegisterGRPCService] returns an error when both this field
+	// and EnterpriseAuth are nil.
 	IdentityResolver GRPCIdentityResolver
+
+	// EnterpriseAuth configures Bearer token authentication on the gRPC
+	// ingress. When set, every incoming RPC must carry a valid Bearer token
+	// in the "authorization" gRPC metadata key. Requests without a valid
+	// token receive gRPC status Unauthenticated; requests with insufficient
+	// scopes receive PermissionDenied.
+	//
+	// When EnterpriseAuth is set and IdentityResolver is nil, the handler
+	// automatically uses [NewGRPCTokenIdentityResolver] with the configured
+	// [IdentityMapper] (or [DefaultIdentityMapper] when IdentityMapper is nil).
+	//
+	// Note: ResourceMetadata is not required for gRPC (it is HTTP-specific
+	// for RFC 9728 discovery). Only TokenVerifier is required.
+	//
+	// Optional; when nil, no Bearer token enforcement is applied.
+	EnterpriseAuth *EnterpriseAuthConfig
+
+	// ToolCacheTTL controls how long resolved tool-name-to-ToolID mappings
+	// are cached before the handler re-fetches the tool list from the
+	// registrar. Zero uses [DefaultToolCacheTTL]. Negative values disable
+	// caching entirely.
+	ToolCacheTTL time.Duration
 }

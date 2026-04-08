@@ -30,6 +30,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
@@ -62,6 +63,17 @@ type fixedGRPCIdentityResolver struct {
 
 func (r *fixedGRPCIdentityResolver) ResolveGRPCIdentity(_ context.Context) (mcp.TenantID, mcp.ClientID, error) {
 	return r.tenantID, r.clientID, nil
+}
+
+// validTestTokenVerifier returns a TokenVerifier that always succeeds.
+func validTestTokenVerifier() auth.TokenVerifier {
+	return auth.TokenVerifier(func(_ context.Context, _ string, _ *http.Request) (*auth.TokenInfo, error) {
+		return &auth.TokenInfo{
+			UserID:     "user-1",
+			Scopes:     []string{"tools:read"},
+			Expiration: time.Now().Add(time.Hour),
+		}, nil
+	})
 }
 
 // noopDiscovery is a test DiscoveryProvider that returns a static peer list.
@@ -885,6 +897,49 @@ func TestGatewayRegisterGRPCService(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "IdentityResolver must not be nil")
 		srv.Stop()
+	})
+
+	t.Run("RegisterGRPCService auto-installs identity resolver with EnterpriseAuth", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+
+		srv := grpc.NewServer()
+		err = gw.RegisterGRPCService(srv, mcp.GRPCIngressConfig{
+			EnterpriseAuth: &mcp.EnterpriseAuthConfig{
+				TokenVerifier: validTestTokenVerifier(),
+			},
+		})
+		require.NoError(t, err)
+		srv.Stop()
+	})
+
+	t.Run("RegisterGRPCService returns error with EnterpriseAuth but nil TokenVerifier", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+
+		srv := grpc.NewServer()
+		err = gw.RegisterGRPCService(srv, mcp.GRPCIngressConfig{
+			EnterpriseAuth: &mcp.EnterpriseAuthConfig{},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "TokenVerifier must not be nil")
+		srv.Stop()
+	})
+}
+
+func TestGRPCAuthInterceptors(t *testing.T) {
+	t.Run("returns interceptors when config is valid", func(t *testing.T) {
+		unary, stream, err := GRPCAuthInterceptors(&mcp.EnterpriseAuthConfig{
+			TokenVerifier: validTestTokenVerifier(),
+		})
+		require.NoError(t, err)
+		assert.NotNil(t, unary)
+		assert.NotNil(t, stream)
+	})
+
+	t.Run("returns error when config is nil", func(t *testing.T) {
+		_, _, err := GRPCAuthInterceptors(nil)
+		require.Error(t, err)
 	})
 }
 
