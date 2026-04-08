@@ -98,6 +98,58 @@ func TestGatewayManager(t *testing.T) {
 	})
 }
 
+func TestCreateAuditSink(t *testing.T) {
+	t.Run("createAuditSink with FileSink returns the sink", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		fileSink, err := audit.NewFileSink(tmpDir)
+		require.NoError(t, err)
+		cfg := mcp.AuditConfig{Sink: fileSink}
+		sink := createAuditSink(cfg)
+		require.NotNil(t, sink)
+		_ = sink.Close()
+	})
+
+	t.Run("createAuditSink with nil Sink returns default MemorySink", func(t *testing.T) {
+		cfg := mcp.AuditConfig{}
+		sink := createAuditSink(cfg)
+		require.NotNil(t, sink)
+		_ = sink.Close()
+	})
+
+	t.Run("createAuditSink with custom sink returns it", func(t *testing.T) {
+		custom := &failingAuditSink{}
+		cfg := mcp.AuditConfig{Sink: custom}
+		sink := createAuditSink(cfg)
+		require.NotNil(t, sink)
+		assert.Equal(t, custom, sink)
+	})
+}
+
+func TestHasConcurrencyQuotas(t *testing.T) {
+	t.Run("hasConcurrencyQuotas returns true when tenant has concurrent sessions", func(t *testing.T) {
+		cfg := mcp.Config{
+			Tenants: []mcp.TenantConfig{
+				{ID: "t1", Quotas: mcp.TenantQuotaConfig{ConcurrentSessions: 10}},
+			},
+		}
+		assert.True(t, hasConcurrencyQuotas(cfg))
+	})
+
+	t.Run("hasConcurrencyQuotas returns false with no tenants", func(t *testing.T) {
+		cfg := mcp.Config{}
+		assert.False(t, hasConcurrencyQuotas(cfg))
+	})
+
+	t.Run("hasConcurrencyQuotas returns false when all quotas are zero", func(t *testing.T) {
+		cfg := mcp.Config{
+			Tenants: []mcp.TenantConfig{
+				{ID: "t1", Quotas: mcp.TenantQuotaConfig{RequestsPerMinute: 100}},
+			},
+		}
+		assert.False(t, hasConcurrencyQuotas(cfg))
+	})
+}
+
 func TestExternalTestHelpers(t *testing.T) {
 	t.Run("ExternalTestConfig returns valid config", func(t *testing.T) {
 		cfg := ExternalTestConfig()

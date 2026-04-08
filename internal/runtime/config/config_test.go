@@ -218,6 +218,19 @@ func TestToolConfigToTool(t *testing.T) {
 		assert.Equal(t, mcp.DefaultSessionIdleTimeout, tool.IdleTimeout)
 	})
 
+	t.Run("zero runtime defaults fall through to mcp defaults", func(t *testing.T) {
+		cfg := ToolConfig{
+			ID:        mcp.ToolID("zero-defaults"),
+			Transport: mcp.TransportStdio,
+			Command:   "echo",
+		}
+		// Pass zero-value RuntimeConfig so all timeouts are 0
+		tool := ToolConfigToTool(cfg, mcp.RuntimeConfig{})
+		assert.Equal(t, mcp.DefaultStartupTimeout, tool.StartupTimeout)
+		assert.Equal(t, mcp.DefaultRequestTimeout, tool.RequestTimeout)
+		assert.Equal(t, mcp.DefaultSessionIdleTimeout, tool.IdleTimeout)
+	})
+
 	t.Run("http tool with HTTPTLS maps to runtime", func(t *testing.T) {
 		cfg := ToolConfig{
 			ID:        mcp.ToolID("mcp-secure"),
