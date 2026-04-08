@@ -23,8 +23,6 @@
 
 package mcp
 
-import "context"
-
 // ResourceSchema holds resource metadata discovered from a backend MCP server
 // via the resources/list method.
 type ResourceSchema struct {
@@ -51,23 +49,3 @@ type ResourceTemplateSchema struct {
 	MIMEType string
 }
 
-// ResourceFetcher connects to a backend MCP server and retrieves the resources
-// and resource templates it exposes. Implementations create a temporary connection,
-// call resources/list and resources/templates/list, and close the connection.
-// The returned metadata is cached by the registrar.
-type ResourceFetcher interface {
-	FetchResources(ctx context.Context, tool Tool) ([]ResourceSchema, []ResourceTemplateSchema, error)
-}
-
-// ResourceExecutor is an optional extension of ToolExecutor that supports
-// reading MCP resources from backend servers.
-//
-// Executors may implement this interface alongside ToolExecutor. The session
-// actor checks for this interface at runtime via type assertion. When present,
-// ReadResource is called for resources/read invocations.
-//
-// Executors that do not support resources need not implement this interface;
-// the session returns an error for resources/read requests.
-type ResourceExecutor interface {
-	ReadResource(ctx context.Context, inv *Invocation) (*ExecutionResult, error)
-}
