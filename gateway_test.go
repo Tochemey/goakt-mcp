@@ -1597,7 +1597,8 @@ func TestInvokeStreamFallbackWrapping(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Drain progress
-		for range result.Progress {
+		for p := range result.Progress {
+			_ = p
 		}
 		// Get final result
 		final, ok := <-result.Final
