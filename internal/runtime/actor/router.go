@@ -100,6 +100,8 @@ func (x *router) Receive(ctx *goaktactor.ReceiveContext) {
 		x.resolveActors(ctx)
 	case *runtime.RouteInvocation:
 		x.handleRouteInvocation(ctx, msg)
+	case *runtime.RouteInvokeStream:
+		x.handleRouteInvokeStream(ctx, msg)
 	default:
 		ctx.Unhandled()
 	}
@@ -289,6 +291,183 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 	telemetry.RecordInvocationLatency(goCtx, inv.ToolID, tenantID, float64(time.Since(start).Milliseconds()))
 	x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationComplete, string(result.Status), "", "")))
 	ctx.Response(&runtime.RouteResult{Result: result})
+}
+
+// handleRouteInvokeStream orchestrates the same routing chain as
+// handleRouteInvocation (validate, policy, lookup, credentials, session) but
+// sends a SessionInvokeStream to the session so that progress events are
+// forwarded back to the caller.
+func (x *router) handleRouteInvokeStream(ctx *goaktactor.ReceiveContext, msg *runtime.RouteInvokeStream) {
+	if err := x.validateInvokeStream(msg); err != nil {
+		if msg.Invocation != nil {
+			auditCtx, auditCancel := context.WithTimeout(ctx.Context(), x.requestTimeout)
+			x.logAuditError(x.recordAuditEvent(auditCtx, invocationEvent(msg.Invocation, mcp.AuditEventTypeInvocationFailed, "invalid", string(mcp.ErrCodeInvalidRequest), err.Error())))
+			auditCancel()
+		}
+		ctx.Response(&runtime.RouteStreamResult{Err: err})
+		return
+	}
+
+	inv := msg.Invocation
+	tenantID, clientID := x.resolveTenantClient(inv)
+	corr := &telemetry.CorrelationFields{
+		TenantID:  inv.Correlation.TenantID,
+		ClientID:  inv.Correlation.ClientID,
+		RequestID: inv.Correlation.RequestID,
+		TraceID:   inv.Correlation.TraceID,
+		ToolID:    inv.ToolID,
+	}
+
+	log := x.logger
+	if kvs := corr.LogKeyValues(); len(kvs) > 0 {
+		log = x.logger.With(kvs...)
+	}
+
+	log.Debugf("actor=%s routing-stream tool=%s", naming.ActorNameRouter, inv.ToolID)
+	start := time.Now()
+
+	goCtx, cancel := context.WithTimeout(ctx.Context(), x.requestTimeout)
+	defer cancel()
+
+	var routeErr error
+
+	if telemetry.TracingEnabled() {
+		var span trace.Span
+		goCtx, span = telemetry.Tracer().Start(goCtx, "goaktmcp.route.invoke_stream",
+			trace.WithAttributes(
+				attribute.String("mcp.tool_id", string(inv.ToolID)),
+				attribute.String("mcp.tenant_id", string(tenantID)),
+				attribute.String("mcp.client_id", string(clientID)),
+			),
+			trace.WithSpanKind(trace.SpanKindInternal),
+		)
+		defer func() {
+			if routeErr != nil {
+				span.SetStatus(codes.Error, routeErr.Error())
+				span.RecordError(routeErr)
+			}
+			span.End()
+		}()
+	}
+
+	tool, err := x.lookupTool(goCtx, inv.ToolID)
+	if err != nil {
+		routeErr = err
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeToolNotFound))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "error", string(mcp.ErrCodeToolNotFound), err.Error())))
+		ctx.Response(&runtime.RouteStreamResult{Err: err})
+		return
+	}
+
+	if err := x.evaluatePolicy(goCtx, inv, tool, tenantID, clientID); err != nil {
+		routeErr = err
+		code := mcp.ErrCodePolicyDenied
+		if re := (*mcp.RuntimeError)(nil); errors.As(err, &re) {
+			code = re.Code
+		}
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(code))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypePolicyDecision, outcomeFromError(err), string(code), err.Error())))
+		ctx.Response(&runtime.RouteStreamResult{Err: err})
+		return
+	}
+
+	supervisor, err := x.lookupSupervisor(goCtx, inv.ToolID)
+	if err != nil {
+		routeErr = err
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeInternal))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "error", string(mcp.ErrCodeInternal), err.Error())))
+		ctx.Response(&runtime.RouteStreamResult{Err: err})
+		return
+	}
+
+	if err := x.checkAcceptWork(goCtx, supervisor, inv.ToolID, tool); err != nil {
+		routeErr = err
+		code := mcp.ErrCodeToolUnavailable
+		if re := (*mcp.RuntimeError)(nil); errors.As(err, &re) {
+			code = re.Code
+		}
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(code))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "unavailable", string(code), err.Error())))
+		ctx.Response(&runtime.RouteStreamResult{Err: err})
+		return
+	}
+
+	invToUse, err := x.resolveCredentials(goCtx, inv, tool, tenantID)
+	if err != nil {
+		routeErr = err
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeCredentialUnavailable))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "credential_unavailable", string(mcp.ErrCodeCredentialUnavailable), err.Error())))
+		ctx.Response(&runtime.RouteStreamResult{Err: err})
+		return
+	}
+
+	session, err := x.resolveSession(goCtx, supervisor, tenantID, clientID, inv.ToolID, invToUse.Credentials)
+	if err != nil {
+		routeErr = err
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(mcp.ErrCodeInternal))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "session_error", string(mcp.ErrCodeInternal), err.Error())))
+		ctx.Response(&runtime.RouteStreamResult{Err: err})
+		return
+	}
+
+	streamResult, result, err := x.executeInvocationStream(goCtx, session, invToUse, tool)
+	if err != nil {
+		routeErr = err
+		code := mcp.ErrCodeInternal
+		if re := (*mcp.RuntimeError)(nil); errors.As(err, &re) {
+			code = re.Code
+		}
+		telemetry.RecordInvocationFailure(goCtx, inv.ToolID, tenantID, string(code))
+		x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationFailed, "execution_error", string(code), err.Error())))
+		ctx.Response(&runtime.RouteStreamResult{Err: err})
+		return
+	}
+
+	telemetry.RecordInvocationLatency(goCtx, inv.ToolID, tenantID, float64(time.Since(start).Milliseconds()))
+	x.logAuditError(x.recordAuditEvent(goCtx, invocationEvent(inv, mcp.AuditEventTypeInvocationComplete, "streaming", "", "")))
+	ctx.Response(&runtime.RouteStreamResult{StreamResult: streamResult, Result: result})
+}
+
+// validateInvokeStream rejects nil invocations and invocations without a tool ID.
+func (x *router) validateInvokeStream(msg *runtime.RouteInvokeStream) error {
+	if msg.Invocation == nil {
+		return mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "invocation is required")
+	}
+
+	if msg.Invocation.ToolID.IsZero() {
+		return mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID is required")
+	}
+	return nil
+}
+
+// executeInvocationStream forwards the invocation to the SessionActor via
+// SessionInvokeStream. If the session returns a StreamingResult, it is passed
+// through. Otherwise the synchronous Result is returned.
+func (x *router) executeInvocationStream(goCtx context.Context, sessionPID *goaktactor.PID, inv *mcp.Invocation, tool mcp.Tool) (*mcp.StreamingResult, *mcp.ExecutionResult, error) {
+	execTimeout := tool.RequestTimeout
+	if execTimeout == 0 {
+		execTimeout = mcp.DefaultRequestTimeout
+	}
+
+	resp, err := goaktactor.Ask(goCtx, sessionPID, &runtime.SessionInvokeStream{Invocation: inv}, execTimeout)
+	if err != nil {
+		return nil, nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "stream invocation failed", err)
+	}
+
+	result, ok := resp.(*runtime.SessionInvokeStreamResult)
+	if !ok {
+		return nil, nil, mcp.NewRuntimeError(mcp.ErrCodeInternal, "invalid session stream response")
+	}
+
+	if result.Err != nil {
+		var rErr *mcp.RuntimeError
+		if errors.As(result.Err, &rErr) {
+			return nil, nil, result.Err
+		}
+		return nil, nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "session stream error", result.Err)
+	}
+
+	return result.StreamResult, result.Result, nil
 }
 
 // validateInvocation rejects nil invocations and invocations without a tool ID.

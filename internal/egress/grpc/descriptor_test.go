@@ -60,7 +60,7 @@ func TestLoadDescriptorSet(t *testing.T) {
 
 	t.Run("returns error for invalid content", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "bad.binpb")
-		require.NoError(t, os.WriteFile(tmpFile, []byte("not a valid protobuf"), 0o644))
+		require.NoError(t, os.WriteFile(tmpFile, []byte("not a valid protobuf"), 0o600))
 		_, err := egressgrpc.LoadDescriptorSet(tmpFile)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unmarshal descriptor set")

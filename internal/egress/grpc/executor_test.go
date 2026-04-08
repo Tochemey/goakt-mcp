@@ -391,7 +391,7 @@ func TestGRPCExecutor_ExecuteStream(t *testing.T) {
 		require.NoError(t, err)
 
 		// Drain progress
-		for range streamResult.Progress {
+		for range streamResult.Progress { //nolint:revive
 		}
 
 		finalResult := <-streamResult.Final
@@ -436,7 +436,7 @@ func TestGRPCExecutor_ExecuteStream_timeout(t *testing.T) {
 		require.NoError(t, err)
 
 		// Drain progress
-		for range streamResult.Progress {
+		for range streamResult.Progress { //nolint:revive
 		}
 
 		finalResult := <-streamResult.Final

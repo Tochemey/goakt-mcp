@@ -48,3 +48,26 @@ type RouteResult struct {
 	Result *mcp.ExecutionResult
 	Err    error
 }
+
+// RouteInvokeStream is a request to route and execute an invocation with
+// streaming progress support. The routing chain is identical to
+// RouteInvocation (tool lookup, policy, credentials, session resolution),
+// but the session is asked via SessionInvokeStream so that progress events
+// are forwarded to the caller.
+//
+// Must be used with Ask. Response is RouteStreamResult.
+type RouteInvokeStream struct {
+	Invocation *mcp.Invocation
+}
+
+// RouteStreamResult is the response to RouteInvokeStream.
+//
+// On success, StreamResult delivers progress events followed by the final
+// execution result. On failure, Err describes the routing or execution
+// failure. When the executor does not support streaming, StreamResult is
+// nil and Result holds the synchronous execution outcome.
+type RouteStreamResult struct {
+	StreamResult *mcp.StreamingResult
+	Result       *mcp.ExecutionResult
+	Err          error
+}

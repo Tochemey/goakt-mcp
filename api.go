@@ -77,20 +77,43 @@ func (g *Gateway) Invoke(ctx context.Context, inv *mcp.Invocation) (*mcp.Executi
 // drain progress and get the final result directly. For non-streaming callers,
 // the standard Invoke method is preferred.
 func (g *Gateway) InvokeStream(ctx context.Context, inv *mcp.Invocation) (*mcp.StreamingResult, error) {
-	// InvokeStream currently delegates to Invoke and wraps the result in a
-	// StreamingResult. Full router-level streaming support (routing
-	// SessionInvokeStream to the session) is a future enhancement; this
-	// provides the public API surface immediately.
-	result, err := g.Invoke(ctx, inv)
+	system, err := g.requireRunning()
 	if err != nil {
 		return nil, err
 	}
 
+	router, err := g.resolveRouter(ctx, system)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := goaktactor.Ask(ctx, router, &runtime.RouteInvokeStream{Invocation: inv}, g.config.Runtime.RequestTimeout)
+	if err != nil {
+		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "router ask failed", err)
+	}
+
+	result, ok := resp.(*runtime.RouteStreamResult)
+	if !ok {
+		return nil, mcp.NewRuntimeError(mcp.ErrCodeInternal, fmt.Sprintf("unexpected response type %T", resp))
+	}
+
+	if result.Err != nil {
+		return nil, result.Err
+	}
+
+	// When the executor supports streaming, return the StreamingResult directly.
+	if result.StreamResult != nil {
+		return result.StreamResult, nil
+	}
+
+	// Fallback: the session returned a synchronous result (executor does not
+	// implement ToolStreamExecutor). Wrap it in a StreamingResult so callers
+	// always get a consistent return type.
 	progressCh := make(chan mcp.ProgressEvent)
 	close(progressCh)
 
 	finalCh := make(chan *mcp.ExecutionResult, 1)
-	finalCh <- result
+	finalCh <- result.Result
 	close(finalCh)
 
 	return &mcp.StreamingResult{
