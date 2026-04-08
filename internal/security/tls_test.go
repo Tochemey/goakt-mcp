@@ -21,7 +21,7 @@
 // SOFTWARE.
 //
 
-package mcp_test
+package security_test
 
 import (
 	"crypto/ecdsa"
@@ -40,6 +40,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tochemey/goakt-mcp/internal/security"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -92,13 +93,13 @@ func writeSelfSignedCert(t *testing.T, certFile, keyFile string) {
 
 func TestBuildClientTLSConfig(t *testing.T) {
 	t.Run("nil returns nil", func(t *testing.T) {
-		cfg, err := mcp.BuildClientTLSConfig(nil)
+		cfg, err := security.BuildClientTLSConfig(nil)
 		require.NoError(t, err)
 		assert.Nil(t, cfg)
 	})
 
 	t.Run("insecure skip verify without CA", func(t *testing.T) {
-		cfg, err := mcp.BuildClientTLSConfig(&mcp.TLSClientConfig{InsecureSkipVerify: true})
+		cfg, err := security.BuildClientTLSConfig(&mcp.TLSClientConfig{InsecureSkipVerify: true})
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		assert.True(t, cfg.InsecureSkipVerify)
@@ -110,7 +111,7 @@ func TestBuildClientTLSConfig(t *testing.T) {
 		dir := t.TempDir()
 		caFile := filepath.Join(dir, "ca.crt")
 		require.NoError(t, os.WriteFile(caFile, testCACert, 0o600))
-		_, err := mcp.BuildClientTLSConfig(&mcp.TLSClientConfig{
+		_, err := security.BuildClientTLSConfig(&mcp.TLSClientConfig{
 			InsecureSkipVerify: true,
 			CACertFile:         caFile,
 		})
@@ -119,7 +120,7 @@ func TestBuildClientTLSConfig(t *testing.T) {
 	})
 
 	t.Run("partial mTLS config is rejected - cert without key", func(t *testing.T) {
-		_, err := mcp.BuildClientTLSConfig(&mcp.TLSClientConfig{
+		_, err := security.BuildClientTLSConfig(&mcp.TLSClientConfig{
 			ClientCertFile: "/some/client.crt",
 		})
 		require.Error(t, err)
@@ -127,7 +128,7 @@ func TestBuildClientTLSConfig(t *testing.T) {
 	})
 
 	t.Run("partial mTLS config is rejected - key without cert", func(t *testing.T) {
-		_, err := mcp.BuildClientTLSConfig(&mcp.TLSClientConfig{
+		_, err := security.BuildClientTLSConfig(&mcp.TLSClientConfig{
 			ClientKeyFile: "/some/client.key",
 		})
 		require.Error(t, err)
@@ -135,7 +136,7 @@ func TestBuildClientTLSConfig(t *testing.T) {
 	})
 
 	t.Run("empty config returns hardened defaults", func(t *testing.T) {
-		cfg, err := mcp.BuildClientTLSConfig(&mcp.TLSClientConfig{})
+		cfg, err := security.BuildClientTLSConfig(&mcp.TLSClientConfig{})
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		assert.False(t, cfg.InsecureSkipVerify)
@@ -148,7 +149,7 @@ func TestBuildClientTLSConfig(t *testing.T) {
 	})
 
 	t.Run("missing CA cert file", func(t *testing.T) {
-		_, err := mcp.BuildClientTLSConfig(&mcp.TLSClientConfig{CACertFile: "/nonexistent-ca.crt"})
+		_, err := security.BuildClientTLSConfig(&mcp.TLSClientConfig{CACertFile: "/nonexistent-ca.crt"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read CA cert")
 	})
@@ -157,7 +158,7 @@ func TestBuildClientTLSConfig(t *testing.T) {
 		dir := t.TempDir()
 		caFile := filepath.Join(dir, "bad-ca.crt")
 		require.NoError(t, os.WriteFile(caFile, []byte("not a certificate"), 0o600))
-		_, err := mcp.BuildClientTLSConfig(&mcp.TLSClientConfig{CACertFile: caFile})
+		_, err := security.BuildClientTLSConfig(&mcp.TLSClientConfig{CACertFile: caFile})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "parse CA cert")
 	})
@@ -166,7 +167,7 @@ func TestBuildClientTLSConfig(t *testing.T) {
 		dir := t.TempDir()
 		caFile := filepath.Join(dir, "ca.crt")
 		require.NoError(t, os.WriteFile(caFile, testCACert, 0o600))
-		cfg, err := mcp.BuildClientTLSConfig(&mcp.TLSClientConfig{CACertFile: caFile})
+		cfg, err := security.BuildClientTLSConfig(&mcp.TLSClientConfig{CACertFile: caFile})
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		assert.NotNil(t, cfg.RootCAs)
@@ -175,7 +176,7 @@ func TestBuildClientTLSConfig(t *testing.T) {
 	})
 
 	t.Run("invalid client cert files", func(t *testing.T) {
-		_, err := mcp.BuildClientTLSConfig(&mcp.TLSClientConfig{
+		_, err := security.BuildClientTLSConfig(&mcp.TLSClientConfig{
 			ClientCertFile: "/nonexistent.crt",
 			ClientKeyFile:  "/nonexistent.key",
 		})
@@ -192,7 +193,7 @@ func TestBuildClientTLSConfig(t *testing.T) {
 		caFile := filepath.Join(dir, "ca.crt")
 		require.NoError(t, os.WriteFile(caFile, testCACert, 0o600))
 
-		cfg, err := mcp.BuildClientTLSConfig(&mcp.TLSClientConfig{
+		cfg, err := security.BuildClientTLSConfig(&mcp.TLSClientConfig{
 			CACertFile:     caFile,
 			ClientCertFile: certFile,
 			ClientKeyFile:  keyFile,
@@ -207,7 +208,7 @@ func TestBuildClientTLSConfig(t *testing.T) {
 
 func TestBuildServerTLSConfig(t *testing.T) {
 	t.Run("missing cert file", func(t *testing.T) {
-		_, err := mcp.BuildServerTLSConfig("/nonexistent.crt", "/nonexistent.key", "")
+		_, err := security.BuildServerTLSConfig("/nonexistent.crt", "/nonexistent.key", "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "load server cert")
 	})
@@ -218,7 +219,7 @@ func TestBuildServerTLSConfig(t *testing.T) {
 		keyFile := filepath.Join(dir, "server.key")
 		writeSelfSignedCert(t, certFile, keyFile)
 
-		cfg, err := mcp.BuildServerTLSConfig(certFile, keyFile, "")
+		cfg, err := security.BuildServerTLSConfig(certFile, keyFile, "")
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		assert.Len(t, cfg.Certificates, 1)
@@ -237,7 +238,7 @@ func TestBuildServerTLSConfig(t *testing.T) {
 		caFile := filepath.Join(dir, "client-ca.crt")
 		require.NoError(t, os.WriteFile(caFile, testCACert, 0o600))
 
-		cfg, err := mcp.BuildServerTLSConfig(certFile, keyFile, caFile)
+		cfg, err := security.BuildServerTLSConfig(certFile, keyFile, caFile)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		assert.NotNil(t, cfg.ClientCAs)
@@ -250,7 +251,7 @@ func TestBuildServerTLSConfig(t *testing.T) {
 		keyFile := filepath.Join(dir, "server.key")
 		writeSelfSignedCert(t, certFile, keyFile)
 
-		_, err := mcp.BuildServerTLSConfig(certFile, keyFile, "/nonexistent-ca.crt")
+		_, err := security.BuildServerTLSConfig(certFile, keyFile, "/nonexistent-ca.crt")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read client CA")
 	})
@@ -263,7 +264,7 @@ func TestBuildServerTLSConfig(t *testing.T) {
 
 		caFile := filepath.Join(dir, "bad-ca.crt")
 		require.NoError(t, os.WriteFile(caFile, []byte("not a cert"), 0o600))
-		_, err := mcp.BuildServerTLSConfig(certFile, keyFile, caFile)
+		_, err := security.BuildServerTLSConfig(certFile, keyFile, caFile)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "parse client CA")
 	})
@@ -271,13 +272,13 @@ func TestBuildServerTLSConfig(t *testing.T) {
 
 func TestBuildRemotingTLSInfo(t *testing.T) {
 	t.Run("nil returns nil", func(t *testing.T) {
-		info, err := mcp.BuildRemotingTLSInfo(nil)
+		info, err := security.BuildRemotingTLSInfo(nil)
 		require.NoError(t, err)
 		assert.Nil(t, info)
 	})
 
 	t.Run("missing CertFile and KeyFile returns error", func(t *testing.T) {
-		_, err := mcp.BuildRemotingTLSInfo(&mcp.RemotingTLSConfig{})
+		_, err := security.BuildRemotingTLSInfo(&mcp.RemotingTLSConfig{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "CertFile and KeyFile are required")
 	})
@@ -291,7 +292,7 @@ func TestBuildRemotingTLSInfo(t *testing.T) {
 		caFile := filepath.Join(dir, "ca.crt")
 		require.NoError(t, os.WriteFile(caFile, testCACert, 0o600))
 
-		info, err := mcp.BuildRemotingTLSInfo(&mcp.RemotingTLSConfig{
+		info, err := security.BuildRemotingTLSInfo(&mcp.RemotingTLSConfig{
 			CertFile:   certFile,
 			KeyFile:    keyFile,
 			CACertFile: caFile,

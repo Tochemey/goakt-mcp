@@ -48,54 +48,54 @@ func TestValidate(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		cfg     Config
+		cfg     mcp.Config
 		wantErr string
 	}{
 		{
 			name: "valid minimal config",
-			cfg: Config{
+			cfg: mcp.Config{
 				Tools:   []mcp.Tool{validStdioTool},
-				Tenants: []TenantConfig{},
+				Tenants: []mcp.TenantConfig{},
 			},
 		},
 		{
 			name: "valid config with tenants and tools",
-			cfg: Config{
-				Tenants: []TenantConfig{{ID: "t1"}},
+			cfg: mcp.Config{
+				Tenants: []mcp.TenantConfig{{ID: "t1"}},
 				Tools:   []mcp.Tool{validStdioTool, validHTTPTool},
 			},
 		},
 		{
 			name: "cluster enabled without discovery",
-			cfg: Config{
-				Cluster: ClusterConfig{Enabled: true},
+			cfg: mcp.Config{
+				Cluster: mcp.ClusterConfig{Enabled: true},
 			},
 			wantErr: "cluster.discovery_provider is required",
 		},
 		{
 			name: "tenant with empty id",
-			cfg: Config{
-				Tenants: []TenantConfig{{ID: ""}},
+			cfg: mcp.Config{
+				Tenants: []mcp.TenantConfig{{ID: ""}},
 			},
 			wantErr: "tenants[0]: id is required",
 		},
 		{
 			name: "duplicate tenant ids",
-			cfg: Config{
-				Tenants: []TenantConfig{{ID: "dup"}, {ID: "dup"}},
+			cfg: mcp.Config{
+				Tenants: []mcp.TenantConfig{{ID: "dup"}, {ID: "dup"}},
 			},
 			wantErr: "duplicate tenant id",
 		},
 		{
 			name: "tool with empty id",
-			cfg: Config{
+			cfg: mcp.Config{
 				Tools: []mcp.Tool{{Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "echo"}}},
 			},
 			wantErr: "tools[0]: id is required",
 		},
 		{
 			name: "duplicate tool ids",
-			cfg: Config{
+			cfg: mcp.Config{
 				Tools: []mcp.Tool{
 					{ID: "dup", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "echo"}, State: mcp.ToolStateEnabled},
 					{ID: "dup", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "cat"}, State: mcp.ToolStateEnabled},
@@ -105,14 +105,14 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name: "stdio tool missing command",
-			cfg: Config{
+			cfg: mcp.Config{
 				Tools: []mcp.Tool{{ID: "bad", Transport: mcp.TransportStdio}},
 			},
 			wantErr: "stdio tool must have non-empty command",
 		},
 		{
 			name: "http tool missing url",
-			cfg: Config{
+			cfg: mcp.Config{
 				Tools: []mcp.Tool{{ID: "bad", Transport: mcp.TransportHTTP}},
 			},
 			wantErr: "http tool must have non-empty URL",

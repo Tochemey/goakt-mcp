@@ -32,9 +32,9 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 )
 
 // registrar is the Registry actor.
@@ -76,7 +76,7 @@ func (x *registrar) PreStart(ctx *goaktactor.Context) error {
 	x.tools = make(map[mcp.ToolID]mcp.Tool)
 	x.schemas = make(map[mcp.ToolID][]mcp.ToolSchema)
 	x.supervisors = make(map[mcp.ToolID]*goaktactor.PID)
-	ctx.Logger().Infof("actor=%s starting", mcp.ActorNameRegistrar)
+	ctx.Logger().Infof("actor=%s starting", naming.ActorNameRegistrar)
 	return nil
 }
 
@@ -84,7 +84,7 @@ func (x *registrar) PreStart(ctx *goaktactor.Context) error {
 func (x *registrar) Receive(ctx *goaktactor.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goaktactor.PostStart:
-		x.logger.Infof("actor=%s started", mcp.ActorNameRegistrar)
+		x.logger.Infof("actor=%s started", naming.ActorNameRegistrar)
 	case *runtime.RegisterTool:
 		x.handleRegisterTool(ctx, msg)
 	case *runtime.UpdateTool:
@@ -124,7 +124,7 @@ func (x *registrar) Receive(ctx *goaktactor.ReceiveContext) {
 
 // PostStop performs cleanup after Registrar has stopped.
 func (x *registrar) PostStop(ctx *goaktactor.Context) error {
-	x.logger.Infof("actor=%s stopped", mcp.ActorNameRegistrar)
+	x.logger.Infof("actor=%s stopped", naming.ActorNameRegistrar)
 	return nil
 }
 
@@ -150,7 +150,7 @@ func (x *registrar) handleRegisterTool(ctx *goaktactor.ReceiveContext, msg *runt
 		x.supervisors[tool.ID] = pid
 	}
 
-	x.logger.Infof("actor=%s registered tool=%s schemas=%d", mcp.ActorNameRegistrar, tool.ID, len(x.schemas[tool.ID]))
+	x.logger.Infof("actor=%s registered tool=%s schemas=%d", naming.ActorNameRegistrar, tool.ID, len(x.schemas[tool.ID]))
 	x.respondIfAsk(ctx, &runtime.RegisterToolResult{})
 }
 
@@ -179,7 +179,7 @@ func (x *registrar) handleUpdateTool(ctx *goaktactor.ReceiveContext, msg *runtim
 	x.tools[updated.ID] = updated
 	x.updateToolExtension(ctx, updated)
 	x.notifySupervisor(ctx, updated.ID)
-	x.logger.Infof("actor=%s updated tool=%s", mcp.ActorNameRegistrar, updated.ID)
+	x.logger.Infof("actor=%s updated tool=%s", naming.ActorNameRegistrar, updated.ID)
 	x.respondIfAsk(ctx, &runtime.UpdateToolResult{})
 }
 
@@ -197,7 +197,7 @@ func (x *registrar) handleDisableTool(ctx *goaktactor.ReceiveContext, msg *runti
 	x.tools[msg.ToolID] = existing
 	x.updateToolExtension(ctx, existing)
 	x.notifySupervisor(ctx, msg.ToolID)
-	x.logger.Infof("actor=%s disabled tool=%s", mcp.ActorNameRegistrar, msg.ToolID)
+	x.logger.Infof("actor=%s disabled tool=%s", naming.ActorNameRegistrar, msg.ToolID)
 	x.respondIfAsk(ctx, &runtime.DisableToolResult{})
 }
 
@@ -213,7 +213,7 @@ func (x *registrar) handleRemoveTool(ctx *goaktactor.ReceiveContext, msg *runtim
 	delete(x.tools, msg.ToolID)
 	delete(x.schemas, msg.ToolID)
 	delete(x.supervisors, msg.ToolID)
-	x.logger.Infof("actor=%s removed tool=%s", mcp.ActorNameRegistrar, msg.ToolID)
+	x.logger.Infof("actor=%s removed tool=%s", naming.ActorNameRegistrar, msg.ToolID)
 	x.respondIfAsk(ctx, &runtime.RemoveToolResult{})
 }
 
@@ -239,7 +239,7 @@ func (x *registrar) handleUpdateToolHealth(ctx *goaktactor.ReceiveContext, msg *
 	}
 	existing.State = msg.State
 	x.tools[msg.ToolID] = existing
-	x.logger.Debugf("actor=%s updated health tool=%s state=%s", mcp.ActorNameRegistrar, msg.ToolID, msg.State)
+	x.logger.Debugf("actor=%s updated health tool=%s state=%s", naming.ActorNameRegistrar, msg.ToolID, msg.State)
 	x.respondIfAsk(ctx, &runtime.UpdateToolHealthResult{})
 }
 
@@ -249,7 +249,7 @@ func (x *registrar) handleUpdateToolHealth(ctx *goaktactor.ReceiveContext, msg *
 func (x *registrar) handleBootstrapTools(ctx *goaktactor.ReceiveContext, msg *runtime.BootstrapTools) {
 	for _, tool := range msg.Tools {
 		if err := mcp.ValidateTool(tool); err != nil {
-			x.logger.Warnf("actor=%s bootstrap skip tool=%s: %v", mcp.ActorNameRegistrar, tool.ID, err)
+			x.logger.Warnf("actor=%s bootstrap skip tool=%s: %v", naming.ActorNameRegistrar, tool.ID, err)
 			continue
 		}
 		x.stopSupervisorIfExists(ctx, tool.ID)
@@ -258,7 +258,7 @@ func (x *registrar) handleBootstrapTools(ctx *goaktactor.ReceiveContext, msg *ru
 		if pid := x.spawnSupervisor(ctx, tool); pid != nil {
 			x.supervisors[tool.ID] = pid
 		}
-		x.logger.Infof("actor=%s bootstrap registered tool=%s schemas=%d", mcp.ActorNameRegistrar, tool.ID, len(x.schemas[tool.ID]))
+		x.logger.Infof("actor=%s bootstrap registered tool=%s schemas=%d", naming.ActorNameRegistrar, tool.ID, len(x.schemas[tool.ID]))
 	}
 }
 
@@ -303,7 +303,7 @@ func (x *registrar) handleCountSessionsForTenant(ctx *goaktactor.ReceiveContext,
 		wg.Add(1)
 		go func(s *goaktactor.PID) {
 			defer wg.Done()
-			resp, err := goaktactor.Ask(reqCtx, s, &runtime.SupervisorCountSessionsForTenant{TenantID: tenantID}, config.DefaultRequestTimeout)
+			resp, err := goaktactor.Ask(reqCtx, s, &runtime.SupervisorCountSessionsForTenant{TenantID: tenantID}, mcp.DefaultRequestTimeout)
 			if err != nil {
 				counts <- 0
 				return
@@ -335,7 +335,7 @@ func (x *registrar) spawnSupervisor(ctx *goaktactor.ReceiveContext, tool mcp.Too
 	if toolExt, ok := ctx.Extension(actorextension.ToolConfigExtensionID).(*actorextension.ToolConfigExtension); ok && toolExt != nil {
 		toolExt.Register(tool)
 	}
-	name := mcp.ToolSupervisorName(tool.ID)
+	name := naming.ToolSupervisorName(tool.ID)
 	toolSupervisor := supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective))
 	return ctx.Spawn(name, newToolSupervisor(), goaktactor.WithSupervisor(toolSupervisor), goaktactor.WithLongLived())
 }
@@ -367,7 +367,7 @@ func (x *registrar) handleEnableTool(ctx *goaktactor.ReceiveContext, msg *runtim
 	x.tools[msg.ToolID] = existing
 	x.updateToolExtension(ctx, existing)
 	x.notifySupervisor(ctx, msg.ToolID)
-	x.logger.Infof("actor=%s enabled tool=%s", mcp.ActorNameRegistrar, msg.ToolID)
+	x.logger.Infof("actor=%s enabled tool=%s", naming.ActorNameRegistrar, msg.ToolID)
 	x.respondIfAsk(ctx, &runtime.EnableToolResult{})
 }
 
@@ -398,7 +398,7 @@ func (x *registrar) handleGetToolStatus(ctx *goaktactor.ReceiveContext, msg *run
 		x.respondIfAsk(ctx, &runtime.GetToolStatusResult{Err: mcp.NewRuntimeError(mcp.ErrCodeToolUnavailable, "tool supervisor is not running")})
 		return
 	}
-	resp, err := goaktactor.Ask(ctx.Context(), pid, msg, config.DefaultRequestTimeout)
+	resp, err := goaktactor.Ask(ctx.Context(), pid, msg, mcp.DefaultRequestTimeout)
 	if err != nil {
 		x.respondIfAsk(ctx, &runtime.GetToolStatusResult{Err: mcp.WrapRuntimeError(mcp.ErrCodeInternal, "supervisor ask failed", err)})
 		return
@@ -425,7 +425,7 @@ func (x *registrar) handleResetCircuit(ctx *goaktactor.ReceiveContext, msg *runt
 		x.respondIfAsk(ctx, &runtime.ResetCircuitResult{Err: mcp.NewRuntimeError(mcp.ErrCodeToolUnavailable, "tool supervisor is not running")})
 		return
 	}
-	resp, err := goaktactor.Ask(ctx.Context(), pid, msg, config.DefaultRequestTimeout)
+	resp, err := goaktactor.Ask(ctx.Context(), pid, msg, mcp.DefaultRequestTimeout)
 	if err != nil {
 		x.respondIfAsk(ctx, &runtime.ResetCircuitResult{Err: mcp.WrapRuntimeError(mcp.ErrCodeInternal, "supervisor ask failed", err)})
 		return
@@ -451,7 +451,7 @@ func (x *registrar) handleDrainTool(ctx *goaktactor.ReceiveContext, msg *runtime
 		x.respondIfAsk(ctx, &runtime.DrainToolResult{Err: mcp.NewRuntimeError(mcp.ErrCodeToolUnavailable, "tool supervisor is not running")})
 		return
 	}
-	resp, err := goaktactor.Ask(ctx.Context(), pid, msg, config.DefaultRequestTimeout)
+	resp, err := goaktactor.Ask(ctx.Context(), pid, msg, mcp.DefaultRequestTimeout)
 	if err != nil {
 		x.respondIfAsk(ctx, &runtime.DrainToolResult{Err: mcp.WrapRuntimeError(mcp.ErrCodeInternal, "supervisor ask failed", err)})
 		return
@@ -483,7 +483,7 @@ func (x *registrar) handleListAllSessions(ctx *goaktactor.ReceiveContext) {
 		wg.Add(1)
 		go func(s *goaktactor.PID) {
 			defer wg.Done()
-			resp, err := goaktactor.Ask(reqCtx, s, &runtime.ListSupervisorSessions{}, config.DefaultRequestTimeout)
+			resp, err := goaktactor.Ask(reqCtx, s, &runtime.ListSupervisorSessions{}, mcp.DefaultRequestTimeout)
 			if err != nil {
 				results <- nil
 				return
@@ -531,19 +531,19 @@ func (x *registrar) fetchAndCacheSchemas(ctx *goaktactor.ReceiveContext, tool mc
 	ext := ctx.Extension(actorextension.SchemaFetcherExtensionID)
 	fetcherExt, ok := ext.(*actorextension.SchemaFetcherExtension)
 	if !ok || fetcherExt == nil {
-		x.logger.Debugf("actor=%s schema fetcher extension not configured, skipping schema fetch for tool=%s", mcp.ActorNameRegistrar, tool.ID)
+		x.logger.Debugf("actor=%s schema fetcher extension not configured, skipping schema fetch for tool=%s", naming.ActorNameRegistrar, tool.ID)
 		return
 	}
 
 	fetcher := fetcherExt.Fetcher()
 	if fetcher == nil {
-		x.logger.Debugf("actor=%s schema fetcher is nil, skipping schema fetch for tool=%s", mcp.ActorNameRegistrar, tool.ID)
+		x.logger.Debugf("actor=%s schema fetcher is nil, skipping schema fetch for tool=%s", naming.ActorNameRegistrar, tool.ID)
 		return
 	}
 
 	schemas, err := fetcher.FetchSchemas(ctx.Context(), tool)
 	if err != nil {
-		x.logger.Warnf("actor=%s schema fetch failed for tool=%s: %v", mcp.ActorNameRegistrar, tool.ID, err)
+		x.logger.Warnf("actor=%s schema fetch failed for tool=%s: %v", naming.ActorNameRegistrar, tool.ID, err)
 		return
 	}
 	x.schemas[tool.ID] = schemas

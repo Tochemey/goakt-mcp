@@ -21,36 +21,33 @@
 // SOFTWARE.
 //
 
-package mcp_test
+package audit
 
 import (
-	"testing"
-
-	"github.com/stretchr/testify/assert"
+	"time"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-func TestActorNameConstants(t *testing.T) {
-	assert.Equal(t, "gateway-manager", mcp.ActorNameGatewayManager)
-	assert.Equal(t, "registrar", mcp.ActorNameRegistrar)
-	assert.Equal(t, "health", mcp.ActorNameHealth)
-	assert.Equal(t, "journal", mcp.ActorNameJournal)
-	assert.Equal(t, "credential-broker", mcp.ActorNameCredentialBroker)
-	assert.Equal(t, "router", mcp.ActorNameRouter)
-	assert.Equal(t, "policy", mcp.ActorNamePolicy)
+// HealthTransitionAuditEvent creates an audit event for a tool health state change.
+func HealthTransitionAuditEvent(toolID, fromState, toState string) *mcp.AuditEvent {
+	meta := map[string]string{"from": fromState, "to": toState}
+	return &mcp.AuditEvent{
+		Type:      mcp.AuditEventTypeHealthTransition,
+		Timestamp: time.Now(),
+		ToolID:    toolID,
+		Outcome:   toState,
+		Metadata:  meta,
+	}
 }
 
-func TestToolSupervisorName(t *testing.T) {
-	assert.Equal(t, "supervisor-my-tool", mcp.ToolSupervisorName("my-tool"))
-}
-
-func TestSessionName(t *testing.T) {
-	assert.Equal(t, "session-t1-c1-tool-a", mcp.SessionName("t1", "c1", "tool-a"))
-}
-
-func TestToolIDFromSupervisorName(t *testing.T) {
-	assert.Equal(t, mcp.ToolID("my-tool"), mcp.ToolIDFromSupervisorName("supervisor-my-tool"))
-	assert.Equal(t, mcp.ToolID(""), mcp.ToolIDFromSupervisorName("supervisor-"))
-	assert.Equal(t, mcp.ToolID("other"), mcp.ToolIDFromSupervisorName("other"))
+// CircuitStateChangeAuditEvent creates an audit event for a circuit breaker transition.
+func CircuitStateChangeAuditEvent(toolID, state string, metadata map[string]string) *mcp.AuditEvent {
+	return &mcp.AuditEvent{
+		Type:      mcp.AuditEventTypeCircuitStateChange,
+		Timestamp: time.Now(),
+		ToolID:    toolID,
+		Outcome:   state,
+		Metadata:  metadata,
+	}
 }

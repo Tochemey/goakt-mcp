@@ -35,6 +35,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	ingresshttp "github.com/tochemey/goakt-mcp/internal/ingress/http"
+	"github.com/tochemey/goakt-mcp/internal/ingress/shared"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -57,7 +58,7 @@ func (r *errResolver) ResolveIdentity(_ *http.Request) (mcp.TenantID, mcp.Client
 	return "", "", errors.New("unauthorized")
 }
 
-// fakeInvoker implements [ingresshttp.Invoker] for tests.
+// fakeInvoker implements [shared.Invoker] for tests.
 type fakeInvoker struct {
 	tools  []mcp.Tool
 	result *mcp.ExecutionResult
@@ -84,7 +85,7 @@ func (f *fakeInvoker) ListTools(_ context.Context) ([]mcp.Tool, error) {
 // t.Cleanup to close both.
 func newTestSession(
 	t *testing.T,
-	gw ingresshttp.Invoker,
+	gw shared.Invoker,
 	cfg mcp.IngressConfig,
 ) *sdkmcp.ClientSession {
 	t.Helper()

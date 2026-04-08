@@ -35,9 +35,10 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
@@ -49,7 +50,7 @@ import (
 // administrative disable status.
 //
 // Spawn: Registrar spawns ToolSupervisor in spawnSupervisor via
-// ctx.Spawn(mcp.ToolSupervisorName(tool.ID), newToolSupervisor()) as a child of Registrar.
+// ctx.Spawn(naming.ToolSupervisorName(tool.ID), newToolSupervisor()) as a child of Registrar.
 // One supervisor per registered tool; spawned on RegisterTool or BootstrapTools.
 //
 // Relocation: Follows Registrar. In single-node mode, runs on the local node.
@@ -104,7 +105,7 @@ func (x *toolSupervisor) Receive(ctx *goaktactor.ReceiveContext) {
 
 		// Resolve the journal by name. PostStart runs once the actor is registered
 		// in the system, so ActorOf reliably finds sibling actors.
-		pid, err := ctx.ActorSystem().ActorOf(ctx.Context(), mcp.ActorNameJournal)
+		pid, err := ctx.ActorSystem().ActorOf(ctx.Context(), naming.ActorNameJournal)
 		if err != nil {
 			x.logger.Warnf("actor supervisor failed to resolve journal: %v", err)
 			ctx.Err(err)
@@ -115,7 +116,7 @@ func (x *toolSupervisor) Receive(ctx *goaktactor.ReceiveContext) {
 		// Resolve tool config from the system-level ToolConfigExtension. The Registrar
 		// registers the tool there before spawning the supervisor, so it is always
 		// present at PostStart time. The tool ID is derived from the actor name.
-		toolID := mcp.ToolIDFromSupervisorName(ctx.Self().Name())
+		toolID := naming.ToolIDFromSupervisorName(ctx.Self().Name())
 		toolExt, ok := ctx.Extension(actorextension.ToolConfigExtensionID).(*actorextension.ToolConfigExtension)
 		if !ok || toolExt == nil {
 			x.logger.Warnf("actor supervisor:%s tool config extension not found", toolID)
@@ -166,7 +167,7 @@ func (x *toolSupervisor) Receive(ctx *goaktactor.ReceiveContext) {
 // It derives the tool ID from the actor name instead of reading x.tool,
 // because PostStop runs in a different goroutine than Receive.
 func (x *toolSupervisor) PostStop(ctx *goaktactor.Context) error {
-	toolID := mcp.ToolIDFromSupervisorName(ctx.ActorName())
+	toolID := naming.ToolIDFromSupervisorName(ctx.ActorName())
 	if toolID.IsZero() {
 		x.logger.Infof("actor supervisor stopped before tool resolved")
 	} else {
@@ -231,7 +232,7 @@ func (x *toolSupervisor) handleGetOrCreateSession(ctx *goaktactor.ReceiveContext
 		return
 	}
 
-	name := mcp.SessionName(msg.TenantID, msg.ClientID, msg.ToolID)
+	name := naming.SessionName(msg.TenantID, msg.ClientID, msg.ToolID)
 	cid := ctx.Child(name)
 	if cid != nil && cid.IsRunning() {
 		ctx.Response(&runtime.GetOrCreateSessionResult{Session: cid, Found: true})
@@ -275,7 +276,7 @@ func sessionIdleTimeout(tool mcp.Tool) time.Duration {
 	if tool.IdleTimeout > 0 {
 		return tool.IdleTimeout
 	}
-	return config.DefaultSessionIdleTimeout
+	return mcp.DefaultSessionIdleTimeout
 }
 
 // handleReportFailure increments the failure counter and transitions the circuit
@@ -428,7 +429,7 @@ func (x *toolSupervisor) handleListSupervisorSessions(ctx *goaktactor.ReceiveCon
 		if child == nil || !child.IsRunning() {
 			continue
 		}
-		resp, err := goaktactor.Ask(ctx.Context(), child, &runtime.GetSessionIdentity{}, config.DefaultRequestTimeout)
+		resp, err := goaktactor.Ask(ctx.Context(), child, &runtime.GetSessionIdentity{}, mcp.DefaultRequestTimeout)
 		if err != nil {
 			continue
 		}
@@ -451,6 +452,6 @@ func (x *toolSupervisor) recordCircuitStateChange(state string, metadata map[str
 	if x.journal == nil || !x.journal.IsRunning() {
 		return
 	}
-	ev := mcp.CircuitStateChangeAuditEvent(string(x.tool.ID), state, metadata)
+	ev := audit.CircuitStateChangeAuditEvent(string(x.tool.ID), state, metadata)
 	_ = goaktactor.Tell(context.Background(), x.journal, &runtime.RecordAuditEvent{Event: ev})
 }

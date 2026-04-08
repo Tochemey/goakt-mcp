@@ -28,7 +28,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -39,10 +38,10 @@ type HTTPExecutorFactory struct {
 }
 
 // NewHTTPExecutorFactory creates a factory. When startupTimeout is zero,
-// config.DefaultStartupTimeout is used.
+// mcp.DefaultStartupTimeout is used.
 func NewHTTPExecutorFactory(httpClient *http.Client, startupTimeout time.Duration) *HTTPExecutorFactory {
 	if startupTimeout <= 0 {
-		startupTimeout = config.DefaultStartupTimeout
+		startupTimeout = mcp.DefaultStartupTimeout
 	}
 	return &HTTPExecutorFactory{httpClient: httpClient, startupTimeout: startupTimeout}
 }

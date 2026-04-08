@@ -29,13 +29,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 func TestEvaluator(t *testing.T) {
 	t.Run("allow when no authorization policy", func(t *testing.T) {
-		e := NewEvaluator(config.Config{})
+		e := NewEvaluator(mcp.Config{})
 		tool := mcp.Tool{
 			ID:                  "tool-1",
 			Transport:           mcp.TransportStdio,
@@ -54,7 +53,7 @@ func TestEvaluator(t *testing.T) {
 	})
 
 	t.Run("allow when tenant_allowlist and no tenants configured", func(t *testing.T) {
-		e := NewEvaluator(config.Config{})
+		e := NewEvaluator(mcp.Config{})
 		tool := mcp.Tool{
 			ID:                  "tool-1",
 			Transport:           mcp.TransportStdio,
@@ -72,9 +71,9 @@ func TestEvaluator(t *testing.T) {
 	})
 
 	t.Run("allow when tenant in allowlist", func(t *testing.T) {
-		cfg := config.Config{
-			Tenants: []config.TenantConfig{
-				{ID: "allowed-tenant", Quotas: config.TenantQuotaConfig{}},
+		cfg := mcp.Config{
+			Tenants: []mcp.TenantConfig{
+				{ID: "allowed-tenant", Quotas: mcp.TenantQuotaConfig{}},
 			},
 		}
 		e := NewEvaluator(cfg)
@@ -95,9 +94,9 @@ func TestEvaluator(t *testing.T) {
 	})
 
 	t.Run("deny when tenant not in allowlist", func(t *testing.T) {
-		cfg := config.Config{
-			Tenants: []config.TenantConfig{
-				{ID: "allowed-tenant", Quotas: config.TenantQuotaConfig{}},
+		cfg := mcp.Config{
+			Tenants: []mcp.TenantConfig{
+				{ID: "allowed-tenant", Quotas: mcp.TenantQuotaConfig{}},
 			},
 		}
 		e := NewEvaluator(cfg)
@@ -123,11 +122,11 @@ func TestEvaluator(t *testing.T) {
 	})
 
 	t.Run("throttle when concurrent session limit reached", func(t *testing.T) {
-		cfg := config.Config{
-			Tenants: []config.TenantConfig{
+		cfg := mcp.Config{
+			Tenants: []mcp.TenantConfig{
 				{
 					ID: "tenant-1",
-					Quotas: config.TenantQuotaConfig{
+					Quotas: mcp.TenantQuotaConfig{
 						ConcurrentSessions: 2,
 					},
 				},
@@ -158,11 +157,11 @@ func TestEvaluator(t *testing.T) {
 	})
 
 	t.Run("throttle when rate limit exceeded", func(t *testing.T) {
-		cfg := config.Config{
-			Tenants: []config.TenantConfig{
+		cfg := mcp.Config{
+			Tenants: []mcp.TenantConfig{
 				{
 					ID: "tenant-1",
-					Quotas: config.TenantQuotaConfig{
+					Quotas: mcp.TenantQuotaConfig{
 						RequestsPerMinute: 10,
 					},
 				},
@@ -193,7 +192,7 @@ func TestEvaluator(t *testing.T) {
 	})
 
 	t.Run("deny when input is nil", func(t *testing.T) {
-		e := NewEvaluator(config.Config{})
+		e := NewEvaluator(mcp.Config{})
 		result := e.Evaluate(nil)
 		assert.False(t, result.Allowed())
 		assert.Equal(t, DecisionDeny, result.Decision)

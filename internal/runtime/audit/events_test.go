@@ -21,34 +21,41 @@
 // SOFTWARE.
 //
 
-package stdio
+package audit_test
 
 import (
-	"context"
-	"time"
+	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-// StdioExecutorFactory creates ToolExecutor instances for stdio tools.
-type StdioExecutorFactory struct {
-	startupTimeout time.Duration
+func TestHealthTransitionEvent(t *testing.T) {
+	ev := audit.HealthTransitionAuditEvent("tool-1", "enabled", "degraded")
+	require.NotNil(t, ev)
+	assert.Equal(t, mcp.AuditEventTypeHealthTransition, ev.Type)
+	assert.Equal(t, "tool-1", ev.ToolID)
+	assert.Equal(t, "degraded", ev.Outcome)
+	assert.NotZero(t, ev.Timestamp)
+	require.NotNil(t, ev.Metadata)
+	assert.Equal(t, "enabled", ev.Metadata["from"])
+	assert.Equal(t, "degraded", ev.Metadata["to"])
 }
 
-// NewStdioExecutorFactory creates a factory with the given startup timeout.
-// When zero, mcp.DefaultStartupTimeout is used.
-func NewStdioExecutorFactory(startupTimeout time.Duration) *StdioExecutorFactory {
-	if startupTimeout <= 0 {
-		startupTimeout = mcp.DefaultStartupTimeout
-	}
-	return &StdioExecutorFactory{startupTimeout: startupTimeout}
-}
+func TestCircuitStateChangeEvent(t *testing.T) {
+	meta := map[string]string{"reason": "failure_threshold", "count": "5"}
+	ev := audit.CircuitStateChangeAuditEvent("tool-1", "open", meta)
+	require.NotNil(t, ev)
+	assert.Equal(t, mcp.AuditEventTypeCircuitStateChange, ev.Type)
+	assert.Equal(t, "tool-1", ev.ToolID)
+	assert.Equal(t, "open", ev.Outcome)
+	assert.NotZero(t, ev.Timestamp)
+	assert.Equal(t, meta, ev.Metadata)
 
-// Create returns a StdioExecutor for the tool when it uses stdio transport,
-// or nil when the tool uses a different transport.
-func (f *StdioExecutorFactory) Create(ctx context.Context, tool mcp.Tool, _ map[string]string) (mcp.ToolExecutor, error) {
-	if !tool.IsStdio() || tool.Stdio == nil {
-		return nil, nil
-	}
-	return NewStdioExecutor(tool.Stdio, f.startupTimeout)
+	ev = audit.CircuitStateChangeAuditEvent("tool-2", "closed", nil)
+	require.NotNil(t, ev)
+	assert.Nil(t, ev.Metadata)
 }

@@ -31,9 +31,9 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tochemey/goakt-mcp/mcp"
-
 	"github.com/tochemey/goakt-mcp/internal/egress/mcpconv"
+	"github.com/tochemey/goakt-mcp/internal/security"
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // HTTPExecutor executes MCP tool invocations over HTTP using the streamable transport.
@@ -203,7 +203,7 @@ func buildHTTPClient(cfg *mcp.HTTPTransportConfig, fallback *http.Client) (*http
 		return &http.Client{}, nil
 	}
 
-	tlsCfg, err := mcp.BuildClientTLSConfig(cfg.TLS)
+	tlsCfg, err := security.BuildClientTLSConfig(cfg.TLS)
 	if err != nil {
 		return nil, err
 	}

@@ -21,7 +21,7 @@
 // SOFTWARE.
 //
 
-package mcp
+package security
 
 import (
 	"crypto/tls"
@@ -30,6 +30,8 @@ import (
 	"os"
 
 	gtls "github.com/tochemey/goakt/v4/tls"
+
+	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // productionCipherSuites lists the TLS 1.2 cipher suites permitted for production use.
@@ -101,7 +103,7 @@ func BuildServerTLSConfig(certFile, keyFile, clientCAFile string) (*tls.Config, 
 // Validation errors:
 //   - InsecureSkipVerify and CACertFile cannot both be set (contradictory)
 //   - ClientCertFile and ClientKeyFile must be provided together or not at all
-func BuildClientTLSConfig(config *TLSClientConfig) (*tls.Config, error) {
+func BuildClientTLSConfig(config *mcp.TLSClientConfig) (*tls.Config, error) {
 	if config == nil {
 		return nil, nil
 	}
@@ -155,7 +157,7 @@ func BuildClientTLSConfig(config *TLSClientConfig) (*tls.Config, error) {
 // ServerConfig is built from CertFile, KeyFile, and ClientCAFile.
 // ClientConfig is built from CACertFile, ClientCertFile, ClientKeyFile, and
 // InsecureSkipVerify.
-func BuildRemotingTLSInfo(config *RemotingTLSConfig) (*gtls.Info, error) {
+func BuildRemotingTLSInfo(config *mcp.RemotingTLSConfig) (*gtls.Info, error) {
 	if config == nil {
 		return nil, nil
 	}
@@ -169,7 +171,7 @@ func BuildRemotingTLSInfo(config *RemotingTLSConfig) (*gtls.Info, error) {
 		return nil, fmt.Errorf("remoting TLS server: %w", err)
 	}
 
-	clientCfg, err := BuildClientTLSConfig(&TLSClientConfig{
+	clientCfg, err := BuildClientTLSConfig(&mcp.TLSClientConfig{
 		CACertFile:         config.CACertFile,
 		ClientCertFile:     config.ClientCertFile,
 		ClientKeyFile:      config.ClientKeyFile,

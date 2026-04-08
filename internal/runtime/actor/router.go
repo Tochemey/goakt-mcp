@@ -36,9 +36,9 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
@@ -88,7 +88,7 @@ func (x *router) PreStart(ctx *goaktactor.Context) error {
 	if x.requestTimeout == 0 {
 		x.requestTimeout = mcp.DefaultRequestTimeout
 	}
-	x.logger.Infof("actor=%s started", mcp.ActorNameRouter)
+	x.logger.Infof("actor=%s started", naming.ActorNameRouter)
 	return nil
 }
 
@@ -96,7 +96,7 @@ func (x *router) PreStart(ctx *goaktactor.Context) error {
 func (x *router) Receive(ctx *goaktactor.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goaktactor.PostStart:
-		x.logger.Debugf("actor=%s post-start", mcp.ActorNameRouter)
+		x.logger.Debugf("actor=%s post-start", naming.ActorNameRouter)
 		x.resolveActors(ctx)
 	case *runtime.RouteInvocation:
 		x.handleRouteInvocation(ctx, msg)
@@ -107,7 +107,7 @@ func (x *router) Receive(ctx *goaktactor.ReceiveContext) {
 
 // PostStop performs cleanup after RouterActor has stopped.
 func (x *router) PostStop(ctx *goaktactor.Context) error {
-	x.logger.Infof("actor=%s stopped", mcp.ActorNameRouter)
+	x.logger.Infof("actor=%s stopped", naming.ActorNameRouter)
 	return nil
 }
 
@@ -118,28 +118,28 @@ func (x *router) resolveActors(ctx *goaktactor.ReceiveContext) {
 	goCtx := ctx.Context()
 
 	// resolve the journal actor
-	journaler, err := actorSystem.ActorOf(goCtx, mcp.ActorNameJournal)
+	journaler, err := actorSystem.ActorOf(goCtx, naming.ActorNameJournal)
 	if err != nil {
 		ctx.Err(err)
 		return
 	}
 
 	// resolve the registrar actor
-	registrar, err := actorSystem.ActorOf(goCtx, mcp.ActorNameRegistrar)
+	registrar, err := actorSystem.ActorOf(goCtx, naming.ActorNameRegistrar)
 	if err != nil {
 		ctx.Err(err)
 		return
 	}
 
 	// resolve the policy maker actor
-	policyMaker, err := actorSystem.ActorOf(goCtx, mcp.ActorNamePolicy)
+	policyMaker, err := actorSystem.ActorOf(goCtx, naming.ActorNamePolicy)
 	if err != nil {
 		ctx.Err(err)
 		return
 	}
 
 	// resolve the credential broker actor
-	credentialBroker, err := actorSystem.ActorOf(goCtx, mcp.ActorNameCredentialBroker)
+	credentialBroker, err := actorSystem.ActorOf(goCtx, naming.ActorNameCredentialBroker)
 	if err != nil {
 		ctx.Err(err)
 		return
@@ -183,7 +183,7 @@ func (x *router) handleRouteInvocation(ctx *goaktactor.ReceiveContext, msg *runt
 		log = x.logger.With(kvs...)
 	}
 
-	log.Debugf("actor=%s routing tool=%s", mcp.ActorNameRouter, inv.ToolID)
+	log.Debugf("actor=%s routing tool=%s", naming.ActorNameRouter, inv.ToolID)
 	start := time.Now()
 
 	goCtx, cancel := context.WithTimeout(ctx.Context(), x.requestTimeout)
@@ -504,7 +504,7 @@ func (x *router) resolveSession(goCtx context.Context, supervisorPID *goaktactor
 func (x *router) executeInvocation(goCtx context.Context, sessionPID *goaktactor.PID, inv *mcp.Invocation, tool mcp.Tool) (*mcp.ExecutionResult, error) {
 	execTimeout := tool.RequestTimeout
 	if execTimeout == 0 {
-		execTimeout = config.DefaultRequestTimeout
+		execTimeout = mcp.DefaultRequestTimeout
 	}
 
 	sessInvResp, err := goaktactor.Ask(goCtx, sessionPID, &runtime.SessionInvoke{Invocation: inv}, execTimeout)
@@ -540,7 +540,7 @@ func (x *router) recordAuditEvent(ctx context.Context, event *mcp.AuditEvent) er
 // No-op when err is nil.
 func (x *router) logAuditError(err error) {
 	if err != nil {
-		x.logger.Warnf("actor=%s audit event failed: %v", mcp.ActorNameRouter, err)
+		x.logger.Warnf("actor=%s audit event failed: %v", naming.ActorNameRouter, err)
 	}
 }
 

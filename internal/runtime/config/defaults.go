@@ -26,21 +26,21 @@ package config
 import "github.com/tochemey/goakt-mcp/mcp"
 
 // ApplyDefaults fills zero values in cfg with defaults.
-func ApplyDefaults(cfg *Config) {
+func ApplyDefaults(cfg *mcp.Config) {
 	if cfg.Runtime.SessionIdleTimeout <= 0 {
-		cfg.Runtime.SessionIdleTimeout = DefaultSessionIdleTimeout
+		cfg.Runtime.SessionIdleTimeout = mcp.DefaultSessionIdleTimeout
 	}
 	if cfg.Runtime.RequestTimeout <= 0 {
-		cfg.Runtime.RequestTimeout = DefaultRequestTimeout
+		cfg.Runtime.RequestTimeout = mcp.DefaultRequestTimeout
 	}
 	if cfg.Runtime.StartupTimeout <= 0 {
-		cfg.Runtime.StartupTimeout = DefaultStartupTimeout
+		cfg.Runtime.StartupTimeout = mcp.DefaultStartupTimeout
 	}
 	if cfg.Runtime.HealthProbeInterval <= 0 {
-		cfg.Runtime.HealthProbeInterval = DefaultHealthProbeInterval
+		cfg.Runtime.HealthProbeInterval = mcp.DefaultHealthProbeInterval
 	}
 	if cfg.Runtime.ShutdownTimeout <= 0 {
-		cfg.Runtime.ShutdownTimeout = DefaultShutdownTimeout
+		cfg.Runtime.ShutdownTimeout = mcp.DefaultShutdownTimeout
 	}
 	if cfg.Tools == nil {
 		cfg.Tools = []mcp.Tool{}
@@ -55,6 +55,6 @@ func ApplyDefaults(cfg *Config) {
 		cfg.Audit.MailboxSize = mcp.DefaultAuditMailboxSize
 	}
 	if cfg.Tenants == nil {
-		cfg.Tenants = []TenantConfig{}
+		cfg.Tenants = []mcp.TenantConfig{}
 	}
 }

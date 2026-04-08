@@ -21,34 +21,21 @@
 // SOFTWARE.
 //
 
-package stdio
+package discovery
 
 import (
-	"context"
-	"time"
+	"reflect"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-// StdioExecutorFactory creates ToolExecutor instances for stdio tools.
-type StdioExecutorFactory struct {
-	startupTimeout time.Duration
-}
-
-// NewStdioExecutorFactory creates a factory with the given startup timeout.
-// When zero, mcp.DefaultStartupTimeout is used.
-func NewStdioExecutorFactory(startupTimeout time.Duration) *StdioExecutorFactory {
-	if startupTimeout <= 0 {
-		startupTimeout = mcp.DefaultStartupTimeout
+// IsNilDiscoveryProvider returns true when p is nil or is an interface wrapping
+// a nil pointer (typed-nil). This prevents panics when a caller assigns a nil
+// concrete pointer to the DiscoveryProvider interface field.
+func IsNilDiscoveryProvider(p mcp.DiscoveryProvider) bool {
+	if p == nil {
+		return true
 	}
-	return &StdioExecutorFactory{startupTimeout: startupTimeout}
-}
-
-// Create returns a StdioExecutor for the tool when it uses stdio transport,
-// or nil when the tool uses a different transport.
-func (f *StdioExecutorFactory) Create(ctx context.Context, tool mcp.Tool, _ map[string]string) (mcp.ToolExecutor, error) {
-	if !tool.IsStdio() || tool.Stdio == nil {
-		return nil, nil
-	}
-	return NewStdioExecutor(tool.Stdio, f.startupTimeout)
+	v := reflect.ValueOf(p)
+	return v.Kind() == reflect.Ptr && v.IsNil()
 }

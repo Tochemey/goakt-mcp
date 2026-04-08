@@ -34,6 +34,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
@@ -48,10 +49,10 @@ func TestJournalActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(extension.NewConfigExtension(cfg)))
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		pid, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
-		assert.Equal(t, mcp.ActorNameJournal, pid.Name())
+		assert.Equal(t, naming.ActorNameJournal, pid.Name())
 
 		waitForActors()
 	})
@@ -63,7 +64,7 @@ func TestJournalActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(extension.NewConfigExtension(cfg)))
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		pid, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 		waitForActors()
 

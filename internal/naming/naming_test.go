@@ -21,34 +21,37 @@
 // SOFTWARE.
 //
 
-package stdio
+package naming_test
 
 import (
-	"context"
-	"time"
+	"testing"
 
+	"github.com/stretchr/testify/assert"
+
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-// StdioExecutorFactory creates ToolExecutor instances for stdio tools.
-type StdioExecutorFactory struct {
-	startupTimeout time.Duration
+func TestActorNameConstants(t *testing.T) {
+	assert.Equal(t, "gateway-manager", naming.ActorNameGatewayManager)
+	assert.Equal(t, "registrar", naming.ActorNameRegistrar)
+	assert.Equal(t, "health", naming.ActorNameHealth)
+	assert.Equal(t, "journal", naming.ActorNameJournal)
+	assert.Equal(t, "credential-broker", naming.ActorNameCredentialBroker)
+	assert.Equal(t, "router", naming.ActorNameRouter)
+	assert.Equal(t, "policy", naming.ActorNamePolicy)
 }
 
-// NewStdioExecutorFactory creates a factory with the given startup timeout.
-// When zero, mcp.DefaultStartupTimeout is used.
-func NewStdioExecutorFactory(startupTimeout time.Duration) *StdioExecutorFactory {
-	if startupTimeout <= 0 {
-		startupTimeout = mcp.DefaultStartupTimeout
-	}
-	return &StdioExecutorFactory{startupTimeout: startupTimeout}
+func TestToolSupervisorName(t *testing.T) {
+	assert.Equal(t, "supervisor-my-tool", naming.ToolSupervisorName("my-tool"))
 }
 
-// Create returns a StdioExecutor for the tool when it uses stdio transport,
-// or nil when the tool uses a different transport.
-func (f *StdioExecutorFactory) Create(ctx context.Context, tool mcp.Tool, _ map[string]string) (mcp.ToolExecutor, error) {
-	if !tool.IsStdio() || tool.Stdio == nil {
-		return nil, nil
-	}
-	return NewStdioExecutor(tool.Stdio, f.startupTimeout)
+func TestSessionName(t *testing.T) {
+	assert.Equal(t, "session-t1-c1-tool-a", naming.SessionName("t1", "c1", "tool-a"))
+}
+
+func TestToolIDFromSupervisorName(t *testing.T) {
+	assert.Equal(t, mcp.ToolID("my-tool"), naming.ToolIDFromSupervisorName("supervisor-my-tool"))
+	assert.Equal(t, mcp.ToolID(""), naming.ToolIDFromSupervisorName("supervisor-"))
+	assert.Equal(t, mcp.ToolID("other"), naming.ToolIDFromSupervisorName("other"))
 }

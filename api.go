@@ -29,6 +29,7 @@ import (
 
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
@@ -278,12 +279,12 @@ func (g *Gateway) resolveRegistrar(ctx context.Context, system goaktactor.ActorS
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "GatewayManager not found", err)
 	}
 
-	pid, err := manager.Child(mcp.ActorNameRegistrar)
+	pid, err := manager.Child(naming.ActorNameRegistrar)
 	if err == nil && pid != nil {
 		return pid, nil
 	}
 
-	pid, err = system.ActorOf(ctx, mcp.ActorNameRegistrar)
+	pid, err = system.ActorOf(ctx, naming.ActorNameRegistrar)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "registrar not found", err)
 	}
@@ -297,12 +298,12 @@ func (g *Gateway) resolveRouter(ctx context.Context, system goaktactor.ActorSyst
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "GatewayManager not found", err)
 	}
 
-	pid, err := manager.Child(mcp.ActorNameRouter)
+	pid, err := manager.Child(naming.ActorNameRouter)
 	if err == nil && pid != nil {
 		return pid, nil
 	}
 
-	pid, err = system.ActorOf(ctx, mcp.ActorNameRouter)
+	pid, err = system.ActorOf(ctx, naming.ActorNameRouter)
 	if err != nil {
 		return nil, mcp.WrapRuntimeError(mcp.ErrCodeInternal, "router not found", err)
 	}

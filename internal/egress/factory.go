@@ -28,7 +28,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 
 	egresshttp "github.com/tochemey/goakt-mcp/internal/egress/http"
@@ -47,7 +46,7 @@ type CompositeExecutorFactory struct {
 // When zero, config defaults are used.
 func NewCompositeExecutorFactory(startupTimeout time.Duration, httpClient *http.Client) *CompositeExecutorFactory {
 	if startupTimeout <= 0 {
-		startupTimeout = config.DefaultStartupTimeout
+		startupTimeout = mcp.DefaultStartupTimeout
 	}
 	return &CompositeExecutorFactory{
 		stdio: stdio.NewStdioExecutorFactory(startupTimeout),
@@ -57,12 +56,12 @@ func NewCompositeExecutorFactory(startupTimeout time.Duration, httpClient *http.
 
 // Create returns an executor for the tool's transport, or nil when the tool
 // has no configured transport.
-func (f *CompositeExecutorFactory) Create(ctx context.Context, tool mcp.Tool, creds map[string]string) (mcp.ToolExecutor, error) {
+func (x *CompositeExecutorFactory) Create(ctx context.Context, tool mcp.Tool, creds map[string]string) (mcp.ToolExecutor, error) {
 	switch tool.Transport {
 	case mcp.TransportStdio:
-		return f.stdio.Create(ctx, tool, creds)
+		return x.stdio.Create(ctx, tool, creds)
 	case mcp.TransportHTTP:
-		return f.http.Create(ctx, tool, creds)
+		return x.http.Create(ctx, tool, creds)
 	default:
 		return nil, nil
 	}

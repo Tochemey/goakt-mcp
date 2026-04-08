@@ -31,7 +31,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -45,13 +44,13 @@ func TestNewCompositeSchemaFetcher(t *testing.T) {
 	t.Run("defaults timeout when zero", func(t *testing.T) {
 		f := NewCompositeSchemaFetcher(0, nil)
 		require.NotNil(t, f)
-		assert.Equal(t, config.DefaultStartupTimeout, f.startupTimeout)
+		assert.Equal(t, mcp.DefaultStartupTimeout, f.startupTimeout)
 	})
 
 	t.Run("defaults timeout when negative", func(t *testing.T) {
 		f := NewCompositeSchemaFetcher(-1, nil)
 		require.NotNil(t, f)
-		assert.Equal(t, config.DefaultStartupTimeout, f.startupTimeout)
+		assert.Equal(t, mcp.DefaultStartupTimeout, f.startupTimeout)
 	})
 }
 

@@ -38,7 +38,7 @@ import (
 
 func dispatchToolCall(
 	ctx context.Context,
-	gw Invoker,
+	gw shared.Invoker,
 	req *sdkmcp.CallToolRequest,
 	toolID mcp.ToolID,
 	tenantID mcp.TenantID,

@@ -29,7 +29,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 
 	egresshttp "github.com/tochemey/goakt-mcp/internal/egress/http"
@@ -47,7 +46,7 @@ type CompositeSchemaFetcher struct {
 // NewCompositeSchemaFetcher creates a schema fetcher with the given timeouts.
 func NewCompositeSchemaFetcher(startupTimeout time.Duration, httpClient *http.Client) *CompositeSchemaFetcher {
 	if startupTimeout <= 0 {
-		startupTimeout = config.DefaultStartupTimeout
+		startupTimeout = mcp.DefaultStartupTimeout
 	}
 	return &CompositeSchemaFetcher{
 		startupTimeout: startupTimeout,

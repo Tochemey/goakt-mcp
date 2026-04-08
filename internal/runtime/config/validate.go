@@ -26,11 +26,12 @@ package config
 import (
 	"fmt"
 
+	"github.com/tochemey/goakt-mcp/internal/discovery"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
 // Validate checks cfg for critical errors. Returns nil when valid.
-func Validate(cfg *Config) error {
+func Validate(cfg *mcp.Config) error {
 	if err := validateCluster(&cfg.Cluster); err != nil {
 		return err
 	}
@@ -46,15 +47,15 @@ func Validate(cfg *Config) error {
 }
 
 // validateCluster ensures a discovery provider is set when clustering is on.
-func validateCluster(c *ClusterConfig) error {
-	if c.Enabled && mcp.IsNilDiscoveryProvider(c.DiscoveryProvider) {
+func validateCluster(c *mcp.ClusterConfig) error {
+	if c.Enabled && discovery.IsNilDiscoveryProvider(c.DiscoveryProvider) {
 		return fmt.Errorf("cluster.discovery_provider is required when cluster is enabled")
 	}
 	return nil
 }
 
 // validateTenants verifies that every tenant has a non-empty, unique ID.
-func validateTenants(tenants []TenantConfig) error {
+func validateTenants(tenants []mcp.TenantConfig) error {
 	seen := make(map[mcp.TenantID]bool, len(tenants))
 	for i, t := range tenants {
 		if t.ID == "" {

@@ -34,26 +34,26 @@ import (
 
 func TestApplyDefaults(t *testing.T) {
 	t.Run("fills zero values", func(t *testing.T) {
-		cfg := Config{}
+		cfg := mcp.Config{}
 		ApplyDefaults(&cfg)
-		assert.Equal(t, DefaultSessionIdleTimeout, cfg.Runtime.SessionIdleTimeout)
-		assert.Equal(t, DefaultRequestTimeout, cfg.Runtime.RequestTimeout)
-		assert.Equal(t, DefaultStartupTimeout, cfg.Runtime.StartupTimeout)
-		assert.Equal(t, DefaultHealthProbeInterval, cfg.Runtime.HealthProbeInterval)
-		assert.Equal(t, DefaultShutdownTimeout, cfg.Runtime.ShutdownTimeout)
+		assert.Equal(t, mcp.DefaultSessionIdleTimeout, cfg.Runtime.SessionIdleTimeout)
+		assert.Equal(t, mcp.DefaultRequestTimeout, cfg.Runtime.RequestTimeout)
+		assert.Equal(t, mcp.DefaultStartupTimeout, cfg.Runtime.StartupTimeout)
+		assert.Equal(t, mcp.DefaultHealthProbeInterval, cfg.Runtime.HealthProbeInterval)
+		assert.Equal(t, mcp.DefaultShutdownTimeout, cfg.Runtime.ShutdownTimeout)
 		assert.NotNil(t, cfg.Tools)
 		assert.NotNil(t, cfg.Tenants)
 	})
 
 	t.Run("fills HealthProbe.Timeout and Credentials.MaxCacheEntries defaults", func(t *testing.T) {
-		cfg := Config{}
+		cfg := mcp.Config{}
 		ApplyDefaults(&cfg)
 		assert.Equal(t, mcp.DefaultHealthProbeTimeout, cfg.HealthProbe.Timeout)
 		assert.Equal(t, mcp.DefaultMaxCacheEntries, cfg.Credentials.MaxCacheEntries)
 	})
 
 	t.Run("preserves explicit HealthProbe.Timeout and MaxCacheEntries", func(t *testing.T) {
-		cfg := Config{
+		cfg := mcp.Config{
 			HealthProbe: mcp.HealthProbeConfig{Timeout: 5 * time.Second},
 			Credentials: mcp.CredentialsConfig{MaxCacheEntries: 500},
 		}
@@ -63,20 +63,20 @@ func TestApplyDefaults(t *testing.T) {
 	})
 
 	t.Run("fills Audit.MailboxSize default", func(t *testing.T) {
-		cfg := Config{}
+		cfg := mcp.Config{}
 		ApplyDefaults(&cfg)
 		assert.Equal(t, mcp.DefaultAuditMailboxSize, cfg.Audit.MailboxSize)
 	})
 
 	t.Run("preserves explicit Audit.MailboxSize", func(t *testing.T) {
-		cfg := Config{Audit: mcp.AuditConfig{MailboxSize: 256}}
+		cfg := mcp.Config{Audit: mcp.AuditConfig{MailboxSize: 256}}
 		ApplyDefaults(&cfg)
 		assert.Equal(t, 256, cfg.Audit.MailboxSize)
 	})
 
 	t.Run("negative values are treated as zero and replaced with defaults", func(t *testing.T) {
-		cfg := Config{
-			Runtime: RuntimeConfig{
+		cfg := mcp.Config{
+			Runtime: mcp.RuntimeConfig{
 				SessionIdleTimeout:  -1 * time.Minute,
 				RequestTimeout:      -1 * time.Second,
 				StartupTimeout:      -1 * time.Second,
@@ -88,19 +88,19 @@ func TestApplyDefaults(t *testing.T) {
 			Audit:       mcp.AuditConfig{MailboxSize: -512},
 		}
 		ApplyDefaults(&cfg)
-		assert.Equal(t, DefaultSessionIdleTimeout, cfg.Runtime.SessionIdleTimeout)
-		assert.Equal(t, DefaultRequestTimeout, cfg.Runtime.RequestTimeout)
-		assert.Equal(t, DefaultStartupTimeout, cfg.Runtime.StartupTimeout)
-		assert.Equal(t, DefaultHealthProbeInterval, cfg.Runtime.HealthProbeInterval)
-		assert.Equal(t, DefaultShutdownTimeout, cfg.Runtime.ShutdownTimeout)
+		assert.Equal(t, mcp.DefaultSessionIdleTimeout, cfg.Runtime.SessionIdleTimeout)
+		assert.Equal(t, mcp.DefaultRequestTimeout, cfg.Runtime.RequestTimeout)
+		assert.Equal(t, mcp.DefaultStartupTimeout, cfg.Runtime.StartupTimeout)
+		assert.Equal(t, mcp.DefaultHealthProbeInterval, cfg.Runtime.HealthProbeInterval)
+		assert.Equal(t, mcp.DefaultShutdownTimeout, cfg.Runtime.ShutdownTimeout)
 		assert.Equal(t, mcp.DefaultHealthProbeTimeout, cfg.HealthProbe.Timeout)
 		assert.Equal(t, mcp.DefaultMaxCacheEntries, cfg.Credentials.MaxCacheEntries)
 		assert.Equal(t, mcp.DefaultAuditMailboxSize, cfg.Audit.MailboxSize)
 	})
 
 	t.Run("preserves explicit values", func(t *testing.T) {
-		cfg := Config{
-			Runtime: RuntimeConfig{
+		cfg := mcp.Config{
+			Runtime: mcp.RuntimeConfig{
 				SessionIdleTimeout:  10 * time.Minute,
 				RequestTimeout:      60 * time.Second,
 				StartupTimeout:      20 * time.Second,
@@ -110,7 +110,7 @@ func TestApplyDefaults(t *testing.T) {
 			Tools: []mcp.Tool{
 				{ID: "t", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "npx"}, State: mcp.ToolStateEnabled},
 			},
-			Tenants: []TenantConfig{{ID: "x"}},
+			Tenants: []mcp.TenantConfig{{ID: "x"}},
 		}
 		ApplyDefaults(&cfg)
 		assert.Equal(t, 10*time.Minute, cfg.Runtime.SessionIdleTimeout)

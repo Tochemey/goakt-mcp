@@ -36,10 +36,10 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
@@ -56,14 +56,14 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, system, cfg)
 
-		registryPID, err := system.ActorOf(ctx, mcp.ActorNameRegistrar)
+		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		tool := validStdioTool("route-tool")
 		_, err = goaktactor.Ask(ctx, registryPID, &runtime.RegisterTool{Tool: tool}, askTimeout)
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("route-tool", "tenant1", "client1")
@@ -86,7 +86,7 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, system, cfg)
 
-		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("nonexistent-tool", "default", "default")
@@ -108,7 +108,7 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, system, cfg)
 
-		registryPID, err := system.ActorOf(ctx, mcp.ActorNameRegistrar)
+		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		tool := validStdioTool("circuit-tool")
 		_, err = goaktactor.Ask(ctx, registryPID, &runtime.RegisterTool{Tool: tool}, askTimeout)
@@ -129,7 +129,7 @@ func TestRouterActor(t *testing.T) {
 		}
 		waitForActors()
 
-		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("circuit-tool", "default", "default")
@@ -153,7 +153,7 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, system, cfg)
 
-		registryPID, err := system.ActorOf(ctx, mcp.ActorNameRegistrar)
+		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		tool := validStdioTool("disabled-tool")
 		tool.State = mcp.ToolStateDisabled
@@ -161,7 +161,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("disabled-tool", "default", "default")
@@ -183,7 +183,7 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, system, cfg)
 
-		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		resp, err := goaktactor.Ask(ctx, routerPID, &runtime.RouteInvocation{Invocation: nil}, askTimeout)
@@ -204,7 +204,7 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, system, cfg)
 
-		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("", "default", "default")
@@ -228,7 +228,7 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, system, cfg)
 
-		registryPID, err := system.ActorOf(ctx, mcp.ActorNameRegistrar)
+		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		tool := validStdioTool("policy-tool")
 		tool.AuthorizationPolicy = mcp.AuthorizationPolicyTenantAllowlist
@@ -236,7 +236,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("policy-tool", "denied-tenant", "client-1")
@@ -260,19 +260,19 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, kit.ActorSystem(), cfg)
 
-		_, err := kit.ActorSystem().ActorOf(ctx, mcp.ActorNameRegistrar)
+		_, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		tool := validStdioTool("route-journal-tool")
 		probe := kit.NewProbe(ctx)
-		probe.SendSync(mcp.ActorNameRegistrar, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		probe.SendSync(naming.ActorNameRegistrar, &runtime.RegisterTool{Tool: tool}, askTimeout)
 		probe.ExpectAnyMessage()
 		waitForActors()
 
-		_, err = kit.ActorSystem().ActorOf(ctx, mcp.ActorNameRouter)
+		_, err = kit.ActorSystem().ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("route-journal-tool", "tenant1", "client1")
-		probe.SendSync(mcp.ActorNameRouter, &runtime.RouteInvocation{Invocation: inv}, askTimeout)
+		probe.SendSync(naming.ActorNameRouter, &runtime.RouteInvocation{Invocation: inv}, askTimeout)
 		resp := probe.ExpectAnyMessage()
 		result, ok := resp.(*runtime.RouteResult)
 		require.True(t, ok)
@@ -298,20 +298,20 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, kit.ActorSystem(), cfg)
 
-		_, err := kit.ActorSystem().ActorOf(ctx, mcp.ActorNameRegistrar)
+		_, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		tool := validStdioTool("cred-tool")
 		tool.CredentialPolicy = mcp.CredentialPolicyRequired
 		probe := kit.NewProbe(ctx)
-		probe.SendSync(mcp.ActorNameRegistrar, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		probe.SendSync(naming.ActorNameRegistrar, &runtime.RegisterTool{Tool: tool}, askTimeout)
 		probe.ExpectAnyMessage()
 		waitForActors()
 
-		_, err = kit.ActorSystem().ActorOf(ctx, mcp.ActorNameRouter)
+		_, err = kit.ActorSystem().ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("cred-tool", "tenant1", "client1")
-		probe.SendSync(mcp.ActorNameRouter, &runtime.RouteInvocation{Invocation: inv}, askTimeout)
+		probe.SendSync(naming.ActorNameRouter, &runtime.RouteInvocation{Invocation: inv}, askTimeout)
 		resp := probe.ExpectAnyMessage()
 		result, ok := resp.(*runtime.RouteResult)
 		require.True(t, ok)
@@ -331,20 +331,20 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, kit.ActorSystem(), cfg)
 
-		_, err := kit.ActorSystem().ActorOf(ctx, mcp.ActorNameRegistrar)
+		_, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		tool := validStdioTool("cred-req-tool")
 		tool.CredentialPolicy = mcp.CredentialPolicyRequired
 		probe := kit.NewProbe(ctx)
-		probe.SendSync(mcp.ActorNameRegistrar, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		probe.SendSync(naming.ActorNameRegistrar, &runtime.RegisterTool{Tool: tool}, askTimeout)
 		probe.ExpectAnyMessage()
 		waitForActors()
 
-		_, err = kit.ActorSystem().ActorOf(ctx, mcp.ActorNameRouter)
+		_, err = kit.ActorSystem().ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("cred-req-tool", "tenant1", "client1")
-		probe.SendSync(mcp.ActorNameRouter, &runtime.RouteInvocation{Invocation: inv}, askTimeout)
+		probe.SendSync(naming.ActorNameRouter, &runtime.RouteInvocation{Invocation: inv}, askTimeout)
 		resp := probe.ExpectAnyMessage()
 		result, ok := resp.(*runtime.RouteResult)
 		require.True(t, ok)
@@ -357,9 +357,9 @@ func TestRouterActor(t *testing.T) {
 
 	t.Run("policy rate limit produces throttle outcome", func(t *testing.T) {
 		cfg := testConfig()
-		cfg.Tenants = []config.TenantConfig{{
+		cfg.Tenants = []mcp.TenantConfig{{
 			ID: "rate-tenant",
-			Quotas: config.TenantQuotaConfig{
+			Quotas: mcp.TenantQuotaConfig{
 				RequestsPerMinute: 2,
 			},
 		}}
@@ -370,19 +370,19 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, kit.ActorSystem(), cfg)
 
-		_, err := kit.ActorSystem().ActorOf(ctx, mcp.ActorNameRegistrar)
+		_, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		tool := validStdioTool("rate-tool")
 		probe := kit.NewProbe(ctx)
-		probe.SendSync(mcp.ActorNameRegistrar, &runtime.RegisterTool{Tool: tool}, askTimeout)
+		probe.SendSync(naming.ActorNameRegistrar, &runtime.RegisterTool{Tool: tool}, askTimeout)
 		probe.ExpectAnyMessage()
 		waitForActors()
 
-		_, err = kit.ActorSystem().ActorOf(ctx, mcp.ActorNameRouter)
+		_, err = kit.ActorSystem().ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("rate-tool", "rate-tenant", "client1")
-		probe.SendSync(mcp.ActorNameRouter, &runtime.RouteInvocation{Invocation: inv}, askTimeout)
+		probe.SendSync(naming.ActorNameRouter, &runtime.RouteInvocation{Invocation: inv}, askTimeout)
 		resp := probe.ExpectAnyMessage()
 		result, ok := resp.(*runtime.RouteResult)
 		require.True(t, ok)
@@ -390,7 +390,7 @@ func TestRouterActor(t *testing.T) {
 
 		inv2 := sessionInvocation("rate-tool", "rate-tenant", "client1")
 		inv2.Correlation.RequestID = "req-2"
-		probe.SendSync(mcp.ActorNameRouter, &runtime.RouteInvocation{Invocation: inv2}, askTimeout)
+		probe.SendSync(naming.ActorNameRouter, &runtime.RouteInvocation{Invocation: inv2}, askTimeout)
 		resp2 := probe.ExpectAnyMessage()
 		result2, ok := resp2.(*runtime.RouteResult)
 		require.True(t, ok)
@@ -399,7 +399,7 @@ func TestRouterActor(t *testing.T) {
 		// Third request exceeds limit (allow N, throttle N+1)
 		inv3 := sessionInvocation("rate-tool", "rate-tenant", "client1")
 		inv3.Correlation.RequestID = "req-3"
-		probe.SendSync(mcp.ActorNameRouter, &runtime.RouteInvocation{Invocation: inv3}, askTimeout)
+		probe.SendSync(naming.ActorNameRouter, &runtime.RouteInvocation{Invocation: inv3}, askTimeout)
 		resp3 := probe.ExpectAnyMessage()
 		result3, ok := resp3.(*runtime.RouteResult)
 		require.True(t, ok)
@@ -423,14 +423,14 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, system, cfg)
 
-		registryPID, err := system.ActorOf(ctx, mcp.ActorNameRegistrar)
+		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		tool := validStdioTool("metrics-route-tool")
 		_, err = goaktactor.Ask(ctx, registryPID, &runtime.RegisterTool{Tool: tool}, askTimeout)
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("metrics-route-tool", "tenant1", "client1")
@@ -451,14 +451,14 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, system, cfg)
 
-		registryPID, err := system.ActorOf(ctx, mcp.ActorNameRegistrar)
+		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		tool := validStdioTool("default-tenant-tool")
 		_, err = goaktactor.Ask(ctx, registryPID, &runtime.RegisterTool{Tool: tool}, askTimeout)
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := &mcp.Invocation{
@@ -486,7 +486,7 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, system, cfg)
 
-		registryPID, err := system.ActorOf(ctx, mcp.ActorNameRegistrar)
+		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		tool := validStdioTool("drain-route-tool")
 		_, err = goaktactor.Ask(ctx, registryPID, &runtime.RegisterTool{Tool: tool}, askTimeout)
@@ -498,7 +498,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("drain-route-tool", "default", "default")
@@ -527,7 +527,7 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, system, cfg)
 
-		registryPID, err := system.ActorOf(ctx, mcp.ActorNameRegistrar)
+		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		tool := validStdioTool("policy-metric-tool")
 		tool.AuthorizationPolicy = mcp.AuthorizationPolicyTenantAllowlist
@@ -535,7 +535,7 @@ func TestRouterActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("policy-metric-tool", "denied-tenant", "client-1")
@@ -556,9 +556,9 @@ func TestRouterActor(t *testing.T) {
 		t.Cleanup(telemetry.UnregisterMetrics)
 
 		cfg := testConfig()
-		cfg.Tenants = []config.TenantConfig{{
+		cfg.Tenants = []mcp.TenantConfig{{
 			ID:     "throttle-tenant",
-			Quotas: config.TenantQuotaConfig{RequestsPerMinute: 1},
+			Quotas: mcp.TenantQuotaConfig{RequestsPerMinute: 1},
 		}}
 		cfg.Audit.Sink = audit.NewMemorySink()
 		system, stop := testActorSystem(t,
@@ -568,14 +568,14 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, system, cfg)
 
-		registryPID, err := system.ActorOf(ctx, mcp.ActorNameRegistrar)
+		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		tool := validStdioTool("throttle-metric-tool")
 		_, err = goaktactor.Ask(ctx, registryPID, &runtime.RegisterTool{Tool: tool}, askTimeout)
 		require.NoError(t, err)
 		waitForActors()
 
-		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		// First request succeeds (within limit)
@@ -612,7 +612,7 @@ func TestRouterActor(t *testing.T) {
 
 		spawnFoundationalActorsForTest(ctx, system, cfg)
 
-		routerPID, err := system.ActorOf(ctx, mcp.ActorNameRouter)
+		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 
 		inv := sessionInvocation("nonexistent-tool", "tenant1", "client1")

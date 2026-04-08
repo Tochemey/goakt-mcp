@@ -33,10 +33,6 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-// Invoker is an alias for [shared.Invoker] kept for backward compatibility
-// with existing callers that reference the http package Invoker type.
-type Invoker = shared.Invoker
-
 // New returns an [http.Handler] that serves MCP Streamable HTTP sessions and
 // routes each tool call through gw.
 //
@@ -49,7 +45,7 @@ type Invoker = shared.Invoker
 // New validates that cfg.IdentityResolver is non-nil and returns an error
 // if it is not. The gateway does not need to be started at the time New is
 // called; tool registration happens lazily on first session creation.
-func New(gw Invoker, cfg mcp.IngressConfig) (http.Handler, error) {
+func New(gw shared.Invoker, cfg mcp.IngressConfig) (http.Handler, error) {
 	if cfg.IdentityResolver == nil {
 		return nil, errors.New("ingress: IdentityResolver must not be nil")
 	}

@@ -24,7 +24,6 @@
 package policy
 
 import (
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -59,7 +58,7 @@ type Input struct {
 
 	// TenantConfig is the tenant configuration when the tenant is known.
 	// Nil when the tenant is not in the static configuration.
-	TenantConfig *config.TenantConfig
+	TenantConfig *mcp.TenantConfig
 
 	// ActiveSessionCount is the number of live sessions for this tenant across all tools.
 	// Used for ConcurrentSessions quota enforcement. Zero when unknown.

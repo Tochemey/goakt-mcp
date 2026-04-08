@@ -33,6 +33,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 )
 
@@ -44,7 +45,7 @@ func TestPolicyActor(t *testing.T) {
 		defer stop()
 
 		cfg := testConfig()
-		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -66,7 +67,7 @@ func TestPolicyActor(t *testing.T) {
 		defer stop()
 
 		cfg := testConfigWithTenants("allowed-tenant")
-		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -95,7 +96,7 @@ func TestPolicyActor(t *testing.T) {
 		defer stop()
 
 		cfg := testConfigWithTenants("allowed-tenant")
-		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -122,7 +123,7 @@ func TestPolicyActor(t *testing.T) {
 		cfg.Tenants = []mcp.TenantConfig{
 			{ID: "rate-tenant", Quotas: mcp.TenantQuotaConfig{RequestsPerMinute: 2}},
 		}
-		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -161,7 +162,7 @@ func TestPolicyActor(t *testing.T) {
 		defer stop()
 
 		cfg := testConfig()
-		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
 		require.NoError(t, err)
 		waitForActors()
 
