@@ -30,16 +30,18 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	egressgrpc "github.com/tochemey/goakt-mcp/internal/egress/grpc"
 	egresshttp "github.com/tochemey/goakt-mcp/internal/egress/http"
 	"github.com/tochemey/goakt-mcp/internal/egress/stdio"
 )
 
 // CompositeExecutorFactory creates ToolExecutor instances by delegating to
-// stdio or HTTP factories based on tool transport. Low-allocation: reuses
-// shared factory instances.
+// stdio, HTTP, or gRPC factories based on tool transport. Low-allocation:
+// reuses shared factory instances.
 type CompositeExecutorFactory struct {
 	stdio *stdio.StdioExecutorFactory
 	http  *egresshttp.HTTPExecutorFactory
+	grpc  *egressgrpc.GRPCExecutorFactory
 }
 
 // NewCompositeExecutorFactory creates a factory with the given timeouts.
@@ -51,6 +53,7 @@ func NewCompositeExecutorFactory(startupTimeout time.Duration, httpClient *http.
 	return &CompositeExecutorFactory{
 		stdio: stdio.NewStdioExecutorFactory(startupTimeout),
 		http:  egresshttp.NewHTTPExecutorFactory(httpClient, startupTimeout),
+		grpc:  egressgrpc.NewGRPCExecutorFactory(startupTimeout),
 	}
 }
 
@@ -62,6 +65,8 @@ func (x *CompositeExecutorFactory) Create(ctx context.Context, tool mcp.Tool, cr
 		return x.stdio.Create(ctx, tool, creds)
 	case mcp.TransportHTTP:
 		return x.http.Create(ctx, tool, creds)
+	case mcp.TransportGRPC:
+		return x.grpc.Create(ctx, tool, creds)
 	default:
 		return nil, nil
 	}

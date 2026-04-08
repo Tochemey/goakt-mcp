@@ -35,6 +35,7 @@ type TransportType string
 const (
 	TransportStdio TransportType = "stdio"
 	TransportHTTP  TransportType = "http"
+	TransportGRPC  TransportType = "grpc"
 )
 
 // RoutingMode defines how the runtime selects an execution target for a tool.
@@ -135,6 +136,42 @@ type TLSClientConfig struct {
 	InsecureSkipVerify bool
 }
 
+// GRPCTransportConfig holds the connection parameters for tools reached over gRPC.
+type GRPCTransportConfig struct {
+	// Target is the gRPC dial target (e.g. "payments.internal:50051").
+	// Required for gRPC transport tools.
+	Target string
+	// Service is the fully-qualified protobuf service name
+	// (e.g. "payments.v1.PaymentService"). Used to scope descriptor resolution
+	// and to build the full method path for invocations.
+	Service string
+	// Method is the specific RPC method name (e.g. "Charge"). Combined with
+	// Service to form the full gRPC method path "/payments.v1.PaymentService/Charge".
+	// When empty, all methods in the service are exposed as tool schemas and the
+	// invocation's tool name is used as the method at call time.
+	Method string
+	// DescriptorSet is the path to a binary-encoded FileDescriptorSet (.binpb)
+	// containing the protobuf definitions for the target service. Generated via:
+	//
+	//   protoc --descriptor_set_out=service.binpb --include_imports service.proto
+	//   buf build -o service.binpb
+	//
+	// Mutually exclusive with Reflection; exactly one must be set.
+	DescriptorSet string
+	// Reflection enables gRPC server reflection for descriptor discovery instead
+	// of a local descriptor set file. Intended for development and staging
+	// environments where the backend has reflection enabled.
+	//
+	// Mutually exclusive with DescriptorSet; exactly one must be set.
+	Reflection bool
+	// TLS holds optional TLS settings for the outbound gRPC connection. When nil,
+	// plaintext (insecure) transport credentials are used.
+	TLS *TLSClientConfig
+	// Metadata holds static gRPC metadata key-value pairs attached to every
+	// outbound RPC. Useful for API keys, routing headers, and similar concerns.
+	Metadata map[string]string
+}
+
 // Tool represents a registered MCP capability with its full execution metadata.
 type Tool struct {
 	// ID is the unique identifier for this tool within the gateway registry.
@@ -147,6 +184,9 @@ type Tool struct {
 	// HTTP holds configuration for HTTP-based tools. Required when Transport
 	// is [TransportHTTP]; ignored otherwise.
 	HTTP *HTTPTransportConfig
+	// GRPC holds configuration for gRPC-based tools. Required when Transport
+	// is [TransportGRPC]; ignored otherwise.
+	GRPC *GRPCTransportConfig
 	// StartupTimeout is the maximum time to wait for the backend process or
 	// connection to become ready. When zero, [DefaultStartupTimeout] is used.
 	StartupTimeout time.Duration
@@ -186,6 +226,9 @@ func (t Tool) IsStdio() bool { return t.Transport == TransportStdio }
 
 // IsHTTP reports whether the tool uses the HTTP transport.
 func (t Tool) IsHTTP() bool { return t.Transport == TransportHTTP }
+
+// IsGRPC reports whether the tool uses the gRPC transport.
+func (t Tool) IsGRPC() bool { return t.Transport == TransportGRPC }
 
 // IsAvailable reports whether the tool can accept new requests.
 func (t Tool) IsAvailable() bool {

@@ -60,13 +60,24 @@ func TestCompositeSchemaFetcher_FetchSchemas(t *testing.T) {
 	t.Run("unsupported transport returns error", func(t *testing.T) {
 		tool := mcp.Tool{
 			ID:        "unknown-tool",
-			Transport: "grpc",
+			Transport: "mqtt",
 		}
 		schemas, err := f.FetchSchemas(context.Background(), tool)
 		require.Error(t, err)
 		assert.Nil(t, schemas)
 		assert.Contains(t, err.Error(), "unsupported transport type")
-		assert.Contains(t, err.Error(), "grpc")
+		assert.Contains(t, err.Error(), "mqtt")
+	})
+
+	t.Run("grpc tool with nil config returns error", func(t *testing.T) {
+		tool := mcp.Tool{
+			ID:        "grpc-nil",
+			Transport: mcp.TransportGRPC,
+			GRPC:      nil,
+		}
+		schemas, err := f.FetchSchemas(context.Background(), tool)
+		require.Error(t, err)
+		assert.Nil(t, schemas)
 	})
 
 	t.Run("empty transport returns error", func(t *testing.T) {

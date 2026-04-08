@@ -84,8 +84,94 @@ func TestValidateTool(t *testing.T) {
 		require.Error(t, err)
 	})
 
+	t.Run("valid grpc tool with descriptor set", func(t *testing.T) {
+		tool := mcp.Tool{
+			ID:        "grpc-tool",
+			Transport: mcp.TransportGRPC,
+			GRPC: &mcp.GRPCTransportConfig{
+				Target:        "localhost:50051",
+				Service:       "pkg.MyService",
+				DescriptorSet: "/path/to/descriptors.binpb",
+			},
+		}
+		assert.NoError(t, mcp.ValidateTool(tool))
+	})
+
+	t.Run("valid grpc tool with reflection", func(t *testing.T) {
+		tool := mcp.Tool{
+			ID:        "grpc-tool",
+			Transport: mcp.TransportGRPC,
+			GRPC: &mcp.GRPCTransportConfig{
+				Target:     "localhost:50051",
+				Service:    "pkg.MyService",
+				Reflection: true,
+			},
+		}
+		assert.NoError(t, mcp.ValidateTool(tool))
+	})
+
+	t.Run("grpc nil config", func(t *testing.T) {
+		tool := mcp.Tool{ID: "t", Transport: mcp.TransportGRPC, GRPC: nil}
+		err := mcp.ValidateTool(tool)
+		require.Error(t, err)
+		var rErr *mcp.RuntimeError
+		require.ErrorAs(t, err, &rErr)
+		assert.Equal(t, mcp.ErrCodeInvalidRequest, rErr.Code)
+	})
+
+	t.Run("grpc empty target", func(t *testing.T) {
+		tool := mcp.Tool{
+			ID:        "t",
+			Transport: mcp.TransportGRPC,
+			GRPC:      &mcp.GRPCTransportConfig{Target: "", Service: "svc", DescriptorSet: "/f"},
+		}
+		err := mcp.ValidateTool(tool)
+		require.Error(t, err)
+	})
+
+	t.Run("grpc empty service", func(t *testing.T) {
+		tool := mcp.Tool{
+			ID:        "t",
+			Transport: mcp.TransportGRPC,
+			GRPC:      &mcp.GRPCTransportConfig{Target: "host:50051", Service: "", DescriptorSet: "/f"},
+		}
+		err := mcp.ValidateTool(tool)
+		require.Error(t, err)
+	})
+
+	t.Run("grpc both descriptor set and reflection", func(t *testing.T) {
+		tool := mcp.Tool{
+			ID:        "t",
+			Transport: mcp.TransportGRPC,
+			GRPC: &mcp.GRPCTransportConfig{
+				Target:        "host:50051",
+				Service:       "svc",
+				DescriptorSet: "/f",
+				Reflection:    true,
+			},
+		}
+		err := mcp.ValidateTool(tool)
+		require.Error(t, err)
+		var rErr *mcp.RuntimeError
+		require.ErrorAs(t, err, &rErr)
+		assert.Contains(t, rErr.Message, "not both")
+	})
+
+	t.Run("grpc neither descriptor set nor reflection", func(t *testing.T) {
+		tool := mcp.Tool{
+			ID:        "t",
+			Transport: mcp.TransportGRPC,
+			GRPC:      &mcp.GRPCTransportConfig{Target: "host:50051", Service: "svc"},
+		}
+		err := mcp.ValidateTool(tool)
+		require.Error(t, err)
+		var rErr *mcp.RuntimeError
+		require.ErrorAs(t, err, &rErr)
+		assert.Contains(t, rErr.Message, "either DescriptorSet or Reflection")
+	})
+
 	t.Run("unknown transport", func(t *testing.T) {
-		tool := mcp.Tool{ID: "t", Transport: "grpc"}
+		tool := mcp.Tool{ID: "t", Transport: "mqtt"}
 		err := mcp.ValidateTool(tool)
 		require.Error(t, err)
 		var rErr *mcp.RuntimeError

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### gRPC Egress Transport
+
+- `TransportGRPC` transport type for tools backed by gRPC services
+- `GRPCTransportConfig` with target, service, method, TLS, and static metadata support
+- User-provided proto descriptor set (`.binpb`) for production environments where server reflection is unavailable
+- Optional gRPC server reflection mode for development and staging environments
+- Dynamic protobuf message construction via `dynamicpb` — no compiled `.pb.go` types required at gateway build time
+- Automatic JSON Schema derivation from proto message descriptors for MCP tool schema discovery
+- Server-streaming RPC support via `ToolStreamExecutor` interface
+- Connectivity verification during schema fetch (mirrors HTTP/stdio live-fetch pattern)
+- Reuses existing `TLSClientConfig` and `security.BuildClientTLSConfig` for mTLS support
+- Integrated into `CompositeExecutorFactory` and `CompositeSchemaFetcher` — no gateway wiring changes needed
+
 #### Enterprise-Managed Authorization (MCP Extension)
 
 - MCP enterprise-managed authorization extension (`io.modelcontextprotocol/enterprise-managed-authorization`) support for centralized access control through enterprise identity providers
