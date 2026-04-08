@@ -177,18 +177,87 @@ Identity resolution happens once per MCP session (at `initialize` time) for HTTP
 
 goakt-mcp exposes three factory methods on `Gateway` to create ingress HTTP handlers, plus a registration method for gRPC. Mount the returned `http.Handler` in your own HTTP server or router; register the gRPC service on your own `grpc.Server`.
 
-| Handler                       | Method             | MCP Transport         | Best for                                        |
-|-------------------------------|--------------------|-----------------------|-------------------------------------------------|
-| `Gateway.Handler`             | Streamable HTTP    | MCP 2025-11-25 spec   | Production clients, Claude Desktop, agents      |
-| `Gateway.SSEHandler`          | Server-Sent Events | MCP 2024-11-05 spec   | Legacy clients, browser-based agents            |
+| Handler                       | Method             | MCP Transport         | Best for                                         |
+|-------------------------------|--------------------|-----------------------|--------------------------------------------------|
+| `Gateway.Handler`             | Streamable HTTP    | MCP 2025-11-25 spec   | Production clients, Claude Desktop, agents       |
+| `Gateway.SSEHandler`          | Server-Sent Events | MCP 2024-11-05 spec   | Legacy clients, browser-based agents             |
 | `Gateway.WSHandler`           | WebSocket          | Full-duplex streaming | Latency-sensitive, bidirectional streams         |
 | `Gateway.RegisterGRPCService` | gRPC               | Protobuf/gRPC         | Service-to-service, streaming progress, polyglot |
 
-The three HTTP handlers accept an `mcp.IngressConfig` that specifies the `IdentityResolver`, session idle timeout, and statefulness mode. The gRPC handler accepts an `mcp.GRPCIngressConfig` with a `GRPCIdentityResolver` that reads identity from gRPC metadata.
+The three HTTP handlers accept an `mcp.IngressConfig` that specifies the `IdentityResolver`, session idle timeout, and statefulness mode.
 
 In **stateful** mode (default), each client receives a unique `Mcp-Session-Id`; the identity resolver runs once per connection and all subsequent requests reuse the resolved identity. This is the right choice for long-lived agent sessions.
 
 In **stateless** mode (`Stateless: true`), a new session is created for every HTTP request. This works well behind load balancers where request stickiness cannot be guaranteed.
+
+#### gRPC Ingress
+
+The gRPC ingress exposes the `MCPToolService` protobuf service with three RPCs:
+
+| RPC              | Description                                                                           |
+|------------------|---------------------------------------------------------------------------------------|
+| `ListTools`      | Returns all registered tools and their schemas                                        |
+| `CallTool`       | Synchronous tool invocation — send a request, get a result                            |
+| `CallToolStream` | Streaming invocation — delivers progress events as they arrive, then the final result |
+
+Unlike the HTTP handlers (which return an `http.Handler`), gRPC services register directly on a `grpc.Server`. Identity is resolved on every request via `GRPCIdentityResolver`, which reads from gRPC metadata — the gRPC equivalent of HTTP headers.
+
+**Server setup:**
+
+```go
+// 1. Create your gRPC server (add interceptors, TLS, etc. as needed)
+grpcServer := grpc.NewServer()
+
+// 2. Register the MCP service with your identity resolver
+gw.RegisterGRPCService(grpcServer, mcp.GRPCIngressConfig{
+    IdentityResolver: &myMetadataResolver{},
+})
+
+// 3. Serve
+lis, _ := net.Listen("tcp", ":50051")
+grpcServer.Serve(lis)
+```
+
+**Client usage (any gRPC-supported language):**
+
+```go
+conn, _ := grpc.NewClient("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+client := pb.NewMCPToolServiceClient(conn)
+
+// Attach identity via gRPC metadata
+md := metadata.Pairs("x-tenant-id", "acme", "x-client-id", "agent-1")
+ctx := metadata.NewOutgoingContext(context.Background(), md)
+
+// Discover tools
+resp, _ := client.ListTools(ctx, &pb.ListToolsRequest{})
+
+// Call a tool
+args, _ := json.Marshal(map[string]any{"path": "/tmp"})
+result, _ := client.CallTool(ctx, &pb.CallToolRequest{
+    ToolName:  "list_directory",
+    Arguments: args,
+})
+
+// Stream a tool call with progress events
+stream, _ := client.CallToolStream(ctx, &pb.CallToolStreamRequest{
+    ToolName:  "list_directory",
+    Arguments: args,
+})
+for {
+    msg, err := stream.Recv()
+    if err == io.EOF { break }
+    switch p := msg.GetPayload().(type) {
+    case *pb.CallToolStreamResponse_Progress:
+        log.Printf("progress: %s", p.Progress.GetMessage())
+    case *pb.CallToolStreamResponse_Result:
+        log.Printf("result: %v", p.Result.GetContent())
+    }
+}
+```
+
+Tool arguments are JSON-encoded bytes, not typed proto fields. This allows the gRPC ingress to forward arbitrary tool schemas without requiring compiled `.pb.go` types for every backend tool.
+
+Authentication middleware (mTLS, token validation) can be added via standard gRPC interceptors — the gateway does not bundle gRPC-specific auth, unlike the HTTP ingress which supports the MCP enterprise-managed authorization extension.
 
 ### Egress — connecting to tool backends
 
@@ -198,7 +267,9 @@ goakt-mcp natively supports three backend transport types.
 
 **HTTP** connects to a remote MCP server over HTTP. Full MCP Streamable HTTP semantics are used, including session management and streaming. W3C trace-context headers are propagated on every outbound call when tracing is enabled.
 
-Both transports fetch the backend's `tools/list` schema at registration time and cache it. The gateway uses the actual tool names, descriptions, and JSON schemas to build the ingress server's tool registry, giving MCP clients accurate, discoverable schema information.
+**gRPC** connects to a remote gRPC service using dynamic protobuf messages. Proto descriptors can be loaded from a local `.binpb` file or fetched via gRPC server reflection. JSON Schemas are derived automatically from the proto message descriptors. Server-streaming RPCs are supported via the `ToolStreamExecutor` interface.
+
+All three transports fetch the backend's tool schemas at registration time and cache them. The gateway uses the actual tool names, descriptions, and JSON schemas to build the ingress server's tool registry, giving MCP clients accurate, discoverable schema information.
 
 ## Multi-tenancy & Authorization
 
@@ -206,13 +277,25 @@ Every invocation is attributed to a **TenantID** and **ClientID**, resolved at s
 
 ### Identity Resolution
 
+For **HTTP/SSE/WebSocket** ingress, the resolver receives the raw HTTP request:
+
 ```go
 type IdentityResolver interface {
     ResolveIdentity(r *http.Request) (TenantID, ClientID, error)
 }
 ```
 
-The resolver receives the raw HTTP request and returns the tenant and client identity. Common implementations read JWT claims, API key headers, mTLS certificate subject, or custom session tokens. A non-nil error rejects the incoming session with HTTP 400.
+Common implementations read JWT claims, API key headers, mTLS certificate subject, or custom session tokens. A non-nil error rejects the incoming session with HTTP 400. The resolver runs once per MCP session — all subsequent requests reuse the resolved identity.
+
+For **gRPC** ingress, the resolver receives the gRPC request context:
+
+```go
+type GRPCIdentityResolver interface {
+    ResolveGRPCIdentity(ctx context.Context) (TenantID, ClientID, error)
+}
+```
+
+Implementations typically read from gRPC metadata via `metadata.FromIncomingContext(ctx)`. A non-nil error returns gRPC status `Unauthenticated` to the caller. Unlike the HTTP resolver, the gRPC resolver runs on every request.
 
 ### Tenant Configuration
 
@@ -500,22 +583,22 @@ Controls timeouts and probe intervals for the actor runtime.
 
 Each entry in `Config.Tools` (or a call to `RegisterTool`) accepts the following fields.
 
-| Field                 | Description                                                                |
-|-----------------------|----------------------------------------------------------------------------|
-| `ID`                  | Unique tool identifier                                                     |
-| `Transport`           | `stdio`, `http`, or `grpc`                                                 |
-| `Stdio`               | `*StdioTransportConfig` — command, args, env, working directory            |
-| `HTTP`                | `*HTTPTransportConfig` — URL and optional TLS config                       |
+| Field                 | Description                                                                                   |
+|-----------------------|-----------------------------------------------------------------------------------------------|
+| `ID`                  | Unique tool identifier                                                                        |
+| `Transport`           | `stdio`, `http`, or `grpc`                                                                    |
+| `Stdio`               | `*StdioTransportConfig` — command, args, env, working directory                               |
+| `HTTP`                | `*HTTPTransportConfig` — URL and optional TLS config                                          |
 | `GRPC`                | `*GRPCTransportConfig` — target, service, method, TLS, metadata, descriptor set or reflection |
-| `State`               | Initial state: `enabled` or `disabled`                                     |
-| `Routing`             | `sticky` (session affinity, default) or `least_loaded`                     |
-| `MaxSessionsPerTool`  | Backpressure limit; zero = unlimited                                       |
-| `RequestTimeout`      | Per-tool invocation timeout; overrides runtime default                     |
-| `IdleTimeout`         | Passivate idle sessions after this duration                                |
-| `StartupTimeout`      | Timeout for executor creation                                              |
-| `Circuit`             | `CircuitConfig` — failure threshold, open duration, half-open max requests |
-| `CredentialPolicy`    | `optional` (default) or `required`                                         |
-| `AuthorizationPolicy` | `tenant_allowlist` to restrict tool to specific tenants                    |
+| `State`               | Initial state: `enabled` or `disabled`                                                        |
+| `Routing`             | `sticky` (session affinity, default) or `least_loaded`                                        |
+| `MaxSessionsPerTool`  | Backpressure limit; zero = unlimited                                                          |
+| `RequestTimeout`      | Per-tool invocation timeout; overrides runtime default                                        |
+| `IdleTimeout`         | Passivate idle sessions after this duration                                                   |
+| `StartupTimeout`      | Timeout for executor creation                                                                 |
+| `Circuit`             | `CircuitConfig` — failure threshold, open duration, half-open max requests                    |
+| `CredentialPolicy`    | `optional` (default) or `required`                                                            |
+| `AuthorizationPolicy` | `tenant_allowlist` to restrict tool to specific tenants                                       |
 
 ## Public API
 
@@ -562,12 +645,12 @@ These methods provide live visibility and control over a running gateway. They a
 
 ### Ingress Handlers
 
-| Method                                                                | Description                                                          |
-|-----------------------------------------------------------------------|----------------------------------------------------------------------|
-| `Handler(cfg IngressConfig) (http.Handler, error)`                    | MCP Streamable HTTP handler (2025-11-25 spec)                        |
-| `SSEHandler(cfg IngressConfig) (http.Handler, error)`                 | Server-Sent Events handler (2024-11-05 spec)                         |
-| `WSHandler(cfg IngressConfig, wsCfg *WSConfig) (http.Handler, error)` | WebSocket handler                                                    |
-| `RegisterGRPCService(srv *grpc.Server, cfg GRPCIngressConfig) error`  | Register the MCPToolService gRPC service with streaming support      |
+| Method                                                                | Description                                                     |
+|-----------------------------------------------------------------------|-----------------------------------------------------------------|
+| `Handler(cfg IngressConfig) (http.Handler, error)`                    | MCP Streamable HTTP handler (2025-11-25 spec)                   |
+| `SSEHandler(cfg IngressConfig) (http.Handler, error)`                 | Server-Sent Events handler (2024-11-05 spec)                    |
+| `WSHandler(cfg IngressConfig, wsCfg *WSConfig) (http.Handler, error)` | WebSocket handler                                               |
+| `RegisterGRPCService(srv *grpc.Server, cfg GRPCIngressConfig) error`  | Register the MCPToolService gRPC service with streaming support |
 
 ### Options
 
@@ -648,17 +731,17 @@ type ExecutorFactory interface {
 
 All examples are in the [`examples/`](examples/) directory and can be run with `go run ./examples/<name>`.
 
-| Example                             | Demonstrates                                                                                                                                                                       |
-|-------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [filesystem](examples/filesystem)   | Minimal gateway with a stdio filesystem tool                                                                                                                                       |
-| [audit-http](examples/audit-http)   | Durable file audit sink with an HTTP egress tool                                                                                                                                   |
-| [ingress](examples/ingress)         | MCP Streamable HTTP ingress with header-based identity resolution                                                                                                                  |
-| [ingress-grpc](examples/ingress-grpc) | gRPC ingress with metadata-based identity resolution, ListTools, CallTool, and CallToolStream                                                                                   |
-| [admin](examples/admin-policy)      | Full admin API and a custom `PolicyEvaluator`                                                                                                                                      |
-| [quotas](examples/quota-assess)     | Per-tenant rate limiting and concurrency enforcement                                                                                                                               |
-| [full-config](examples/full-config) | Complete configuration reference covering every field                                                                                                                              |
-| [ai-hub](examples/ai-hub)           | Production-grade multi-tenant AI tool hub: stdio + HTTP egress, Streamable HTTP ingress, pluggable policy, credential broker, durable audit, OpenTelemetry, and the full admin API |
-| [cluster](examples/cluster)         | Three-node Kubernetes cluster with Kubernetes peer discovery, nginx session affinity, and Jaeger tracing                                                                           |
+| Example                               | Demonstrates                                                                                                                                                                       |
+|---------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [filesystem](examples/filesystem)     | Minimal gateway with a stdio filesystem tool                                                                                                                                       |
+| [audit-http](examples/audit-http)     | Durable file audit sink with an HTTP egress tool                                                                                                                                   |
+| [ingress](examples/ingress)           | MCP Streamable HTTP ingress with header-based identity resolution                                                                                                                  |
+| [ingress-grpc](examples/ingress-grpc) | gRPC ingress with metadata-based identity resolution, ListTools, CallTool, and CallToolStream                                                                                      |
+| [admin](examples/admin-policy)        | Full admin API and a custom `PolicyEvaluator`                                                                                                                                      |
+| [quotas](examples/quota-assess)       | Per-tenant rate limiting and concurrency enforcement                                                                                                                               |
+| [full-config](examples/full-config)   | Complete configuration reference covering every field                                                                                                                              |
+| [ai-hub](examples/ai-hub)             | Production-grade multi-tenant AI tool hub: stdio + HTTP egress, Streamable HTTP ingress, pluggable policy, credential broker, durable audit, OpenTelemetry, and the full admin API |
+| [cluster](examples/cluster)           | Three-node Kubernetes cluster with Kubernetes peer discovery, nginx session affinity, and Jaeger tracing                                                                           |
 
 The [ai-hub](examples/ai-hub) example is the recommended starting point for understanding how all pieces fit together in a real deployment. The [cluster](examples/cluster) example includes a complete [Makefile](examples/cluster/Makefile) and Kubernetes manifests for deploying to a local [Kind](https://kind.sigs.k8s.io/) cluster.
 
