@@ -32,11 +32,11 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/cluster"
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 )
 
 // GatewayManager is the runtime composition root inside the GoAkt actor system.
@@ -53,7 +53,7 @@ import (
 // All fields are unexported to enforce actor immutability rules. State is
 // initialized in PreStart or on receipt of PostStart.
 type GatewayManager struct {
-	config config.Config
+	config mcp.Config
 	logger goaktlog.Logger
 }
 
@@ -91,7 +91,7 @@ func (x *GatewayManager) Receive(ctx *goaktactor.ReceiveContext) {
 
 // PostStop performs cleanup after GatewayManager has stopped.
 func (x *GatewayManager) PostStop(ctx *goaktactor.Context) error {
-	ctx.Logger().Infof("actor=%s stopped", mcp.ActorNameGatewayManager)
+	ctx.Logger().Infof("actor=%s stopped", naming.ActorNameGatewayManager)
 	return nil
 }
 
@@ -103,7 +103,7 @@ func (x *GatewayManager) PostStop(ctx *goaktactor.Context) error {
 // If any child cannot be spawned, the error is recorded on the ReceiveContext and
 // the GatewayManager will surface it to the supervision layer.
 func (x *GatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext) {
-	x.logger.Infof("actor=%s spawning foundational actors", mcp.ActorNameGatewayManager)
+	x.logger.Infof("actor=%s spawning foundational actors", naming.ActorNameGatewayManager)
 
 	// spawn the registrar
 	registrar := x.spawnRegistrar(ctx)
@@ -113,18 +113,18 @@ func (x *GatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext)
 	// backpressure instead of unbounded memory growth.
 	auditMailboxSize := x.config.Audit.MailboxSize
 	if auditMailboxSize == 0 {
-		auditMailboxSize = config.DefaultAuditMailboxSize
+		auditMailboxSize = mcp.DefaultAuditMailboxSize
 	}
 
-	journaler := ctx.Spawn(mcp.ActorNameJournal, newJournaler(),
+	journaler := ctx.Spawn(naming.ActorNameJournal, newJournaler(),
 		goaktactor.WithMailbox(goaktactor.NewBoundedMailbox(auditMailboxSize)),
 		goaktactor.WithLongLived())
 
 	// spawn the health actor with journal for health transition audit events
-	healthChecker := ctx.Spawn(mcp.ActorNameHealth, newHealthChecker(), goaktactor.WithLongLived())
+	healthChecker := ctx.Spawn(naming.ActorNameHealth, newHealthChecker(), goaktactor.WithLongLived())
 
 	// spawn the policy maker
-	policyMaker := ctx.Spawn(mcp.ActorNamePolicy, newPolicyMaker(x.config), goaktactor.WithLongLived())
+	policyMaker := ctx.Spawn(naming.ActorNamePolicy, newPolicyMaker(x.config), goaktactor.WithLongLived())
 
 	// spawn the credential broker actor
 	credentialBroker := x.spawnCredentialBroker(ctx)
@@ -139,10 +139,10 @@ func (x *GatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext)
 
 	// spawn the router actor
 	if shouldSpawnRouter {
-		ctx.Spawn(mcp.ActorNameRouter, newRouterActor(), goaktactor.WithLongLived())
+		ctx.Spawn(naming.ActorNameRouter, newRouterActor(), goaktactor.WithLongLived())
 	} else {
 		err := errors.New("router actor cannot be spawned because one or more dependencies are not running")
-		x.logger.Errorf("actor=%s cannot spawn router actor: %v", mcp.ActorNameGatewayManager, err)
+		x.logger.Errorf("actor=%s cannot spawn router actor: %v", naming.ActorNameGatewayManager, err)
 		ctx.Err(err)
 		return
 	}
@@ -152,13 +152,13 @@ func (x *GatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext)
 		ctx.Tell(registrar, &runtime.BootstrapTools{Tools: x.config.Tools})
 	}
 
-	x.logger.Infof("actor=%s foundational actors spawned", mcp.ActorNameGatewayManager)
+	x.logger.Infof("actor=%s foundational actors spawned", naming.ActorNameGatewayManager)
 }
 
 // spawnCredentialBroker spawns CredentialBrokerActor when providers are configured.
 // Returns nil when no providers are configured.
 func (x *GatewayManager) spawnCredentialBroker(ctx *goaktactor.ReceiveContext) *goaktactor.PID {
-	return ctx.Spawn(mcp.ActorNameCredentialBroker, newCredentialBroker(), goaktactor.WithLongLived())
+	return ctx.Spawn(naming.ActorNameCredentialBroker, newCredentialBroker(), goaktactor.WithLongLived())
 }
 
 // spawnRegistrar spawns the Registry Actor. When cluster is configured (enabled with
@@ -172,29 +172,29 @@ func (x *GatewayManager) spawnRegistrar(ctx *goaktactor.ReceiveContext) *goaktac
 			opts = append(opts, goaktactor.WithSingletonRole(x.config.Cluster.RegistrarRole))
 		}
 
-		pid, err := sys.SpawnSingleton(ctx.Context(), mcp.ActorNameRegistrar, newRegistrar(), opts...)
+		pid, err := sys.SpawnSingleton(ctx.Context(), naming.ActorNameRegistrar, newRegistrar(), opts...)
 		if err != nil {
 			if errors.Is(err, goakterrors.ErrSingletonAlreadyExists) {
 				// let us fetch the existing singleton
-				pid, err := sys.ActorOf(ctx.Context(), mcp.ActorNameRegistrar)
+				pid, err := sys.ActorOf(ctx.Context(), naming.ActorNameRegistrar)
 				if err != nil {
-					x.logger.Warnf("actor=%s failed to fetch existing singleton registry: %v", mcp.ActorNameGatewayManager, err)
+					x.logger.Warnf("actor=%s failed to fetch existing singleton registry: %v", naming.ActorNameGatewayManager, err)
 					return nil
 				}
 
 				return pid
 			}
 
-			x.logger.Warnf("actor=%s spawn singleton registry failed: %v", mcp.ActorNameGatewayManager, err)
+			x.logger.Warnf("actor=%s spawn singleton registry failed: %v", naming.ActorNameGatewayManager, err)
 			return nil
 		}
 		return pid
 	}
-	return ctx.Spawn(mcp.ActorNameRegistrar, newRegistrar(), goaktactor.WithLongLived())
+	return ctx.Spawn(naming.ActorNameRegistrar, newRegistrar(), goaktactor.WithLongLived())
 }
 
 // createAuditSink creates an audit sink from config.
-func createAuditSink(config config.AuditConfig) mcp.AuditSink {
+func createAuditSink(config mcp.AuditConfig) mcp.AuditSink {
 	if config.Sink != nil {
 		switch config.Sink.(type) {
 		case *audit.MemorySink:
@@ -210,7 +210,7 @@ func createAuditSink(config config.AuditConfig) mcp.AuditSink {
 
 // hasConcurrencyQuotas returns true when any tenant has ConcurrentSessions > 0.
 // Used to skip the expensive fan-out CountSessionsForTenant on the hot path.
-func hasConcurrencyQuotas(config config.Config) bool {
+func hasConcurrencyQuotas(config mcp.Config) bool {
 	for i := range config.Tenants {
 		if config.Tenants[i].Quotas.ConcurrentSessions > 0 {
 			return true

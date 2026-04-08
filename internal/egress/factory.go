@@ -28,41 +28,45 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	egressgrpc "github.com/tochemey/goakt-mcp/internal/egress/grpc"
 	egresshttp "github.com/tochemey/goakt-mcp/internal/egress/http"
 	"github.com/tochemey/goakt-mcp/internal/egress/stdio"
 )
 
 // CompositeExecutorFactory creates ToolExecutor instances by delegating to
-// stdio or HTTP factories based on tool transport. Low-allocation: reuses
-// shared factory instances.
+// stdio, HTTP, or gRPC factories based on tool transport. Low-allocation:
+// reuses shared factory instances.
 type CompositeExecutorFactory struct {
 	stdio *stdio.StdioExecutorFactory
 	http  *egresshttp.HTTPExecutorFactory
+	grpc  *egressgrpc.GRPCExecutorFactory
 }
 
 // NewCompositeExecutorFactory creates a factory with the given timeouts.
 // When zero, config defaults are used.
 func NewCompositeExecutorFactory(startupTimeout time.Duration, httpClient *http.Client) *CompositeExecutorFactory {
 	if startupTimeout <= 0 {
-		startupTimeout = config.DefaultStartupTimeout
+		startupTimeout = mcp.DefaultStartupTimeout
 	}
 	return &CompositeExecutorFactory{
 		stdio: stdio.NewStdioExecutorFactory(startupTimeout),
 		http:  egresshttp.NewHTTPExecutorFactory(httpClient, startupTimeout),
+		grpc:  egressgrpc.NewGRPCExecutorFactory(startupTimeout),
 	}
 }
 
 // Create returns an executor for the tool's transport, or nil when the tool
 // has no configured transport.
-func (f *CompositeExecutorFactory) Create(ctx context.Context, tool mcp.Tool, creds map[string]string) (mcp.ToolExecutor, error) {
+func (x *CompositeExecutorFactory) Create(ctx context.Context, tool mcp.Tool, creds map[string]string) (mcp.ToolExecutor, error) {
 	switch tool.Transport {
 	case mcp.TransportStdio:
-		return f.stdio.Create(ctx, tool, creds)
+		return x.stdio.Create(ctx, tool, creds)
 	case mcp.TransportHTTP:
-		return f.http.Create(ctx, tool, creds)
+		return x.http.Create(ctx, tool, creds)
+	case mcp.TransportGRPC:
+		return x.grpc.Create(ctx, tool, creds)
 	default:
 		return nil, nil
 	}

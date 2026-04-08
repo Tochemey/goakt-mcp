@@ -41,11 +41,40 @@ func TestCompositeExecutorFactory_Create(t *testing.T) {
 	t.Run("unknown transport returns nil executor", func(t *testing.T) {
 		tool := mcp.Tool{
 			ID:        "unknown-tool",
-			Transport: "grpc",
+			Transport: "mqtt",
 		}
 		exec, err := factory.Create(context.Background(), tool, nil)
 		require.NoError(t, err)
 		assert.Nil(t, exec)
+	})
+
+	t.Run("grpc tool without config returns nil", func(t *testing.T) {
+		tool := mcp.Tool{
+			ID:        "grpc-no-cfg",
+			Transport: mcp.TransportGRPC,
+			GRPC:      nil,
+		}
+		exec, err := factory.Create(context.Background(), tool, nil)
+		require.NoError(t, err)
+		assert.Nil(t, exec)
+	})
+
+	t.Run("grpc tool with invalid descriptor returns error", func(t *testing.T) {
+		tool := mcp.Tool{
+			ID:        "grpc-bad",
+			Transport: mcp.TransportGRPC,
+			GRPC: &mcp.GRPCTransportConfig{
+				Target:        "127.0.0.1:1",
+				Service:       "pkg.Svc",
+				DescriptorSet: "/nonexistent/file.binpb",
+			},
+		}
+		exec, err := factory.Create(context.Background(), tool, nil)
+		assert.Nil(t, exec)
+		require.Error(t, err)
+		var rErr *mcp.RuntimeError
+		require.ErrorAs(t, err, &rErr)
+		assert.Equal(t, mcp.ErrCodeTransportFailure, rErr.Code)
 	})
 
 	t.Run("empty transport returns nil executor", func(t *testing.T) {

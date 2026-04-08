@@ -21,7 +21,7 @@
 // SOFTWARE.
 //
 
-package shared
+package pkg
 
 import (
 	"context"
@@ -31,6 +31,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/tochemey/goakt-mcp/mcp"
@@ -57,6 +58,12 @@ func DispatchToolCall(
 		return r, nil
 	}
 
+	// Propagate OAuth scopes from validated bearer token into the invocation
+	// so the policy layer can make scope-aware authorization decisions.
+	if info := auth.TokenInfoFromContext(ctx); info != nil && len(info.Scopes) > 0 {
+		inv.Scopes = info.Scopes
+	}
+
 	result, gwErr := gw.Invoke(ctx, inv)
 	return ExecutionResultToCallToolResult(result, gwErr), nil
 }
@@ -81,12 +88,7 @@ func DispatchToolCall(
 // If args["name"] is absent (single-operation tools where the SDK tool name
 // equals the backend tool name), req.Params.Name is used as a fallback and the
 // entire args map is forwarded as arguments.
-func RequestToInvocation(
-	req *sdkmcp.CallToolRequest,
-	toolID mcp.ToolID,
-	tenantID mcp.TenantID,
-	clientID mcp.ClientID,
-) (*mcp.Invocation, error) {
+func RequestToInvocation(req *sdkmcp.CallToolRequest, toolID mcp.ToolID, tenantID mcp.TenantID, clientID mcp.ClientID) (*mcp.Invocation, error) {
 	if req == nil || req.Params == nil {
 		return nil, fmt.Errorf("invalid tool call request: request and params are required")
 	}

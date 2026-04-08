@@ -36,6 +36,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
@@ -51,10 +52,10 @@ func TestToolSupervisorActor(t *testing.T) {
 		system, stop := testActorSystemWithTools(t, tool)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
@@ -73,10 +74,10 @@ func TestToolSupervisorActor(t *testing.T) {
 		system, stop := testActorSystemWithTools(t, tool)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
@@ -100,10 +101,10 @@ func TestToolSupervisorActor(t *testing.T) {
 		system, stop := testActorSystemWithTools(t, tool)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
@@ -131,9 +132,9 @@ func TestToolSupervisorActor(t *testing.T) {
 			testkit.WithExtensions(toolCfgExt, circuitCfgExt, actorextension.NewConfigExtension(cfg)),
 		)
 
-		kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		kit.ActorSystem().Spawn(ctx, naming.ActorNameJournal, newJournaler())
 
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor())
 		waitForActors()
 
@@ -178,9 +179,9 @@ func TestToolSupervisorActor(t *testing.T) {
 			testkit.WithExtensions(toolCfgExt, circuitCfgExt, actorextension.NewConfigExtension(cfg)),
 		)
 
-		kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		kit.ActorSystem().Spawn(ctx, naming.ActorNameJournal, newJournaler())
 
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor())
 		waitForActors()
 
@@ -217,9 +218,9 @@ func TestToolSupervisorActor(t *testing.T) {
 		cfg.Audit.Sink = audit.NewMemorySink()
 		kit, ctx := newTestKit(t, testkit.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)))
 
-		kit.ActorSystem().Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		kit.ActorSystem().Spawn(ctx, naming.ActorNameJournal, newJournaler())
 
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		kit.ActorSystem().Spawn(ctx, name, newToolSupervisor())
 		waitForActors()
 
@@ -242,7 +243,7 @@ func TestToolSupervisorActor(t *testing.T) {
 		defer stop()
 
 		// No journal spawned — supervisor must stop itself during PostStart.
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
@@ -257,11 +258,11 @@ func TestToolSupervisorActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		tool := validStdioTool("no-ext-tool")
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
@@ -278,11 +279,11 @@ func TestToolSupervisorActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		tool := validStdioTool("unregistered-tool")
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
@@ -302,10 +303,10 @@ func TestToolSupervisorActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
@@ -347,10 +348,10 @@ func TestToolSupervisorActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
@@ -382,10 +383,10 @@ func TestToolSupervisorActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err = system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
@@ -406,11 +407,11 @@ func TestToolSupervisorActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 		waitForActors()
 
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
@@ -480,9 +481,9 @@ func TestToolSupervisorResetCircuit(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		pid, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
@@ -574,10 +575,10 @@ func TestToolSupervisorDrainTool(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ToolSupervisorName(tool.ID), newToolSupervisor())
+		pid, err := system.Spawn(ctx, naming.ToolSupervisorName(tool.ID), newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -787,7 +788,7 @@ func TestPolicyActorCustomEvaluator(t *testing.T) {
 
 		system, stop := testActorSystem(t)
 		defer stop()
-		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -817,7 +818,7 @@ func TestPolicyActorCustomEvaluator(t *testing.T) {
 
 		system, stop := testActorSystem(t)
 		defer stop()
-		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
 		require.NoError(t, err)
 		waitForActors()
 
@@ -843,7 +844,7 @@ func TestPolicyActorCustomEvaluator(t *testing.T) {
 
 		system, stop := testActorSystem(t)
 		defer stop()
-		pid, err := system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
 		require.NoError(t, err)
 		waitForActors()
 

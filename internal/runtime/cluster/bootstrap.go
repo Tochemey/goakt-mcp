@@ -32,7 +32,7 @@ import (
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/remote"
 
-	runtimeConfig "github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/internal/discovery"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -45,8 +45,8 @@ const (
 // IsClusterConfigured returns true when cluster mode is enabled and a
 // DiscoveryProvider is set. Use this to decide whether to use SpawnSingleton
 // (cluster) vs Spawn (single-node) for actors like the registry.
-func IsClusterConfigured(config runtimeConfig.Config) bool {
-	return config.Cluster.Enabled && !mcp.IsNilDiscoveryProvider(config.Cluster.DiscoveryProvider)
+func IsClusterConfigured(config mcp.Config) bool {
+	return config.Cluster.Enabled && !discovery.IsNilDiscoveryProvider(config.Cluster.DiscoveryProvider)
 }
 
 // BuildOptions returns actor system options for cluster mode when enabled.
@@ -57,7 +57,7 @@ func IsClusterConfigured(config runtimeConfig.Config) bool {
 // remoteOpts are forwarded to [remote.NewConfig] (e.g., serializer
 // registrations via [remote.WithSerializables]). kinds are the actor instances
 // to register for cluster (e.g., RegistryActor).
-func BuildOptions(config runtimeConfig.Config, remoteOpts []remote.Option, kinds ...goaktactor.Actor) []goaktactor.Option {
+func BuildOptions(config mcp.Config, remoteOpts []remote.Option, kinds ...goaktactor.Actor) []goaktactor.Option {
 	if !config.Cluster.Enabled {
 		return nil
 	}
@@ -84,7 +84,7 @@ func BuildOptions(config runtimeConfig.Config, remoteOpts []remote.Option, kinds
 	remoteCfg := remote.NewConfig("0.0.0.0", remotingPort, remoteOpts...)
 	opts = append(opts, goaktactor.WithRemote(remoteCfg))
 
-	if mcp.IsNilDiscoveryProvider(clConfig.DiscoveryProvider) {
+	if discovery.IsNilDiscoveryProvider(clConfig.DiscoveryProvider) {
 		return opts
 	}
 

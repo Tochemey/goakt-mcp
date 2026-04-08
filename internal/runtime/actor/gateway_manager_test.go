@@ -33,9 +33,9 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 )
 
 func TestGatewayManager(t *testing.T) {
@@ -46,10 +46,10 @@ func TestGatewayManager(t *testing.T) {
 			goaktactor.WithExtensions(extension.NewConfigExtension(config)))
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameGatewayManager, NewGatewayManager())
+		pid, err := system.Spawn(ctx, naming.ActorNameGatewayManager, NewGatewayManager())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
-		assert.Equal(t, mcp.ActorNameGatewayManager, pid.Name())
+		assert.Equal(t, naming.ActorNameGatewayManager, pid.Name())
 	})
 
 	t.Run("spawns foundational children on PostStart", func(t *testing.T) {
@@ -58,7 +58,7 @@ func TestGatewayManager(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(extension.NewConfigExtension(config)))
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameGatewayManager, NewGatewayManager())
+		pid, err := system.Spawn(ctx, naming.ActorNameGatewayManager, NewGatewayManager())
 		require.NoError(t, err)
 
 		waitForActors()
@@ -69,12 +69,12 @@ func TestGatewayManager(t *testing.T) {
 			childNames[c.Name()] = true
 		}
 
-		assert.True(t, childNames[mcp.ActorNameRegistrar], "RegistryActor must be spawned")
-		assert.True(t, childNames[mcp.ActorNameHealth], "HealthActor must be spawned")
-		assert.True(t, childNames[mcp.ActorNameJournal], "JournalActor must be spawned")
-		assert.True(t, childNames[mcp.ActorNamePolicy], "PolicyActor must be spawned")
-		assert.True(t, childNames[mcp.ActorNameCredentialBroker], "CredentialBrokerActor must be spawned")
-		assert.True(t, childNames[mcp.ActorNameRouter], "RouterActor must be spawned")
+		assert.True(t, childNames[naming.ActorNameRegistrar], "RegistryActor must be spawned")
+		assert.True(t, childNames[naming.ActorNameHealth], "HealthActor must be spawned")
+		assert.True(t, childNames[naming.ActorNameJournal], "JournalActor must be spawned")
+		assert.True(t, childNames[naming.ActorNamePolicy], "PolicyActor must be spawned")
+		assert.True(t, childNames[naming.ActorNameCredentialBroker], "CredentialBrokerActor must be spawned")
+		assert.True(t, childNames[naming.ActorNameRouter], "RouterActor must be spawned")
 		assert.Len(t, children, 6, "GatewayManager must spawn exactly six foundational actors")
 	})
 
@@ -82,7 +82,7 @@ func TestGatewayManager(t *testing.T) {
 		config := testConfig()
 		kit, ctx := newTestKit(t, testkit.WithExtensions(extension.NewConfigExtension(config)))
 
-		pid, err := kit.ActorSystem().Spawn(ctx, mcp.ActorNameGatewayManager, NewGatewayManager())
+		pid, err := kit.ActorSystem().Spawn(ctx, naming.ActorNameGatewayManager, NewGatewayManager())
 		require.NoError(t, err)
 		waitForActors()
 		require.NoError(t, pid.Tell(ctx, pid, "unknown"))
@@ -91,7 +91,7 @@ func TestGatewayManager(t *testing.T) {
 
 	t.Run("createAuditSink returns sink when configured", func(t *testing.T) {
 		memSink := audit.NewMemorySink()
-		cfg := config.AuditConfig{Sink: memSink}
+		cfg := mcp.AuditConfig{Sink: memSink}
 		sink := createAuditSink(cfg)
 		require.NotNil(t, sink)
 		_ = sink.Close()
@@ -101,9 +101,9 @@ func TestGatewayManager(t *testing.T) {
 func TestExternalTestHelpers(t *testing.T) {
 	t.Run("ExternalTestConfig returns valid config", func(t *testing.T) {
 		cfg := ExternalTestConfig()
-		assert.Equal(t, config.DefaultSessionIdleTimeout, cfg.Runtime.SessionIdleTimeout)
-		assert.Equal(t, config.DefaultRequestTimeout, cfg.Runtime.RequestTimeout)
-		assert.Equal(t, config.DefaultStartupTimeout, cfg.Runtime.StartupTimeout)
+		assert.Equal(t, mcp.DefaultSessionIdleTimeout, cfg.Runtime.SessionIdleTimeout)
+		assert.Equal(t, mcp.DefaultRequestTimeout, cfg.Runtime.RequestTimeout)
+		assert.Equal(t, mcp.DefaultStartupTimeout, cfg.Runtime.StartupTimeout)
 		assert.NotNil(t, cfg.Audit.Sink)
 	})
 
@@ -116,11 +116,11 @@ func TestExternalTestHelpers(t *testing.T) {
 
 		SpawnFoundationalActorsForExternalTest(ctx, kit.ActorSystem(), cfg)
 
-		pid, err := kit.ActorSystem().ActorOf(ctx, mcp.ActorNameRegistrar)
+		pid, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
 		assert.True(t, pid.IsRunning())
 
-		pid, err = kit.ActorSystem().ActorOf(ctx, mcp.ActorNameRouter)
+		pid, err = kit.ActorSystem().ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
 		assert.True(t, pid.IsRunning())
 	})

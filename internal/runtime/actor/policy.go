@@ -31,7 +31,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 )
 
@@ -54,7 +54,7 @@ import (
 // All fields are unexported to enforce actor immutability rules.
 type policyMaker struct {
 	evaluator     *policy.Evaluator
-	config        config.Config
+	config        mcp.Config
 	requestCounts map[mcp.TenantID]int
 	currentMinute int64
 	logger        goaktlog.Logger
@@ -64,7 +64,7 @@ var _ goaktactor.Actor = (*policyMaker)(nil)
 
 // newPolicyMaker creates a policy actor instance.
 // The config is passed at construction; the actor receives it from the spawner.
-func newPolicyMaker(config config.Config) *policyMaker {
+func newPolicyMaker(config mcp.Config) *policyMaker {
 	return &policyMaker{
 		evaluator:     policy.NewEvaluator(config),
 		config:        config,
@@ -75,7 +75,7 @@ func newPolicyMaker(config config.Config) *policyMaker {
 // PreStart initializes the policy actor before message processing begins.
 func (x *policyMaker) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
-	x.logger.Infof("actor=%s started", mcp.ActorNamePolicy)
+	x.logger.Infof("actor=%s started", naming.ActorNamePolicy)
 	return nil
 }
 
@@ -83,7 +83,7 @@ func (x *policyMaker) PreStart(ctx *goaktactor.Context) error {
 func (x *policyMaker) Receive(ctx *goaktactor.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goaktactor.PostStart:
-		x.logger.Debugf("actor=%s post-start", mcp.ActorNamePolicy)
+		x.logger.Debugf("actor=%s post-start", naming.ActorNamePolicy)
 	case *policy.EvaluateRequest:
 		x.handleEvaluate(ctx, msg)
 	default:
@@ -93,7 +93,7 @@ func (x *policyMaker) Receive(ctx *goaktactor.ReceiveContext) {
 
 // PostStop performs cleanup after policy actor has stopped.
 func (x *policyMaker) PostStop(ctx *goaktactor.Context) error {
-	x.logger.Infof("actor=%s stopped", mcp.ActorNamePolicy)
+	x.logger.Infof("actor=%s stopped", naming.ActorNamePolicy)
 	return nil
 }
 
@@ -142,6 +142,7 @@ func (x *policyMaker) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy
 			ToolID:                  in.Tool.ID,
 			ActiveSessionCount:      in.ActiveSessionCount,
 			RequestsInCurrentMinute: in.RequestsInCurrentMinute,
+			Scopes:                  in.Scopes,
 		}
 		if runtimeErr := in.TenantConfig.Evaluator.Evaluate(ctx.Context(), policyInput); runtimeErr != nil {
 			ctx.Response(&policy.EvaluateResult{
@@ -160,7 +161,7 @@ func (x *policyMaker) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy
 
 // lookupTenantConfig returns the TenantConfig for the given tenant, or nil
 // when the tenant is not explicitly configured. Used to resolve quota limits.
-func (x *policyMaker) lookupTenantConfig(tenantID mcp.TenantID) *config.TenantConfig {
+func (x *policyMaker) lookupTenantConfig(tenantID mcp.TenantID) *mcp.TenantConfig {
 	for i := range x.config.Tenants {
 		tc := &x.config.Tenants[i]
 		if tc.ID == tenantID {

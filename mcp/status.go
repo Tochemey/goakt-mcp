@@ -53,7 +53,7 @@ type GatewayStatus struct {
 
 // SessionInfo describes a single active session.
 type SessionInfo struct {
-	// Name is the deterministic actor name of the session (as returned by SessionName).
+	// Name is the deterministic actor name of the session.
 	Name string
 	// ToolID is the identifier of the tool the session is bound to.
 	ToolID ToolID

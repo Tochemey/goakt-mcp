@@ -21,36 +21,34 @@
 // SOFTWARE.
 //
 
-package mcp_test
+package grpc
 
 import (
-	"testing"
-
-	"github.com/stretchr/testify/assert"
+	"context"
+	"time"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-func TestActorNameConstants(t *testing.T) {
-	assert.Equal(t, "gateway-manager", mcp.ActorNameGatewayManager)
-	assert.Equal(t, "registrar", mcp.ActorNameRegistrar)
-	assert.Equal(t, "health", mcp.ActorNameHealth)
-	assert.Equal(t, "journal", mcp.ActorNameJournal)
-	assert.Equal(t, "credential-broker", mcp.ActorNameCredentialBroker)
-	assert.Equal(t, "router", mcp.ActorNameRouter)
-	assert.Equal(t, "policy", mcp.ActorNamePolicy)
+// GRPCExecutorFactory creates ToolExecutor instances for gRPC tools.
+type GRPCExecutorFactory struct {
+	startupTimeout time.Duration
 }
 
-func TestToolSupervisorName(t *testing.T) {
-	assert.Equal(t, "supervisor-my-tool", mcp.ToolSupervisorName("my-tool"))
+// NewGRPCExecutorFactory creates a factory with the given startup timeout.
+// When startupTimeout is zero, [mcp.DefaultStartupTimeout] is used.
+func NewGRPCExecutorFactory(startupTimeout time.Duration) *GRPCExecutorFactory {
+	if startupTimeout <= 0 {
+		startupTimeout = mcp.DefaultStartupTimeout
+	}
+	return &GRPCExecutorFactory{startupTimeout: startupTimeout}
 }
 
-func TestSessionName(t *testing.T) {
-	assert.Equal(t, "session-t1-c1-tool-a", mcp.SessionName("t1", "c1", "tool-a"))
-}
-
-func TestToolIDFromSupervisorName(t *testing.T) {
-	assert.Equal(t, mcp.ToolID("my-tool"), mcp.ToolIDFromSupervisorName("supervisor-my-tool"))
-	assert.Equal(t, mcp.ToolID(""), mcp.ToolIDFromSupervisorName("supervisor-"))
-	assert.Equal(t, mcp.ToolID("other"), mcp.ToolIDFromSupervisorName("other"))
+// Create returns a GRPCExecutor for the tool when it uses gRPC transport,
+// or nil when the tool uses a different transport.
+func (x *GRPCExecutorFactory) Create(ctx context.Context, tool mcp.Tool, _ map[string]string) (mcp.ToolExecutor, error) {
+	if !tool.IsGRPC() || tool.GRPC == nil {
+		return nil, nil
+	}
+	return NewGRPCExecutor(tool.GRPC, x.startupTimeout)
 }

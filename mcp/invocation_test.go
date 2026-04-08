@@ -39,6 +39,20 @@ func TestCorrelationMeta_IsZero(t *testing.T) {
 	assert.False(t, nonZero.IsZero())
 }
 
+func TestInvocation_Scopes(t *testing.T) {
+	t.Run("scopes field defaults to nil", func(t *testing.T) {
+		inv := mcp.Invocation{}
+		assert.Nil(t, inv.Scopes)
+	})
+
+	t.Run("scopes field is settable", func(t *testing.T) {
+		inv := mcp.Invocation{
+			Scopes: []string{"tools:read", "tools:write"},
+		}
+		assert.Equal(t, []string{"tools:read", "tools:write"}, inv.Scopes)
+	})
+}
+
 func TestExecutionResult_StatusHelpers(t *testing.T) {
 	cases := []struct {
 		status    mcp.ExecutionStatus

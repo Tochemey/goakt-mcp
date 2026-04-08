@@ -29,12 +29,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	ingresshttp "github.com/tochemey/goakt-mcp/internal/ingress/http"
+	"github.com/tochemey/goakt-mcp/internal/ingress/pkg"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -57,7 +61,7 @@ func (r *errResolver) ResolveIdentity(_ *http.Request) (mcp.TenantID, mcp.Client
 	return "", "", errors.New("unauthorized")
 }
 
-// fakeInvoker implements [ingresshttp.Invoker] for tests.
+// fakeInvoker implements [pkg.Invoker] for tests.
 type fakeInvoker struct {
 	tools  []mcp.Tool
 	result *mcp.ExecutionResult
@@ -84,7 +88,7 @@ func (f *fakeInvoker) ListTools(_ context.Context) ([]mcp.Tool, error) {
 // t.Cleanup to close both.
 func newTestSession(
 	t *testing.T,
-	gw ingresshttp.Invoker,
+	gw pkg.Invoker,
 	cfg mcp.IngressConfig,
 ) *sdkmcp.ClientSession {
 	t.Helper()
@@ -297,4 +301,193 @@ func TestHandler_ListToolsFailure(t *testing.T) {
 
 	_, err = client.Connect(context.Background(), transport, nil)
 	require.Error(t, err)
+}
+
+// --- Enterprise Auth tests --------------------------------------------------
+
+func validEnterpriseAuthConfig() *mcp.EnterpriseAuthConfig {
+	return &mcp.EnterpriseAuthConfig{
+		TokenVerifier: auth.TokenVerifier(func(_ context.Context, _ string, _ *http.Request) (*auth.TokenInfo, error) {
+			return &auth.TokenInfo{
+				UserID:     "user-42",
+				Scopes:     []string{"tools:read"},
+				Expiration: time.Now().Add(time.Hour),
+			}, nil
+		}),
+		ResourceMetadata: &oauthex.ProtectedResourceMetadata{
+			Resource:             "https://mcp.example.com/",
+			AuthorizationServers: []string{"https://auth.example.com/"},
+		},
+	}
+}
+
+func TestNew_EnterpriseAuth_NilTokenVerifier(t *testing.T) {
+	_, err := ingresshttp.New(&fakeInvoker{}, mcp.IngressConfig{
+		EnterpriseAuth: &mcp.EnterpriseAuthConfig{
+			ResourceMetadata: &oauthex.ProtectedResourceMetadata{
+				Resource: "https://mcp.example.com/",
+			},
+		},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "TokenVerifier must not be nil")
+}
+
+func TestNew_EnterpriseAuth_NilResourceMetadata(t *testing.T) {
+	_, err := ingresshttp.New(&fakeInvoker{}, mcp.IngressConfig{
+		EnterpriseAuth: &mcp.EnterpriseAuthConfig{
+			TokenVerifier: auth.TokenVerifier(func(_ context.Context, _ string, _ *http.Request) (*auth.TokenInfo, error) {
+				return &auth.TokenInfo{Expiration: time.Now().Add(time.Hour)}, nil
+			}),
+		},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ResourceMetadata must not be nil")
+}
+
+func TestNew_EnterpriseAuth_AutoInstallsIdentityResolver(t *testing.T) {
+	// When EnterpriseAuth is set and IdentityResolver is nil, New should
+	// succeed because ResolveAuthDefaults installs a TokenIdentityResolver.
+	gw := &fakeInvoker{tools: []mcp.Tool{{ID: "echo"}}}
+	_, err := ingresshttp.New(gw, mcp.IngressConfig{
+		EnterpriseAuth: validEnterpriseAuthConfig(),
+		Stateless:      true,
+	})
+	require.NoError(t, err)
+}
+
+func TestHandler_EnterpriseAuth_RejectsRequestWithoutToken(t *testing.T) {
+	gw := &fakeInvoker{tools: []mcp.Tool{{ID: "echo"}}}
+	h, err := ingresshttp.New(gw, mcp.IngressConfig{
+		EnterpriseAuth: validEnterpriseAuthConfig(),
+		Stateless:      true,
+	})
+	require.NoError(t, err)
+
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	// Request without Authorization header should get 401.
+	resp, err := http.Post(srv.URL, "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Contains(t, resp.Header.Get("WWW-Authenticate"), "Bearer")
+}
+
+func TestHandler_EnterpriseAuth_RejectsInvalidToken(t *testing.T) {
+	eaCfg := &mcp.EnterpriseAuthConfig{
+		TokenVerifier: auth.TokenVerifier(func(_ context.Context, _ string, _ *http.Request) (*auth.TokenInfo, error) {
+			return nil, auth.ErrInvalidToken
+		}),
+		ResourceMetadata: &oauthex.ProtectedResourceMetadata{
+			Resource:             "https://mcp.example.com/",
+			AuthorizationServers: []string{"https://auth.example.com/"},
+		},
+	}
+
+	gw := &fakeInvoker{tools: []mcp.Tool{{ID: "echo"}}}
+	h, err := ingresshttp.New(gw, mcp.IngressConfig{
+		EnterpriseAuth: eaCfg,
+		Stateless:      true,
+	})
+	require.NoError(t, err)
+
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL, nil)
+	req.Header.Set("Authorization", "Bearer bad-token")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+}
+
+func TestHandler_EnterpriseAuth_AcceptsValidToken(t *testing.T) {
+	gw := &fakeInvoker{
+		tools: []mcp.Tool{{ID: "echo"}},
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"content": []map[string]any{{"type": "text", "text": "pong"}},
+			},
+		},
+	}
+
+	h, err := ingresshttp.New(gw, mcp.IngressConfig{
+		EnterpriseAuth: validEnterpriseAuthConfig(),
+		Stateless:      true,
+	})
+	require.NoError(t, err)
+
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	// Use the SDK client with a custom transport that injects the token.
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "auth-client"}, nil)
+	transport := &sdkmcp.StreamableClientTransport{
+		Endpoint:             srv.URL,
+		DisableStandaloneSSE: true,
+		HTTPClient: &http.Client{
+			Transport: &bearerTokenTransport{token: "valid-token"},
+		},
+	}
+
+	session, err := client.Connect(context.Background(), transport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+
+	result, err := session.CallTool(context.Background(), &sdkmcp.CallToolParams{
+		Name:      "echo",
+		Arguments: map[string]any{"msg": "ping"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.IsError)
+}
+
+func TestHandler_EnterpriseAuth_RequiredScopeEnforcement(t *testing.T) {
+	eaCfg := &mcp.EnterpriseAuthConfig{
+		TokenVerifier: auth.TokenVerifier(func(_ context.Context, _ string, _ *http.Request) (*auth.TokenInfo, error) {
+			return &auth.TokenInfo{
+				UserID:     "user-1",
+				Scopes:     []string{"tools:read"}, // only read, not write
+				Expiration: time.Now().Add(time.Hour),
+			}, nil
+		}),
+		ResourceMetadata: &oauthex.ProtectedResourceMetadata{
+			Resource: "https://mcp.example.com/",
+		},
+		RequiredScopes: []string{"tools:read", "tools:write"}, // requires write too
+	}
+
+	gw := &fakeInvoker{tools: []mcp.Tool{{ID: "echo"}}}
+	h, err := ingresshttp.New(gw, mcp.IngressConfig{
+		EnterpriseAuth: eaCfg,
+		Stateless:      true,
+	})
+	require.NoError(t, err)
+
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL, nil)
+	req.Header.Set("Authorization", "Bearer some-token")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	// Missing required scope should result in 403 Forbidden.
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+// bearerTokenTransport injects an Authorization header into every request.
+type bearerTokenTransport struct {
+	token string
+}
+
+func (t *bearerTokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.Header.Set("Authorization", "Bearer "+t.token)
+	return http.DefaultTransport.RoundTrip(req)
 }

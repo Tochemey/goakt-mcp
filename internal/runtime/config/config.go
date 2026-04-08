@@ -35,28 +35,6 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-// Type aliases to mcp/ package for backward compatibility.
-type Config = mcp.Config
-type RuntimeConfig = mcp.RuntimeConfig
-type ClusterConfig = mcp.ClusterConfig
-type TelemetryConfig = mcp.TelemetryConfig
-type AuditConfig = mcp.AuditConfig
-type CredentialsConfig = mcp.CredentialsConfig
-type TenantConfig = mcp.TenantConfig
-type TenantQuotaConfig = mcp.TenantQuotaConfig
-
-// Re-export default constants from mcp/ for internal use.
-const (
-	DefaultSessionIdleTimeout  = mcp.DefaultSessionIdleTimeout
-	DefaultRequestTimeout      = mcp.DefaultRequestTimeout
-	DefaultStartupTimeout      = mcp.DefaultStartupTimeout
-	DefaultHealthProbeInterval = mcp.DefaultHealthProbeInterval
-	DefaultHealthProbeTimeout  = mcp.DefaultHealthProbeTimeout
-	DefaultShutdownTimeout     = mcp.DefaultShutdownTimeout
-	DefaultMaxCacheEntries     = mcp.DefaultMaxCacheEntries
-	DefaultAuditMailboxSize    = mcp.DefaultAuditMailboxSize
-)
-
 // ToolConfig defines the static configuration for a single registered tool.
 // This is an internal type for building mcp.Tool with defaults; users typically
 // construct mcp.Tool directly.
@@ -79,7 +57,7 @@ type ToolConfig struct {
 
 // ToolConfigToTool converts a ToolConfig to a mcp.Tool, applying runtime defaults
 // when tool-level values are zero.
-func ToolConfigToTool(toolConfig ToolConfig, defaults RuntimeConfig) mcp.Tool {
+func ToolConfigToTool(toolConfig ToolConfig, defaults mcp.RuntimeConfig) mcp.Tool {
 	tool := mcp.Tool{
 		ID:                  toolConfig.ID,
 		Transport:           toolConfig.Transport,
@@ -95,21 +73,21 @@ func ToolConfigToTool(toolConfig ToolConfig, defaults RuntimeConfig) mcp.Tool {
 	if toolConfig.StartupTimeout <= 0 {
 		tool.StartupTimeout = defaults.StartupTimeout
 		if tool.StartupTimeout <= 0 {
-			tool.StartupTimeout = DefaultStartupTimeout
+			tool.StartupTimeout = mcp.DefaultStartupTimeout
 		}
 	}
 
 	if toolConfig.RequestTimeout <= 0 {
 		tool.RequestTimeout = defaults.RequestTimeout
 		if tool.RequestTimeout <= 0 {
-			tool.RequestTimeout = DefaultRequestTimeout
+			tool.RequestTimeout = mcp.DefaultRequestTimeout
 		}
 	}
 
 	if toolConfig.IdleTimeout <= 0 {
 		tool.IdleTimeout = defaults.SessionIdleTimeout
 		if tool.IdleTimeout <= 0 {
-			tool.IdleTimeout = DefaultSessionIdleTimeout
+			tool.IdleTimeout = mcp.DefaultSessionIdleTimeout
 		}
 	}
 

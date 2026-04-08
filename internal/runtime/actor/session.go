@@ -37,7 +37,6 @@ import (
 
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
@@ -179,7 +178,7 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 		execCtx := ctx.Context()
 		timeout := x.tool.RequestTimeout
 		if timeout == 0 {
-			timeout = config.DefaultRequestTimeout
+			timeout = mcp.DefaultRequestTimeout
 		}
 		var cancel context.CancelFunc
 		execCtx, cancel = context.WithTimeout(execCtx, timeout)
@@ -302,7 +301,7 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 			execCtx := ctx.Context()
 			timeout := x.tool.RequestTimeout
 			if timeout == 0 {
-				timeout = config.DefaultRequestTimeout
+				timeout = mcp.DefaultRequestTimeout
 			}
 			var cancel context.CancelFunc
 			execCtx, cancel = context.WithTimeout(execCtx, timeout)
@@ -337,7 +336,7 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 	execCtx := ctx.Context()
 	timeout := x.tool.RequestTimeout
 	if timeout == 0 {
-		timeout = config.DefaultRequestTimeout
+		timeout = mcp.DefaultRequestTimeout
 	}
 	execCtx, cancel := context.WithTimeout(execCtx, timeout)
 	// cancel is not deferred here: the goroutine below owns the cancel call so

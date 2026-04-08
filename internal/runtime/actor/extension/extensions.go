@@ -29,8 +29,6 @@ import (
 	goaktextension "github.com/tochemey/goakt/v4/extension"
 
 	"github.com/tochemey/goakt-mcp/mcp"
-
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 )
 
 // ToolConfigExtensionID is the fixed identifier for the ToolConfig extension
@@ -41,7 +39,7 @@ const ToolConfigExtensionID = "tool-config"
 // definitions. It is registered once with the actor system at startup and updated
 // by the Registrar whenever tools are added or removed. ToolSupervisorActor
 // resolves its own tool definition from this extension in PostStart, deriving the
-// tool ID from its actor name via mcp.ToolIDFromSupervisorName.
+// tool ID from its actor name via naming.ToolIDFromSupervisorName.
 type ToolConfigExtension struct {
 	mu    sync.RWMutex
 	tools map[mcp.ToolID]mcp.Tool
@@ -108,14 +106,14 @@ const ConfigExtensionID = "config"
 
 // ConfigExtension is a system-level extension that holds the runtime configuration.
 type ConfigExtension struct {
-	config config.Config
+	config mcp.Config
 }
 
 // Enforce that ConfigExtension implements the Extension interface.
 var _ goaktextension.Extension = (*ConfigExtension)(nil)
 
 // NewConfigExtension creates a new ConfigExtension.
-func NewConfigExtension(config config.Config) *ConfigExtension {
+func NewConfigExtension(config mcp.Config) *ConfigExtension {
 	return &ConfigExtension{config: config}
 }
 
@@ -123,4 +121,4 @@ func NewConfigExtension(config config.Config) *ConfigExtension {
 func (c *ConfigExtension) ID() string { return ConfigExtensionID }
 
 // Config returns the runtime configuration.
-func (c *ConfigExtension) Config() config.Config { return c.config }
+func (c *ConfigExtension) Config() mcp.Config { return c.config }

@@ -30,21 +30,21 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 )
 
 // ExternalTestConfig returns a minimal config for use in gateway API tests.
-func ExternalTestConfig() config.Config {
-	cfg := config.Config{
-		Runtime: config.RuntimeConfig{
-			SessionIdleTimeout: config.DefaultSessionIdleTimeout,
-			RequestTimeout:     config.DefaultRequestTimeout,
-			StartupTimeout:     config.DefaultStartupTimeout,
+func ExternalTestConfig() mcp.Config {
+	cfg := mcp.Config{
+		Runtime: mcp.RuntimeConfig{
+			SessionIdleTimeout: mcp.DefaultSessionIdleTimeout,
+			RequestTimeout:     mcp.DefaultRequestTimeout,
+			StartupTimeout:     mcp.DefaultStartupTimeout,
 		},
-		Credentials: config.CredentialsConfig{
+		Credentials: mcp.CredentialsConfig{
 			Providers: []mcp.CredentialsProvider{},
-			CacheTTL:  mcp.DefaultCredentialTTL,
+			CacheTTL:  DefaultCredentialTTL,
 		},
 	}
 	cfg.Audit.Sink = audit.NewMemorySink()
@@ -55,16 +55,16 @@ func ExternalTestConfig() config.Config {
 // CredentialBroker, and Router as top-level actors. Use for gateway API tests
 // that need the full actor graph with a minimal GatewayManager (no children)
 // to exercise the resolveRegistrar/resolveRouter fallback path.
-func SpawnFoundationalActorsForExternalTest(ctx context.Context, system goaktactor.ActorSystem, cfg config.Config) {
-	system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+func SpawnFoundationalActorsForExternalTest(ctx context.Context, system goaktactor.ActorSystem, cfg mcp.Config) {
+	system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 	waitForActorsExternal()
-	system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+	system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 	waitForActorsExternal()
-	system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+	system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
 	waitForActorsExternal()
-	system.Spawn(ctx, mcp.ActorNameCredentialBroker, newCredentialBroker())
+	system.Spawn(ctx, naming.ActorNameCredentialBroker, newCredentialBroker())
 	waitForActorsExternal()
-	system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor())
+	system.Spawn(ctx, naming.ActorNameRouter, newRouterActor())
 	waitForActorsExternal()
 }
 

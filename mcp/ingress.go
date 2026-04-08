@@ -57,4 +57,22 @@ type IngressConfig struct {
 	// header. Suitable for deployments behind a load balancer that does not
 	// support sticky sessions. Default: false (stateful sessions).
 	Stateless bool
+
+	// EnterpriseAuth configures the MCP enterprise-managed authorization
+	// extension (io.modelcontextprotocol/enterprise-managed-authorization).
+	// See https://modelcontextprotocol.io/extensions/auth/enterprise-managed-authorization
+	//
+	// When non-nil, the ingress handler wraps the MCP transport with Bearer
+	// token authentication middleware per RFC 9728
+	// (https://www.rfc-editor.org/rfc/rfc9728). Every incoming request
+	// must carry a valid Authorization: Bearer <token> header. Requests
+	// without a valid token receive HTTP 401 Unauthorized with a
+	// WWW-Authenticate header pointing to the Protected Resource Metadata.
+	//
+	// When EnterpriseAuth is set and IdentityResolver is nil, the handler
+	// automatically uses [NewTokenIdentityResolver] with the configured
+	// [IdentityMapper] (or [DefaultIdentityMapper] when IdentityMapper is nil).
+	//
+	// Optional; when nil, no Bearer token enforcement is applied.
+	EnterpriseAuth *EnterpriseAuthConfig
 }

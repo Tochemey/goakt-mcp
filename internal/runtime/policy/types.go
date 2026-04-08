@@ -24,7 +24,6 @@
 package policy
 
 import (
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -59,7 +58,7 @@ type Input struct {
 
 	// TenantConfig is the tenant configuration when the tenant is known.
 	// Nil when the tenant is not in the static configuration.
-	TenantConfig *config.TenantConfig
+	TenantConfig *mcp.TenantConfig
 
 	// ActiveSessionCount is the number of live sessions for this tenant across all tools.
 	// Used for ConcurrentSessions quota enforcement. Zero when unknown.
@@ -68,6 +67,11 @@ type Input struct {
 	// RequestsInCurrentMinute is the number of requests from this tenant in the current
 	// minute window. Used for RequestsPerMinute rate limiting. Zero when unknown.
 	RequestsInCurrentMinute int
+
+	// Scopes holds the OAuth scopes granted by the validated bearer token
+	// when the enterprise-managed authorization extension is active. Empty
+	// when enterprise auth is not configured or the token carries no scopes.
+	Scopes []string
 }
 
 // Result holds the outcome of a policy evaluation.

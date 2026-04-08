@@ -21,9 +21,15 @@
 // SOFTWARE.
 //
 
-package mcp
+// Package naming provides deterministic actor name constants and construction
+// functions for the goakt-mcp runtime.
+package naming
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/tochemey/goakt-mcp/mcp"
+)
 
 // Actor name constants for well-known singleton actors.
 const (
@@ -38,19 +44,19 @@ const (
 
 // ToolSupervisorName returns the deterministic actor name for the tool supervisor
 // responsible for the given tool.
-func ToolSupervisorName(toolID ToolID) string {
+func ToolSupervisorName(toolID mcp.ToolID) string {
 	return "supervisor-" + string(toolID)
 }
 
 // ToolIDFromSupervisorName derives the ToolID from an actor name produced by
 // ToolSupervisorName. Returns an empty ToolID when the name does not carry the
 // expected "supervisor-" prefix.
-func ToolIDFromSupervisorName(name string) ToolID {
-	return ToolID(strings.TrimPrefix(name, "supervisor-"))
+func ToolIDFromSupervisorName(name string) mcp.ToolID {
+	return mcp.ToolID(strings.TrimPrefix(name, "supervisor-"))
 }
 
 // SessionName returns the deterministic actor name for the session owned by the
 // given tenant, client, and tool combination.
-func SessionName(tenantID TenantID, clientID ClientID, toolID ToolID) string {
+func SessionName(tenantID mcp.TenantID, clientID mcp.ClientID, toolID mcp.ToolID) string {
 	return "session-" + string(tenantID) + "-" + string(clientID) + "-" + string(toolID)
 }

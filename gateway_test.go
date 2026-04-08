@@ -36,9 +36,9 @@ import (
 	goaktlog "github.com/tochemey/goakt/v4/log"
 
 	"github.com/tochemey/goakt-mcp/internal/egress"
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -153,7 +153,7 @@ func TestGatewayStartStop(t *testing.T) {
 
 		waitForActors()
 
-		pid, err := gw.System().ActorOf(ctx, mcp.ActorNameGatewayManager)
+		pid, err := gw.System().ActorOf(ctx, naming.ActorNameGatewayManager)
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
@@ -167,7 +167,7 @@ func TestGatewayStartStop(t *testing.T) {
 
 		waitForActors()
 
-		managerPID, err := gw.System().ActorOf(ctx, mcp.ActorNameGatewayManager)
+		managerPID, err := gw.System().ActorOf(ctx, naming.ActorNameGatewayManager)
 		require.NoError(t, err)
 		require.NotNil(t, managerPID)
 
@@ -177,9 +177,9 @@ func TestGatewayStartStop(t *testing.T) {
 			childNames[c.Name()] = true
 		}
 
-		assert.True(t, childNames[mcp.ActorNameRegistrar], "RegistryActor must be a child of GatewayManager")
-		assert.True(t, childNames[mcp.ActorNameHealth], "HealthActor must be a child of GatewayManager")
-		assert.True(t, childNames[mcp.ActorNameJournal], "JournalActor must be a child of GatewayManager")
+		assert.True(t, childNames[naming.ActorNameRegistrar], "RegistryActor must be a child of GatewayManager")
+		assert.True(t, childNames[naming.ActorNameHealth], "HealthActor must be a child of GatewayManager")
+		assert.True(t, childNames[naming.ActorNameJournal], "JournalActor must be a child of GatewayManager")
 
 		require.NoError(t, gw.Stop(ctx))
 	})
@@ -462,11 +462,11 @@ func TestGatewayAPI(t *testing.T) {
 	t.Run("API with system-wide Registrar and Router exercises resolver fallback", func(t *testing.T) {
 		ctx := context.Background()
 		cfg := actor.ExternalTestConfig()
-		execFactory := egress.NewCompositeExecutorFactory(config.DefaultStartupTimeout, nil)
+		execFactory := egress.NewCompositeExecutorFactory(mcp.DefaultStartupTimeout, nil)
 		system, stop := newTestActorSystemForResolverFallback(t, cfg, execFactory)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameGatewayManager, &minimalGatewayManager{})
+		_, err := system.Spawn(ctx, naming.ActorNameGatewayManager, &minimalGatewayManager{})
 		require.NoError(t, err)
 		waitForActors()
 
@@ -506,7 +506,7 @@ func TestGatewayAPI(t *testing.T) {
 	})
 }
 
-func newTestActorSystemForResolverFallback(t *testing.T, cfg config.Config, execFactory mcp.ExecutorFactory) (goaktactor.ActorSystem, func()) {
+func newTestActorSystemForResolverFallback(t *testing.T, cfg mcp.Config, execFactory mcp.ExecutorFactory) (goaktactor.ActorSystem, func()) {
 	t.Helper()
 	ctx := context.Background()
 	opts := []goaktactor.Option{

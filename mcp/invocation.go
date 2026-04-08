@@ -64,6 +64,14 @@ type Invocation struct {
 	// Credentials holds resolved secrets injected by the credential broker
 	// before the invocation reaches the egress layer.
 	Credentials map[string]string
+	// Scopes holds the OAuth scopes granted by the validated bearer token.
+	// Populated by the enterprise-managed authorization middleware when
+	// [EnterpriseAuthConfig] is active on the ingress. Empty when enterprise
+	// auth is not configured or the token carries no scopes.
+	//
+	// Scopes are propagated to [PolicyInput] so that custom [PolicyEvaluator]
+	// implementations can make scope-aware authorization decisions.
+	Scopes []string
 	// ReceivedAt is the wall-clock time the invocation was accepted by the
 	// ingress layer, used to compute end-to-end latency in audit records.
 	ReceivedAt time.Time

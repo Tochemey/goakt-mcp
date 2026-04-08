@@ -56,4 +56,11 @@ type PolicyInput struct {
 	// RequestsInCurrentMinute is the number of requests from this tenant in
 	// the current minute window at the time the invocation is being evaluated.
 	RequestsInCurrentMinute int
+	// Scopes holds the OAuth scopes granted by the validated bearer token
+	// when the enterprise-managed authorization extension is active. Empty
+	// when enterprise auth is not configured or the token carries no scopes.
+	//
+	// Custom [PolicyEvaluator] implementations can use this field to enforce
+	// scope-based access control per tool or operation.
+	Scopes []string
 }

@@ -27,9 +27,11 @@ package mcp
 //
 // Validation rules:
 //   - Tool.ID must not be zero (empty)
-//   - Transport must be TransportStdio or TransportHTTP
+//   - Transport must be TransportStdio, TransportHTTP, or TransportGRPC
 //   - For stdio: Command must be non-empty
 //   - For http: URL must be non-empty
+//   - For grpc: Target and Service must be non-empty; exactly one of
+//     DescriptorSet or Reflection must be set
 func ValidateTool(tool Tool) error {
 	if tool.ID.IsZero() {
 		return NewRuntimeError(ErrCodeInvalidRequest, "tool ID is required")
@@ -44,8 +46,34 @@ func ValidateTool(tool Tool) error {
 		if tool.HTTP == nil || tool.HTTP.URL == "" {
 			return NewRuntimeError(ErrCodeInvalidRequest, "http tool must have non-empty URL")
 		}
+	case TransportGRPC:
+		if err := validateGRPCTool(tool); err != nil {
+			return err
+		}
 	default:
-		return NewRuntimeError(ErrCodeInvalidRequest, "transport must be stdio or http")
+		return NewRuntimeError(ErrCodeInvalidRequest, "transport must be stdio, http, or grpc")
+	}
+	return nil
+}
+
+// validateGRPCTool checks gRPC-specific tool configuration constraints.
+func validateGRPCTool(tool Tool) error {
+	if tool.GRPC == nil {
+		return NewRuntimeError(ErrCodeInvalidRequest, "grpc tool must have non-nil GRPC config")
+	}
+	if tool.GRPC.Target == "" {
+		return NewRuntimeError(ErrCodeInvalidRequest, "grpc tool must have non-empty target")
+	}
+	if tool.GRPC.Service == "" {
+		return NewRuntimeError(ErrCodeInvalidRequest, "grpc tool must have non-empty service")
+	}
+	hasDescriptor := tool.GRPC.DescriptorSet != ""
+	hasReflection := tool.GRPC.Reflection
+	if hasDescriptor && hasReflection {
+		return NewRuntimeError(ErrCodeInvalidRequest, "grpc tool must set DescriptorSet or Reflection, not both")
+	}
+	if !hasDescriptor && !hasReflection {
+		return NewRuntimeError(ErrCodeInvalidRequest, "grpc tool must set either DescriptorSet or Reflection")
 	}
 	return nil
 }

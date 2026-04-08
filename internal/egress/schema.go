@@ -29,9 +29,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	egressgrpc "github.com/tochemey/goakt-mcp/internal/egress/grpc"
 	egresshttp "github.com/tochemey/goakt-mcp/internal/egress/http"
 	"github.com/tochemey/goakt-mcp/internal/egress/stdio"
 )
@@ -47,7 +47,7 @@ type CompositeSchemaFetcher struct {
 // NewCompositeSchemaFetcher creates a schema fetcher with the given timeouts.
 func NewCompositeSchemaFetcher(startupTimeout time.Duration, httpClient *http.Client) *CompositeSchemaFetcher {
 	if startupTimeout <= 0 {
-		startupTimeout = config.DefaultStartupTimeout
+		startupTimeout = mcp.DefaultStartupTimeout
 	}
 	return &CompositeSchemaFetcher{
 		startupTimeout: startupTimeout,
@@ -64,6 +64,8 @@ func (f *CompositeSchemaFetcher) FetchSchemas(ctx context.Context, tool mcp.Tool
 		return stdio.FetchSchemas(ctx, tool.Stdio, f.startupTimeout)
 	case mcp.TransportHTTP:
 		return egresshttp.FetchSchemas(ctx, tool.HTTP, f.httpClient, f.startupTimeout)
+	case mcp.TransportGRPC:
+		return egressgrpc.FetchSchemas(ctx, tool.GRPC, f.startupTimeout)
 	default:
 		return nil, fmt.Errorf("unsupported transport type %q for schema fetch", tool.Transport)
 	}

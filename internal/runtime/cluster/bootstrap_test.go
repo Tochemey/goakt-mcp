@@ -30,7 +30,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -49,20 +48,20 @@ func (s *staticDiscovery) Stop(_ context.Context) error                      { r
 
 func TestIsClusterConfigured(t *testing.T) {
 	t.Run("returns false when Cluster.Enabled is false", func(t *testing.T) {
-		cfg := config.Config{}
+		cfg := mcp.Config{}
 		cfg.Cluster.Enabled = false
 		cfg.Cluster.DiscoveryProvider = &staticDiscovery{id: "static"}
 		assert.False(t, IsClusterConfigured(cfg))
 	})
 
 	t.Run("returns false when DiscoveryProvider is nil", func(t *testing.T) {
-		cfg := config.Config{}
+		cfg := mcp.Config{}
 		cfg.Cluster.Enabled = true
 		assert.False(t, IsClusterConfigured(cfg))
 	})
 
 	t.Run("returns true when enabled with DiscoveryProvider set", func(t *testing.T) {
-		cfg := config.Config{}
+		cfg := mcp.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.DiscoveryProvider = &staticDiscovery{id: "static"}
 		assert.True(t, IsClusterConfigured(cfg))
@@ -71,14 +70,14 @@ func TestIsClusterConfigured(t *testing.T) {
 
 func TestBuildOptions(t *testing.T) {
 	t.Run("returns nil when Cluster.Enabled is false", func(t *testing.T) {
-		cfg := config.Config{}
+		cfg := mcp.Config{}
 		cfg.Cluster.Enabled = false
 		opts := BuildOptions(cfg, nil)
 		assert.Nil(t, opts)
 	})
 
 	t.Run("returns only WithRemote when enabled but DiscoveryProvider is nil", func(t *testing.T) {
-		cfg := config.Config{}
+		cfg := mcp.Config{}
 		cfg.Cluster.Enabled = true
 		opts := BuildOptions(cfg, nil)
 		require.NotNil(t, opts)
@@ -86,7 +85,7 @@ func TestBuildOptions(t *testing.T) {
 	})
 
 	t.Run("returns WithRemote and WithCluster when DiscoveryProvider is set", func(t *testing.T) {
-		cfg := config.Config{}
+		cfg := mcp.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.DiscoveryProvider = &staticDiscovery{id: "test", peers: []string{"peer1:8080"}}
 		opts := BuildOptions(cfg, nil)
@@ -95,7 +94,7 @@ func TestBuildOptions(t *testing.T) {
 	})
 
 	t.Run("applies default ports when not specified", func(t *testing.T) {
-		cfg := config.Config{}
+		cfg := mcp.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.DiscoveryProvider = &staticDiscovery{id: "test"}
 		opts := BuildOptions(cfg, nil)
@@ -104,7 +103,7 @@ func TestBuildOptions(t *testing.T) {
 	})
 
 	t.Run("uses custom ports when specified", func(t *testing.T) {
-		cfg := config.Config{}
+		cfg := mcp.Config{}
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.DiscoveryProvider = &staticDiscovery{id: "test"}
 		cfg.Cluster.PeersPort = 20000

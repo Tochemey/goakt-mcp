@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestEventTypeConstants(t *testing.T) {
@@ -87,31 +86,4 @@ func TestEventZeroValue(t *testing.T) {
 	assert.Empty(t, event.TenantID)
 	assert.Empty(t, event.ToolID)
 	assert.Nil(t, event.Metadata)
-}
-
-func TestHealthTransitionEvent(t *testing.T) {
-	ev := HealthTransitionAuditEvent("tool-1", "enabled", "degraded")
-	require.NotNil(t, ev)
-	assert.Equal(t, AuditEventTypeHealthTransition, ev.Type)
-	assert.Equal(t, "tool-1", ev.ToolID)
-	assert.Equal(t, "degraded", ev.Outcome)
-	assert.NotZero(t, ev.Timestamp)
-	require.NotNil(t, ev.Metadata)
-	assert.Equal(t, "enabled", ev.Metadata["from"])
-	assert.Equal(t, "degraded", ev.Metadata["to"])
-}
-
-func TestCircuitStateChangeEvent(t *testing.T) {
-	meta := map[string]string{"reason": "failure_threshold", "count": "5"}
-	ev := CircuitStateChangeAuditEvent("tool-1", "open", meta)
-	require.NotNil(t, ev)
-	assert.Equal(t, AuditEventTypeCircuitStateChange, ev.Type)
-	assert.Equal(t, "tool-1", ev.ToolID)
-	assert.Equal(t, "open", ev.Outcome)
-	assert.NotZero(t, ev.Timestamp)
-	assert.Equal(t, meta, ev.Metadata)
-
-	ev = CircuitStateChangeAuditEvent("tool-2", "closed", nil)
-	require.NotNil(t, ev)
-	assert.Nil(t, ev.Metadata)
 }

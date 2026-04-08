@@ -37,10 +37,12 @@ import (
 	"github.com/tochemey/goakt/v4/remote"
 	gtls "github.com/tochemey/goakt/v4/tls"
 
+	"github.com/tochemey/goakt-mcp/internal/discovery"
 	"github.com/tochemey/goakt-mcp/internal/egress"
 	ingresshttp "github.com/tochemey/goakt-mcp/internal/ingress/http"
 	ingresssse "github.com/tochemey/goakt-mcp/internal/ingress/sse"
 	ingressws "github.com/tochemey/goakt-mcp/internal/ingress/ws"
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
@@ -48,6 +50,7 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
+	"github.com/tochemey/goakt-mcp/internal/security"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -75,7 +78,7 @@ type Gateway struct {
 	eventStopCh chan struct{}
 
 	// managerName is the actor name used for GatewayManager. In single-node mode it
-	// is always mcp.ActorNameGatewayManager. In cluster mode it is suffixed with the
+	// is always naming.ActorNameGatewayManager. In cluster mode it is suffixed with the
 	// pod hostname so that each node can spawn its own local GatewayManager without
 	// conflicting with GoAkt's cluster-wide actor name uniqueness check.
 	managerName string
@@ -127,7 +130,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 	if g.testSystem != nil {
 		g.mu.Lock()
 		g.system = g.testSystem
-		g.managerName = mcp.ActorNameGatewayManager
+		g.managerName = naming.ActorNameGatewayManager
 		g.mu.Unlock()
 		return nil
 	}
@@ -145,7 +148,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 	var tlsInfo *gtls.Info
 	if g.config.Cluster.Enabled && g.config.Cluster.TLS != nil {
 		var err error
-		tlsInfo, err = mcp.BuildRemotingTLSInfo(g.config.Cluster.TLS)
+		tlsInfo, err = security.BuildRemotingTLSInfo(g.config.Cluster.TLS)
 		if err != nil {
 			return mcp.WrapRuntimeError(mcp.ErrCodeInternal, "cluster TLS config", err)
 		}
@@ -238,7 +241,7 @@ func (g *Gateway) requireRunning() (goaktactor.ActorSystem, error) {
 }
 
 func (g *Gateway) validateClusterConfig() error {
-	if g.config.Cluster.Enabled && mcp.IsNilDiscoveryProvider(g.config.Cluster.DiscoveryProvider) {
+	if g.config.Cluster.Enabled && discovery.IsNilDiscoveryProvider(g.config.Cluster.DiscoveryProvider) {
 		return mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest,
 			"cluster is enabled but no DiscoveryProvider is configured")
 	}
@@ -377,12 +380,12 @@ func toolIDFromPath(path goaktactor.Path) mcp.ToolID {
 	if !strings.HasPrefix(supervisorName, "supervisor-") {
 		return ""
 	}
-	return mcp.ToolIDFromSupervisorName(supervisorName)
+	return naming.ToolIDFromSupervisorName(supervisorName)
 }
 
 // localManagerName returns the actor name to use for GatewayManager on this node.
 //
-// In single-node mode the name is always mcp.ActorNameGatewayManager.
+// In single-node mode the name is always naming.ActorNameGatewayManager.
 // In cluster mode GoAkt's system.Spawn checks actor name uniqueness across the
 // entire cluster DMap, so a fixed name would prevent every node after the first
 // from spawning its own GatewayManager. Suffixing with the pod hostname makes
@@ -390,10 +393,10 @@ func toolIDFromPath(path goaktactor.Path) mcp.ToolID {
 func (g *Gateway) localManagerName() string {
 	if g.config.Cluster.Enabled {
 		if hostname, err := os.Hostname(); err == nil && hostname != "" {
-			return mcp.ActorNameGatewayManager + "-" + hostname
+			return naming.ActorNameGatewayManager + "-" + hostname
 		}
 	}
-	return mcp.ActorNameGatewayManager
+	return naming.ActorNameGatewayManager
 }
 
 func (g *Gateway) remoteOptions() []remote.Option {

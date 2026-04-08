@@ -37,6 +37,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
@@ -54,7 +55,7 @@ func TestSessionActor(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -81,7 +82,7 @@ func TestSessionActor(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -103,7 +104,7 @@ func TestSessionActor(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -137,7 +138,7 @@ func TestSessionActor(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, failingExec, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -171,7 +172,7 @@ func TestSessionActor(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, failingExec, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -213,7 +214,7 @@ func TestSessionActor(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, transportFailExec, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -246,7 +247,7 @@ func TestSessionActor(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nonTransportExec, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -271,7 +272,7 @@ func TestSessionActor(t *testing.T) {
 		tool.IdleTimeout = 200 * time.Millisecond
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -298,11 +299,11 @@ func TestGetOrCreateSession(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
 		// Use Registrar flow (matches production) so supervisor is child of Registrar.
-		regPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		regPID, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -362,10 +363,10 @@ func TestGetOrCreateSession(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(toolCfgExt, actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		name := mcp.ToolSupervisorName(tool.ID)
+		name := naming.ToolSupervisorName(tool.ID)
 		supPID, err := system.Spawn(ctx, name, newToolSupervisor())
 		require.NoError(t, err)
 		waitForActors()
@@ -393,7 +394,7 @@ func TestSessionGetIdentity(t *testing.T) {
 	tool.IdleTimeout = 5 * time.Minute
 
 	dep := actorextension.NewSessionDependency("tenant-id", "client-id", tool.ID, tool, nil, nil)
-	name := mcp.SessionName("tenant-id", "client-id", tool.ID)
+	name := naming.SessionName("tenant-id", "client-id", tool.ID)
 	pid, err := system.Spawn(ctx, name, newSession(),
 		goaktactor.WithDependencies(dep),
 		goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -447,7 +448,7 @@ func TestSessionInvokeStream(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -470,7 +471,7 @@ func TestSessionInvokeStream(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -494,7 +495,7 @@ func TestSessionInvokeStream(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -520,7 +521,7 @@ func TestSessionInvokeStream(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, exec, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -546,7 +547,7 @@ func TestSessionInvokeStream(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, exec, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -584,7 +585,7 @@ func TestSessionInvokeStream(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, streamExec, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -622,7 +623,7 @@ func TestSessionInvokeStream(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, streamExec, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))
@@ -656,7 +657,7 @@ func TestSessionMetricsIntegration(t *testing.T) {
 		tool.IdleTimeout = 5 * time.Minute
 
 		dep := actorextension.NewSessionDependency("tenant1", "client1", tool.ID, tool, nil, nil)
-		name := mcp.SessionName("tenant1", "client1", tool.ID)
+		name := naming.SessionName("tenant1", "client1", tool.ID)
 		pid, err := system.Spawn(ctx, name, newSession(),
 			goaktactor.WithDependencies(dep),
 			goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(tool.IdleTimeout)))

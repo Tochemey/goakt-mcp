@@ -33,8 +33,10 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
+	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
@@ -83,7 +85,7 @@ func (x *healthChecker) PreStart(ctx *goaktactor.Context) error {
 	if x.probeTimeout == 0 {
 		x.probeTimeout = mcp.DefaultHealthProbeTimeout
 	}
-	x.logger.Infof("actor=%s starting interval=%s", mcp.ActorNameHealth, x.interval)
+	x.logger.Infof("actor=%s starting interval=%s", naming.ActorNameHealth, x.interval)
 	return nil
 }
 
@@ -91,7 +93,7 @@ func (x *healthChecker) PreStart(ctx *goaktactor.Context) error {
 func (x *healthChecker) Receive(ctx *goaktactor.ReceiveContext) {
 	switch ctx.Message().(type) {
 	case *goaktactor.PostStart:
-		x.logger.Infof("actor=%s started", mcp.ActorNameHealth)
+		x.logger.Infof("actor=%s started", naming.ActorNameHealth)
 		x.resolveActors(ctx)
 		x.scheduleNext(ctx)
 	case *runProbes:
@@ -103,7 +105,7 @@ func (x *healthChecker) Receive(ctx *goaktactor.ReceiveContext) {
 
 // PostStop performs cleanup after HealthChecker has stopped.
 func (x *healthChecker) PostStop(ctx *goaktactor.Context) error {
-	x.logger.Infof("actor=%s stopped", mcp.ActorNameHealth)
+	x.logger.Infof("actor=%s stopped", naming.ActorNameHealth)
 	return nil
 }
 
@@ -114,14 +116,14 @@ func (x *healthChecker) resolveActors(ctx *goaktactor.ReceiveContext) {
 	goCtx := ctx.Context()
 
 	// resolve the journal actor
-	journal, err := actorSystem.ActorOf(goCtx, mcp.ActorNameJournal)
+	journal, err := actorSystem.ActorOf(goCtx, naming.ActorNameJournal)
 	if err != nil {
 		ctx.Err(err)
 		return
 	}
 
 	// resolve the registrar actor
-	registrar, err := actorSystem.ActorOf(goCtx, mcp.ActorNameRegistrar)
+	registrar, err := actorSystem.ActorOf(goCtx, naming.ActorNameRegistrar)
 	if err != nil {
 		ctx.Err(err)
 		return
@@ -145,7 +147,7 @@ func (x *healthChecker) runProbes(ctx *goaktactor.ReceiveContext) {
 
 	listResp, err := goaktactor.Ask(probeCtx, x.registrar, &runtime.ListTools{}, max(x.probeTimeout/2, minProbeAskTimeout))
 	if err != nil {
-		x.logger.Warnf("actor=%s list tools failed: %v", mcp.ActorNameHealth, err)
+		x.logger.Warnf("actor=%s list tools failed: %v", naming.ActorNameHealth, err)
 		x.scheduleNext(ctx)
 		return
 	}
@@ -221,7 +223,7 @@ func (x *healthChecker) scheduleNext(ctx *goaktactor.ReceiveContext) {
 
 	sys := ctx.ActorSystem()
 	if err := sys.ScheduleOnce(ctx.Context(), &runProbes{}, ctx.Self(), x.interval); err != nil {
-		x.logger.Warnf("actor=%s schedule next probe failed: %v", mcp.ActorNameHealth, err)
+		x.logger.Warnf("actor=%s schedule next probe failed: %v", naming.ActorNameHealth, err)
 		ctx.Err(err)
 	}
 }
@@ -231,6 +233,6 @@ func (x *healthChecker) recordHealthTransition(toolID, fromState, toState string
 	if x.journal == nil || !x.journal.IsRunning() {
 		return
 	}
-	ev := mcp.HealthTransitionAuditEvent(toolID, fromState, toState)
+	ev := audit.HealthTransitionAuditEvent(toolID, fromState, toState)
 	_ = goaktactor.Tell(context.Background(), x.journal, &runtime.RecordAuditEvent{Event: ev})
 }

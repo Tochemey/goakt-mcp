@@ -36,23 +36,23 @@ import (
 )
 
 func TestDefaultConstants(t *testing.T) {
-	assert.Equal(t, 5*time.Minute, DefaultSessionIdleTimeout)
-	assert.Equal(t, 30*time.Second, DefaultRequestTimeout)
-	assert.Equal(t, 10*time.Second, DefaultStartupTimeout)
+	assert.Equal(t, 5*time.Minute, mcp.DefaultSessionIdleTimeout)
+	assert.Equal(t, 30*time.Second, mcp.DefaultRequestTimeout)
+	assert.Equal(t, 10*time.Second, mcp.DefaultStartupTimeout)
 }
 
 func TestConfigZeroValue(t *testing.T) {
-	var cfg Config
+	var cfg mcp.Config
 	assert.Empty(t, cfg.Tools)
 	assert.Empty(t, cfg.Tenants)
 	assert.Zero(t, cfg.Runtime.RequestTimeout)
 }
 
 func TestRuntimeConfig(t *testing.T) {
-	cfg := RuntimeConfig{
-		SessionIdleTimeout: DefaultSessionIdleTimeout,
-		RequestTimeout:     DefaultRequestTimeout,
-		StartupTimeout:     DefaultStartupTimeout,
+	cfg := mcp.RuntimeConfig{
+		SessionIdleTimeout: mcp.DefaultSessionIdleTimeout,
+		RequestTimeout:     mcp.DefaultRequestTimeout,
+		StartupTimeout:     mcp.DefaultStartupTimeout,
 	}
 	assert.Equal(t, 5*time.Minute, cfg.SessionIdleTimeout)
 	assert.Equal(t, 30*time.Second, cfg.RequestTimeout)
@@ -68,7 +68,7 @@ func (t *testDiscoveryProvider) DiscoverPeers(_ context.Context) ([]string, erro
 func (t *testDiscoveryProvider) Stop(_ context.Context) error                      { return nil }
 
 func TestClusterConfig(t *testing.T) {
-	cfg := ClusterConfig{
+	cfg := mcp.ClusterConfig{
 		Enabled:           true,
 		DiscoveryProvider: &testDiscoveryProvider{},
 		RegistrarRole:     "control-plane",
@@ -84,14 +84,14 @@ func TestClusterConfig(t *testing.T) {
 }
 
 func TestTelemetryConfig(t *testing.T) {
-	cfg := TelemetryConfig{OTLPEndpoint: "http://otel-collector:4318"}
+	cfg := mcp.TelemetryConfig{OTLPEndpoint: "http://otel-collector:4318"}
 	assert.Equal(t, "http://otel-collector:4318", cfg.OTLPEndpoint)
 }
 
 func TestTenantConfig(t *testing.T) {
-	cfg := TenantConfig{
+	cfg := mcp.TenantConfig{
 		ID: mcp.TenantID("acme-dev"),
-		Quotas: TenantQuotaConfig{
+		Quotas: mcp.TenantQuotaConfig{
 			RequestsPerMinute:  1000,
 			ConcurrentSessions: 200,
 		},
@@ -154,10 +154,10 @@ func TestHTTPToolConfig(t *testing.T) {
 }
 
 func TestToolConfigToTool(t *testing.T) {
-	defaults := RuntimeConfig{
-		SessionIdleTimeout: DefaultSessionIdleTimeout,
-		RequestTimeout:     DefaultRequestTimeout,
-		StartupTimeout:     DefaultStartupTimeout,
+	defaults := mcp.RuntimeConfig{
+		SessionIdleTimeout: mcp.DefaultSessionIdleTimeout,
+		RequestTimeout:     mcp.DefaultRequestTimeout,
+		StartupTimeout:     mcp.DefaultStartupTimeout,
 	}
 
 	t.Run("stdio tool with explicit values", func(t *testing.T) {
@@ -197,9 +197,9 @@ func TestToolConfigToTool(t *testing.T) {
 		require.NotNil(t, tool.HTTP)
 		assert.Equal(t, "http://localhost:8080", tool.HTTP.URL)
 		assert.Nil(t, tool.HTTP.TLS)
-		assert.Equal(t, DefaultStartupTimeout, tool.StartupTimeout)
-		assert.Equal(t, DefaultRequestTimeout, tool.RequestTimeout)
-		assert.Equal(t, DefaultSessionIdleTimeout, tool.IdleTimeout)
+		assert.Equal(t, mcp.DefaultStartupTimeout, tool.StartupTimeout)
+		assert.Equal(t, mcp.DefaultRequestTimeout, tool.RequestTimeout)
+		assert.Equal(t, mcp.DefaultSessionIdleTimeout, tool.IdleTimeout)
 		assert.Equal(t, mcp.ToolStateEnabled, tool.State)
 	})
 
@@ -213,9 +213,9 @@ func TestToolConfigToTool(t *testing.T) {
 			IdleTimeout:    -1 * time.Minute,
 		}
 		tool := ToolConfigToTool(cfg, defaults)
-		assert.Equal(t, DefaultStartupTimeout, tool.StartupTimeout)
-		assert.Equal(t, DefaultRequestTimeout, tool.RequestTimeout)
-		assert.Equal(t, DefaultSessionIdleTimeout, tool.IdleTimeout)
+		assert.Equal(t, mcp.DefaultStartupTimeout, tool.StartupTimeout)
+		assert.Equal(t, mcp.DefaultRequestTimeout, tool.RequestTimeout)
+		assert.Equal(t, mcp.DefaultSessionIdleTimeout, tool.IdleTimeout)
 	})
 
 	t.Run("http tool with HTTPTLS maps to runtime", func(t *testing.T) {
@@ -288,20 +288,20 @@ func TestNewLogger(t *testing.T) {
 }
 
 func TestFullConfig(t *testing.T) {
-	cfg := Config{
-		Runtime: RuntimeConfig{
-			SessionIdleTimeout: DefaultSessionIdleTimeout,
-			RequestTimeout:     DefaultRequestTimeout,
-			StartupTimeout:     DefaultStartupTimeout,
+	cfg := mcp.Config{
+		Runtime: mcp.RuntimeConfig{
+			SessionIdleTimeout: mcp.DefaultSessionIdleTimeout,
+			RequestTimeout:     mcp.DefaultRequestTimeout,
+			StartupTimeout:     mcp.DefaultStartupTimeout,
 		},
-		Cluster: ClusterConfig{
+		Cluster: mcp.ClusterConfig{
 			Enabled:           true,
 			DiscoveryProvider: &testDiscoveryProvider{},
 			RegistrarRole:     "control-plane",
 		},
-		Telemetry: TelemetryConfig{OTLPEndpoint: "http://otel-collector:4318"},
-		Tenants: []TenantConfig{
-			{ID: "acme-dev", Quotas: TenantQuotaConfig{RequestsPerMinute: 1000, ConcurrentSessions: 200}},
+		Telemetry: mcp.TelemetryConfig{OTLPEndpoint: "http://otel-collector:4318"},
+		Tenants: []mcp.TenantConfig{
+			{ID: "acme-dev", Quotas: mcp.TenantQuotaConfig{RequestsPerMinute: 1000, ConcurrentSessions: 200}},
 		},
 		Tools: []mcp.Tool{
 			{ID: "filesystem", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "npx"}, State: mcp.ToolStateEnabled},

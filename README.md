@@ -29,7 +29,7 @@ The actor model is a strong fit for this problem space. Each tool has a dedicate
 
 ## Features
 
-- **Dual transport egress** — invoke tools over stdio (child process) or HTTP (remote MCP server)
+- **Triple transport egress** — invoke tools over stdio (child process), HTTP (remote MCP server), or gRPC (with proto descriptor sets or server reflection)
 - **Three ingress transports** — serve MCP clients via Streamable HTTP, Server-Sent Events, or WebSocket
 - **Multi-tenancy** — per-tenant quota enforcement (rate limiting + concurrency caps) and pluggable policy evaluation
 - **Credential brokering** — resolve secrets from any source (vault, env, KMS) and inject them into invocations, with a configurable LRU cache
@@ -71,8 +71,10 @@ graph TB
         Reg["RegistrarActor\n(cluster singleton)"]
         TS1["ToolSupervisor\n tool-a"]
         TS2["ToolSupervisor\n tool-b"]
+        TS3["ToolSupervisor\n tool-c"]
         S1["SessionActor"]
         S2["SessionActor"]
+        S3["SessionActor"]
         Journal["JournalActor\n(bounded mailbox)"]
         Health["HealthActor"]
     end
@@ -80,6 +82,7 @@ graph TB
     subgraph Egress["Tool Backends"]
         T1["Stdio Tool\nchild process"]
         T2["HTTP Tool\nremote MCP server"]
+        T3["gRPC Tool\nprotobuf service"]
     end
 
     subgraph Observability["Observability"]
@@ -93,11 +96,12 @@ graph TB
     Router --> Policy
     Router --> CB
     Router --> Reg
-    Reg --> TS1 & TS2
+    Reg --> TS1 & TS2 & TS3
     TS1 --> S1 --> T1
     TS2 --> S2 --> T2
+    TS3 --> S3 --> T3
     Router --> Journal
-    Health -.->|probe| TS1 & TS2
+    Health -.->|probe| TS1 & TS2 & TS3
     Journal --> Audit
     Core --> OT
 ```
@@ -106,7 +110,7 @@ graph TB
 
 **Gateway** is the single public entry point. It owns the actor system and provides all lifecycle and management methods. You create exactly one `Gateway` per process (or per cluster node).
 
-**Tool** is a registered MCP backend. A tool has a unique ID, a transport type (stdio or HTTP), routing mode, circuit breaker configuration, credential requirements, and lifecycle state. Tools are registered at startup via `mcp.Config.Tools` or dynamically via `RegisterTool`.
+**Tool** is a registered MCP backend. A tool has a unique ID, a transport type (stdio, HTTP, or gRPC), routing mode, circuit breaker configuration, credential requirements, and lifecycle state. Tools are registered at startup via `mcp.Config.Tools` or dynamically via `RegisterTool`.
 
 **ToolSupervisor** is the actor that supervises all sessions for a single tool. It tracks the circuit breaker state, enforces `MaxSessionsPerTool` backpressure, and manages session actor lifecycle. One supervisor exists per registered tool.
 

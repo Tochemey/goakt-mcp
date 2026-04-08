@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package testpkg;
+
+option go_package = "github.com/tochemey/goakt-mcp/internal/egress/grpc/testdata";
+
+// TestService is a simple gRPC service used for unit testing the gRPC egress
+// transport layer.
+service TestService {
+  // Echo returns the input message unchanged.
+  rpc Echo(EchoRequest) returns (EchoResponse);
+
+  // StreamEcho returns the input message multiple times as a server stream.
+  rpc StreamEcho(EchoRequest) returns (stream EchoResponse);
+}
+
+// EchoRequest is the input for the Echo and StreamEcho RPCs.
+message EchoRequest {
+  string message = 1;
+  int32 count = 2;
+}
+
+// EchoResponse is the output for the Echo and StreamEcho RPCs.
+message EchoResponse {
+  string message = 1;
+  int32 sequence = 2;
+}
+
+// RichService exercises additional proto field types for schema generation
+// coverage: nested messages, repeated fields, maps, and various scalar types.
+service RichService {
+  // Process accepts a RichRequest and returns a RichResponse.
+  rpc Process(RichRequest) returns (RichResponse);
+}
+
+// RichRequest exercises various protobuf field types.
+message RichRequest {
+  string name = 1;
+  int32 age = 2;
+  int64 big_number = 3;
+  bool active = 4;
+  double score = 5;
+  float ratio = 6;
+  bytes payload = 7;
+  repeated string tags = 8;
+  map<string, string> labels = 9;
+  Address address = 10;
+  Status status = 11;
+}
+
+// Address is a nested message used by RichRequest.
+message Address {
+  string street = 1;
+  string city = 2;
+  int32 zip = 3;
+}
+
+// Status is an enum used by RichRequest.
+enum Status {
+  STATUS_NONE = 0;
+  STATUS_ACTIVE = 1;
+  STATUS_INACTIVE = 2;
+}
+
+// RichResponse is the response for RichService.Process.
+message RichResponse {
+  string result = 1;
+}
+
+// SelfRefService exercises self-referencing message types for cycle detection.
+service SelfRefService {
+  // Traverse accepts a tree node.
+  rpc Traverse(TreeNode) returns (TreeNode);
+}
+
+// TreeNode is a self-referencing message for testing cycle detection in schema
+// generation.
+message TreeNode {
+  string value = 1;
+  TreeNode left = 2;
+  TreeNode right = 3;
+}

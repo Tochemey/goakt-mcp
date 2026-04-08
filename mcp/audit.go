@@ -23,7 +23,9 @@
 
 package mcp
 
-import "time"
+import (
+	"time"
+)
 
 // AuditEventType identifies the category of an audit event.
 type AuditEventType string
@@ -98,27 +100,4 @@ type AuditSink interface {
 
 	// Close releases resources. No further writes should be attempted after Close.
 	Close() error
-}
-
-// HealthTransitionAuditEvent creates an audit event for a tool health state change.
-func HealthTransitionAuditEvent(toolID, fromState, toState string) *AuditEvent {
-	meta := map[string]string{"from": fromState, "to": toState}
-	return &AuditEvent{
-		Type:      AuditEventTypeHealthTransition,
-		Timestamp: time.Now(),
-		ToolID:    toolID,
-		Outcome:   toState,
-		Metadata:  meta,
-	}
-}
-
-// CircuitStateChangeAuditEvent creates an audit event for a circuit breaker transition.
-func CircuitStateChangeAuditEvent(toolID, state string, metadata map[string]string) *AuditEvent {
-	return &AuditEvent{
-		Type:      AuditEventTypeCircuitStateChange,
-		Timestamp: time.Now(),
-		ToolID:    toolID,
-		Outcome:   state,
-		Metadata:  metadata,
-	}
 }

@@ -21,24 +21,33 @@
 // SOFTWARE.
 //
 
-package shared
+package audit
 
 import (
-	"context"
+	"time"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-// Invoker is the minimal Gateway interface required by all ingress handlers.
-//
-// Using a narrow interface rather than coupling directly to *Gateway keeps the
-// ingress layer independently testable and prevents import cycles.
-type Invoker interface {
-	// Invoke executes a single tool-call invocation and returns its result.
-	// A non-nil error from Invoke is treated as a tool error, not a protocol error.
-	Invoke(ctx context.Context, inv *mcp.Invocation) (*mcp.ExecutionResult, error)
+// HealthTransitionAuditEvent creates an audit event for a tool health state change.
+func HealthTransitionAuditEvent(toolID, fromState, toState string) *mcp.AuditEvent {
+	meta := map[string]string{"from": fromState, "to": toState}
+	return &mcp.AuditEvent{
+		Type:      mcp.AuditEventTypeHealthTransition,
+		Timestamp: time.Now(),
+		ToolID:    toolID,
+		Outcome:   toState,
+		Metadata:  meta,
+	}
+}
 
-	// ListTools returns the current set of registered tools.
-	// It is called once per new MCP session to populate the session's tool list.
-	ListTools(ctx context.Context) ([]mcp.Tool, error)
+// CircuitStateChangeAuditEvent creates an audit event for a circuit breaker transition.
+func CircuitStateChangeAuditEvent(toolID, state string, metadata map[string]string) *mcp.AuditEvent {
+	return &mcp.AuditEvent{
+		Type:      mcp.AuditEventTypeCircuitStateChange,
+		Timestamp: time.Now(),
+		ToolID:    toolID,
+		Outcome:   state,
+		Metadata:  metadata,
+	}
 }

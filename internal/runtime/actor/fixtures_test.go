@@ -37,9 +37,9 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 )
 
 // askTimeout is the default timeout for Ask calls in tests.
@@ -100,25 +100,25 @@ func testActorSystemWithTools(t *testing.T, tools ...mcp.Tool) (goaktactor.Actor
 }
 
 // testConfig returns a minimal Config suitable for use in tests.
-func testConfig() config.Config {
-	return config.Config{
-		Runtime: config.RuntimeConfig{
-			SessionIdleTimeout: config.DefaultSessionIdleTimeout,
-			RequestTimeout:     config.DefaultRequestTimeout,
-			StartupTimeout:     config.DefaultStartupTimeout,
+func testConfig() mcp.Config {
+	return mcp.Config{
+		Runtime: mcp.RuntimeConfig{
+			SessionIdleTimeout: mcp.DefaultSessionIdleTimeout,
+			RequestTimeout:     mcp.DefaultRequestTimeout,
+			StartupTimeout:     mcp.DefaultStartupTimeout,
 		},
-		Credentials: config.CredentialsConfig{
+		Credentials: mcp.CredentialsConfig{
 			Providers: []mcp.CredentialsProvider{&mockCredentialProvider{creds: map[string]string{"api-key": "test-secret"}}},
-			CacheTTL:  mcp.DefaultCredentialTTL,
+			CacheTTL:  DefaultCredentialTTL,
 		},
 	}
 }
 
 // testConfigWithTenants returns a Config with tenant allowlist for policy tests.
-func testConfigWithTenants(tenantIDs ...mcp.TenantID) config.Config {
+func testConfigWithTenants(tenantIDs ...mcp.TenantID) mcp.Config {
 	cfg := testConfig()
 	for _, id := range tenantIDs {
-		cfg.Tenants = append(cfg.Tenants, config.TenantConfig{ID: id, Quotas: config.TenantQuotaConfig{}})
+		cfg.Tenants = append(cfg.Tenants, mcp.TenantConfig{ID: id, Quotas: mcp.TenantQuotaConfig{}})
 	}
 	return cfg
 }
@@ -134,16 +134,16 @@ func waitForActors() {
 // and Router with their canonical names. The system must have ConfigExtension and
 // optionally ToolConfigExtension registered. Use for router/registrar tests that
 // need the full actor graph.
-func spawnFoundationalActorsForTest(ctx context.Context, system goaktactor.ActorSystem, cfg config.Config) {
-	system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+func spawnFoundationalActorsForTest(ctx context.Context, system goaktactor.ActorSystem, cfg mcp.Config) {
+	system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 	waitForActors()
-	system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+	system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 	waitForActors()
-	system.Spawn(ctx, mcp.ActorNamePolicy, newPolicyMaker(cfg))
+	system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
 	waitForActors()
-	system.Spawn(ctx, mcp.ActorNameCredentialBroker, newCredentialBroker())
+	system.Spawn(ctx, naming.ActorNameCredentialBroker, newCredentialBroker())
 	waitForActors()
-	system.Spawn(ctx, mcp.ActorNameRouter, newRouterActor())
+	system.Spawn(ctx, naming.ActorNameRouter, newRouterActor())
 	waitForActors()
 }
 
@@ -292,9 +292,9 @@ func spawnTestSupervisor(t *testing.T, tool mcp.Tool) (goaktactor.ActorSystem, *
 	t.Helper()
 	ctx := context.Background()
 	system, stop := testActorSystemWithTools(t, tool)
-	_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+	_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 	require.NoError(t, err)
-	name := mcp.ToolSupervisorName(tool.ID)
+	name := naming.ToolSupervisorName(tool.ID)
 	sup := goaktsupervisor.NewSupervisor(goaktsupervisor.WithAnyErrorDirective(goaktsupervisor.ResumeDirective))
 	pid, err := system.Spawn(ctx, name, newToolSupervisor(), goaktactor.WithSupervisor(sup))
 	require.NoError(t, err)

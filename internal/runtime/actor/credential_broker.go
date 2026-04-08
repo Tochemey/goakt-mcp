@@ -32,10 +32,14 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
+
+// DefaultCredentialTTL is the default cache TTL for resolved credentials.
+const DefaultCredentialTTL = 5 * time.Minute
 
 // credentialCacheEntry holds cached credentials with expiration.
 type credentialCacheEntry struct {
@@ -86,7 +90,7 @@ func (x *credentialBroker) PreStart(ctx *goaktactor.Context) error {
 	if x.maxEntries == 0 {
 		x.maxEntries = mcp.DefaultMaxCacheEntries
 	}
-	x.logger.Infof("actor=%s started", mcp.ActorNameCredentialBroker)
+	x.logger.Infof("actor=%s started", naming.ActorNameCredentialBroker)
 	return nil
 }
 
@@ -94,7 +98,7 @@ func (x *credentialBroker) PreStart(ctx *goaktactor.Context) error {
 func (x *credentialBroker) Receive(ctx *goaktactor.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goaktactor.PostStart:
-		x.logger.Debugf("actor=%s post-start", mcp.ActorNameCredentialBroker)
+		x.logger.Debugf("actor=%s post-start", naming.ActorNameCredentialBroker)
 	case *runtime.ResolveRequest:
 		x.handleResolve(ctx, msg)
 	default:
@@ -107,7 +111,7 @@ func (x *credentialBroker) Receive(ctx *goaktactor.ReceiveContext) {
 // so no synchronization is needed.
 func (x *credentialBroker) PostStop(ctx *goaktactor.Context) error {
 	x.cache = make(map[string]*credentialCacheEntry)
-	x.logger.Infof("actor=%s stopped", mcp.ActorNameCredentialBroker)
+	x.logger.Infof("actor=%s stopped", naming.ActorNameCredentialBroker)
 	return nil
 }
 
@@ -136,7 +140,7 @@ func (x *credentialBroker) handleResolve(ctx *goaktactor.ReceiveContext, msg *ru
 	for _, provider := range x.providers {
 		creds, err := provider.ResolveCredentials(goCtx, msg.TenantID, msg.ToolID)
 		if err != nil {
-			x.logger.Warnf("actor=%s provider=%s resolve failed: %v", mcp.ActorNameCredentialBroker, provider.ID(), err)
+			x.logger.Warnf("actor=%s provider=%s resolve failed: %v", naming.ActorNameCredentialBroker, provider.ID(), err)
 			continue
 		}
 

@@ -27,7 +27,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -37,10 +36,10 @@ type StdioExecutorFactory struct {
 }
 
 // NewStdioExecutorFactory creates a factory with the given startup timeout.
-// When zero, config.DefaultStartupTimeout is used.
+// When zero, mcp.DefaultStartupTimeout is used.
 func NewStdioExecutorFactory(startupTimeout time.Duration) *StdioExecutorFactory {
 	if startupTimeout <= 0 {
-		startupTimeout = config.DefaultStartupTimeout
+		startupTimeout = mcp.DefaultStartupTimeout
 	}
 	return &StdioExecutorFactory{startupTimeout: startupTimeout}
 }

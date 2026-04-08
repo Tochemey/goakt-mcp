@@ -24,7 +24,6 @@
 package policy
 
 import (
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -33,11 +32,11 @@ import (
 // Evaluation order: authorization first, then quotas and rate limits.
 // The first denial or throttle short-circuits and returns immediately.
 type Evaluator struct {
-	config config.Config
+	config mcp.Config
 }
 
 // NewEvaluator creates an Evaluator with the given configuration.
-func NewEvaluator(config config.Config) *Evaluator {
+func NewEvaluator(config mcp.Config) *Evaluator {
 	return &Evaluator{config: config}
 }
 

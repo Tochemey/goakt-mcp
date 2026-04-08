@@ -25,11 +25,7 @@ package mcp
 
 import (
 	"context"
-	"time"
 )
-
-// DefaultCredentialTTL is the default cache TTL for resolved credentials.
-const DefaultCredentialTTL = 5 * time.Minute
 
 // Provider resolves credentials for a tenant and tool.
 //

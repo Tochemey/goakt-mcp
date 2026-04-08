@@ -31,9 +31,10 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tochemey/goakt-mcp/internal/ingress/shared"
+	"github.com/tochemey/goakt-mcp/internal/ingress/pkg"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -80,12 +81,16 @@ func checkOrigin(c *mcp.WSConfig) func(r *http.Request) bool {
 //
 // New validates that cfg.IdentityResolver is non-nil and returns an error
 // if it is not.
-func New(gw shared.Invoker, cfg mcp.IngressConfig, wsCfg *mcp.WSConfig) (http.Handler, error) {
+func New(gw pkg.Invoker, cfg mcp.IngressConfig, wsCfg *mcp.WSConfig) (http.Handler, error) {
+	if err := pkg.ResolveAuthDefaults(&cfg); err != nil {
+		return nil, err
+	}
+
 	if cfg.IdentityResolver == nil {
 		return nil, errors.New("ingress/ws: IdentityResolver must not be nil")
 	}
 
-	getServer := shared.BuildGetServer(gw, cfg.IdentityResolver)
+	getServer := pkg.BuildGetServer(gw, cfg.IdentityResolver)
 
 	upgrader := &websocket.Upgrader{
 		ReadBufferSize:  readBufferSize(wsCfg),
@@ -93,11 +98,20 @@ func New(gw shared.Invoker, cfg mcp.IngressConfig, wsCfg *mcp.WSConfig) (http.Ha
 		CheckOrigin:     checkOrigin(wsCfg),
 	}
 
-	return &wsHandler{
+	var handler http.Handler = &wsHandler{
 		getServer:    getServer,
 		upgrader:     upgrader,
 		pingInterval: pingInterval(wsCfg),
-	}, nil
+	}
+
+	if cfg.EnterpriseAuth != nil {
+		handler = auth.RequireBearerToken(cfg.EnterpriseAuth.TokenVerifier, &auth.RequireBearerTokenOptions{
+			ResourceMetadataURL: pkg.ResourceMetadataURL(cfg.EnterpriseAuth.ResourceMetadata),
+			Scopes:              cfg.EnterpriseAuth.RequiredScopes,
+		})(handler)
+	}
+
+	return handler, nil
 }
 
 type wsHandler struct {

@@ -36,6 +36,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
@@ -49,7 +50,7 @@ func TestCredentialBrokerActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(extension.NewConfigExtension(config)))
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameCredentialBroker, newCredentialBroker())
+		pid, err := system.Spawn(ctx, naming.ActorNameCredentialBroker, newCredentialBroker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -72,7 +73,7 @@ func TestCredentialBrokerActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(extension.NewConfigExtension(cfg)))
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameCredentialBroker, newCredentialBroker())
+		pid, err := system.Spawn(ctx, naming.ActorNameCredentialBroker, newCredentialBroker())
 		require.NoError(t, err)
 		waitForActors()
 

@@ -36,6 +36,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
@@ -51,16 +52,16 @@ func TestHealthActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		_, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
-		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err = system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 		waitForActors()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
+		pid, err := system.Spawn(ctx, naming.ActorNameHealth, newHealthChecker())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
-		assert.Equal(t, mcp.ActorNameHealth, pid.Name())
+		assert.Equal(t, naming.ActorNameHealth, pid.Name())
 
 		waitForActors()
 	})
@@ -70,14 +71,14 @@ func TestHealthActor(t *testing.T) {
 		cfg.HealthProbe.Interval = time.Hour
 		kit, ctx := newTestKit(t, testkit.WithExtensions(actorextension.NewConfigExtension(cfg)))
 
-		kit.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
-		kit.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		kit.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
+		kit.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		waitForActors()
 
-		kit.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
+		kit.Spawn(ctx, naming.ActorNameHealth, newHealthChecker())
 		waitForActors()
 
-		pid, err := kit.ActorSystem().ActorOf(ctx, mcp.ActorNameHealth)
+		pid, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameHealth)
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 		require.NoError(t, pid.Tell(ctx, pid, "unknown-message"))
@@ -90,13 +91,13 @@ func TestHealthActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		_, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
-		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err = system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 		waitForActors()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
+		pid, err := system.Spawn(ctx, naming.ActorNameHealth, newHealthChecker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -112,10 +113,10 @@ func TestHealthActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		registrarPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		registrarPID, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -136,7 +137,7 @@ func TestHealthActor(t *testing.T) {
 		require.NoError(t, disabledResult.Err)
 		waitForActors()
 
-		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
+		healthPID, err := system.Spawn(ctx, naming.ActorNameHealth, newHealthChecker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -150,17 +151,17 @@ func TestHealthActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		_, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
-		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
-		require.NoError(t, err)
-		waitForActors()
-
-		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
+		_, err = system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 		waitForActors()
 
-		require.NoError(t, system.Kill(ctx, mcp.ActorNameRegistrar))
+		healthPID, err := system.Spawn(ctx, naming.ActorNameHealth, newHealthChecker())
+		require.NoError(t, err)
+		waitForActors()
+
+		require.NoError(t, system.Kill(ctx, naming.ActorNameRegistrar))
 		waitForActors()
 
 		require.NoError(t, healthPID.Tell(ctx, healthPID, &runProbes{}))
@@ -178,10 +179,10 @@ func TestHealthActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		_, err = system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err = system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		registrarPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		registrarPID, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -190,7 +191,7 @@ func TestHealthActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
+		healthPID, err := system.Spawn(ctx, naming.ActorNameHealth, newHealthChecker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -208,11 +209,11 @@ func TestHealthActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 		waitForActors()
 
-		registrarPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		registrarPID, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -221,7 +222,7 @@ func TestHealthActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
+		healthPID, err := system.Spawn(ctx, naming.ActorNameHealth, newHealthChecker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -242,11 +243,11 @@ func TestHealthActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 		waitForActors()
 
-		registrarPID, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		registrarPID, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -256,7 +257,7 @@ func TestHealthActor(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		healthPID, err := system.Spawn(ctx, mcp.ActorNameHealth, newHealthChecker())
+		healthPID, err := system.Spawn(ctx, naming.ActorNameHealth, newHealthChecker())
 		require.NoError(t, err)
 		waitForActors()
 

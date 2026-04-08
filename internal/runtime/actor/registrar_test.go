@@ -35,6 +35,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/audit"
@@ -47,10 +48,10 @@ func TestRegistryActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
-		assert.Equal(t, mcp.ActorNameRegistrar, pid.Name())
+		assert.Equal(t, naming.ActorNameRegistrar, pid.Name())
 
 		waitForActors()
 	})
@@ -59,7 +60,7 @@ func TestRegistryActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -85,7 +86,7 @@ func TestRegistryActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -102,7 +103,7 @@ func TestRegistryActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -122,7 +123,7 @@ func TestRegistryActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -158,7 +159,7 @@ func TestRegistryActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -186,7 +187,7 @@ func TestRegistryActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -220,10 +221,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -247,7 +248,7 @@ func TestRegistryActor(t *testing.T) {
 		system, stop := testActorSystem(t)
 		defer stop()
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -370,10 +371,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -429,10 +430,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -477,10 +478,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -519,10 +520,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -547,10 +548,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -593,10 +594,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -636,10 +637,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -709,10 +710,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -762,10 +763,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -799,10 +800,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -846,10 +847,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -880,10 +881,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -927,10 +928,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -968,10 +969,10 @@ func TestRegistryActor(t *testing.T) {
 		)
 		defer stop()
 
-		_, err := system.Spawn(ctx, mcp.ActorNameJournal, newJournaler())
+		_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 		require.NoError(t, err)
 
-		pid, err := system.Spawn(ctx, mcp.ActorNameRegistrar, newRegistrar())
+		pid, err := system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 		require.NoError(t, err)
 		waitForActors()
 

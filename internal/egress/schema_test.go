@@ -31,7 +31,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -45,13 +44,13 @@ func TestNewCompositeSchemaFetcher(t *testing.T) {
 	t.Run("defaults timeout when zero", func(t *testing.T) {
 		f := NewCompositeSchemaFetcher(0, nil)
 		require.NotNil(t, f)
-		assert.Equal(t, config.DefaultStartupTimeout, f.startupTimeout)
+		assert.Equal(t, mcp.DefaultStartupTimeout, f.startupTimeout)
 	})
 
 	t.Run("defaults timeout when negative", func(t *testing.T) {
 		f := NewCompositeSchemaFetcher(-1, nil)
 		require.NotNil(t, f)
-		assert.Equal(t, config.DefaultStartupTimeout, f.startupTimeout)
+		assert.Equal(t, mcp.DefaultStartupTimeout, f.startupTimeout)
 	})
 }
 
@@ -61,13 +60,24 @@ func TestCompositeSchemaFetcher_FetchSchemas(t *testing.T) {
 	t.Run("unsupported transport returns error", func(t *testing.T) {
 		tool := mcp.Tool{
 			ID:        "unknown-tool",
-			Transport: "grpc",
+			Transport: "mqtt",
 		}
 		schemas, err := f.FetchSchemas(context.Background(), tool)
 		require.Error(t, err)
 		assert.Nil(t, schemas)
 		assert.Contains(t, err.Error(), "unsupported transport type")
-		assert.Contains(t, err.Error(), "grpc")
+		assert.Contains(t, err.Error(), "mqtt")
+	})
+
+	t.Run("grpc tool with nil config returns error", func(t *testing.T) {
+		tool := mcp.Tool{
+			ID:        "grpc-nil",
+			Transport: mcp.TransportGRPC,
+			GRPC:      nil,
+		}
+		schemas, err := f.FetchSchemas(context.Background(), tool)
+		require.Error(t, err)
+		assert.Nil(t, schemas)
 	})
 
 	t.Run("empty transport returns error", func(t *testing.T) {

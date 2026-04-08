@@ -24,9 +24,13 @@
 package mcp_test
 
 import (
+	"context"
+	"net/http"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/oauth2"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 )
@@ -49,3 +53,33 @@ func TestTool_IsAvailable(t *testing.T) {
 	assert.False(t, mcp.Tool{State: mcp.ToolStateDisabled}.IsAvailable())
 	assert.False(t, mcp.Tool{State: mcp.ToolStateUnavailable}.IsAvailable())
 }
+
+func TestHTTPTransportConfig_OAuthHandler(t *testing.T) {
+	t.Run("nil by default", func(t *testing.T) {
+		cfg := mcp.HTTPTransportConfig{URL: "https://mcp.example.com"}
+		assert.Nil(t, cfg.OAuthHandler)
+	})
+
+	t.Run("settable with OAuthHandler implementation", func(t *testing.T) {
+		handler := &stubOAuthHandler{}
+		cfg := mcp.HTTPTransportConfig{
+			URL:          "https://mcp.example.com",
+			OAuthHandler: handler,
+		}
+		assert.NotNil(t, cfg.OAuthHandler)
+	})
+}
+
+// stubOAuthHandler is a minimal auth.OAuthHandler for testing field assignment.
+type stubOAuthHandler struct{}
+
+func (s *stubOAuthHandler) TokenSource(_ context.Context) (oauth2.TokenSource, error) {
+	return nil, nil
+}
+
+func (s *stubOAuthHandler) Authorize(_ context.Context, _ *http.Request, _ *http.Response) error {
+	return nil
+}
+
+// Compile-time check that stubOAuthHandler satisfies auth.OAuthHandler.
+var _ auth.OAuthHandler = (*stubOAuthHandler)(nil)
