@@ -34,6 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
+	"google.golang.org/grpc"
 
 	"github.com/tochemey/goakt-mcp/internal/egress"
 	"github.com/tochemey/goakt-mcp/internal/naming"
@@ -50,6 +51,16 @@ type fixedIdentityResolver struct {
 }
 
 func (r *fixedIdentityResolver) ResolveIdentity(_ *http.Request) (mcp.TenantID, mcp.ClientID, error) {
+	return r.tenantID, r.clientID, nil
+}
+
+// fixedGRPCIdentityResolver always returns the configured identity for gRPC.
+type fixedGRPCIdentityResolver struct {
+	tenantID mcp.TenantID
+	clientID mcp.ClientID
+}
+
+func (r *fixedGRPCIdentityResolver) ResolveGRPCIdentity(_ context.Context) (mcp.TenantID, mcp.ClientID, error) {
 	return r.tenantID, r.clientID, nil
 }
 
@@ -849,6 +860,31 @@ func TestGatewayWSHandler(t *testing.T) {
 
 		_, err = gw.WSHandler(mcp.IngressConfig{}, nil)
 		require.Error(t, err)
+	})
+}
+
+func TestGatewayRegisterGRPCService(t *testing.T) {
+	t.Run("RegisterGRPCService succeeds when IdentityResolver is set", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+
+		srv := grpc.NewServer()
+		err = gw.RegisterGRPCService(srv, mcp.GRPCIngressConfig{
+			IdentityResolver: &fixedGRPCIdentityResolver{tenantID: "t1", clientID: "c1"},
+		})
+		require.NoError(t, err)
+		srv.Stop()
+	})
+
+	t.Run("RegisterGRPCService returns error when IdentityResolver is nil", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+
+		srv := grpc.NewServer()
+		err = gw.RegisterGRPCService(srv, mcp.GRPCIngressConfig{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "IdentityResolver must not be nil")
+		srv.Stop()
 	})
 }
 
