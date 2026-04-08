@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+package goaktmcp.mcp.v1;
+
+option go_package = "github.com/tochemey/goakt-mcp/internal/ingress/grpc/pb";
+
+// MCPToolService exposes MCP tool discovery and invocation over gRPC.
+//
+// Clients use ListTools to discover available tools and their schemas, CallTool
+// for synchronous invocations, and CallToolStream for invocations that deliver
+// progress events before the final result.
+service MCPToolService {
+  // ListTools returns all tools currently registered in the gateway along with
+  // their schemas.
+  rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
+
+  // CallTool performs a synchronous tool invocation and returns the result.
+  rpc CallTool(CallToolRequest) returns (CallToolResponse);
+
+  // CallToolStream performs a tool invocation with streaming progress support.
+  // The server sends zero or more CallToolStreamResponse messages containing
+  // ProgressEvent payloads, followed by exactly one message containing the
+  // final CallToolResponse.
+  rpc CallToolStream(CallToolStreamRequest) returns (stream CallToolStreamResponse);
+}
+
+// ListToolsRequest is the input for the ListTools RPC.
+// Currently empty; reserved for future filtering parameters.
+message ListToolsRequest {}
+
+// ListToolsResponse contains all tools registered in the gateway.
+message ListToolsResponse {
+  // tools is the set of registered tools with their schemas.
+  repeated ToolInfo tools = 1;
+}
+
+// ToolInfo describes a single registered tool and its capabilities.
+message ToolInfo {
+  // id is the unique gateway tool identifier.
+  string id = 1;
+  // schemas lists the individual tool capabilities exposed by this tool.
+  // A tool with no schemas exposes a single pass-through capability.
+  repeated ToolSchema schemas = 2;
+}
+
+// ToolSchema describes a single MCP tool capability as reported by the
+// backend MCP server.
+message ToolSchema {
+  // name is the MCP tool name as reported by the backend server.
+  string name = 1;
+  // description is the human-readable description of the tool.
+  string description = 2;
+  // input_schema is the JSON Schema describing the tool's input parameters,
+  // encoded as JSON bytes. Using bytes rather than typed proto fields allows
+  // transport-agnostic forwarding of arbitrary schemas.
+  bytes input_schema = 3;
+}
+
+// CallToolRequest is the input for the CallTool RPC.
+message CallToolRequest {
+  // tool_name is the name of the tool to invoke. This must match either a
+  // tool ID (for single-capability tools) or a schema name (for
+  // multi-capability tools).
+  string tool_name = 1;
+  // arguments is the JSON-encoded invocation arguments. Using bytes rather
+  // than typed proto fields allows transport-agnostic forwarding of arbitrary
+  // tool parameters.
+  bytes arguments = 2;
+}
+
+// CallToolResponse is the result of a tool invocation.
+message CallToolResponse {
+  // content contains the tool's output as a list of content items.
+  repeated ContentItem content = 1;
+  // is_error indicates whether the tool reported an error condition.
+  bool is_error = 2;
+  // structured_content is the full output map serialized as JSON bytes.
+  // Present when the tool produces structured output that cannot be fully
+  // represented by the content items alone.
+  bytes structured_content = 3;
+}
+
+// ContentItem represents a single piece of content in a tool response.
+message ContentItem {
+  // type identifies the content kind (e.g. "text", "image", "audio").
+  string type = 1;
+  // text holds the textual content when type is "text".
+  string text = 2;
+  // data holds base64-encoded binary content for non-text types.
+  bytes data = 3;
+  // mime_type is the MIME type of the content when applicable.
+  string mime_type = 4;
+}
+
+// CallToolStreamRequest is the input for the CallToolStream RPC.
+message CallToolStreamRequest {
+  // tool_name is the name of the tool to invoke.
+  string tool_name = 1;
+  // arguments is the JSON-encoded invocation arguments.
+  bytes arguments = 2;
+}
+
+// CallToolStreamResponse is a single message in the CallToolStream response
+// stream. Each message contains either a progress event or the final result.
+message CallToolStreamResponse {
+  oneof payload {
+    // progress is an intermediate progress notification.
+    ProgressEvent progress = 1;
+    // result is the final tool invocation result. Exactly one result message
+    // is sent as the last message in the stream.
+    CallToolResponse result = 2;
+  }
+}
+
+// ProgressEvent represents an intermediate progress notification during a
+// streaming tool invocation. Fields mirror the MCP notifications/progress
+// schema.
+message ProgressEvent {
+  // progress_token is the opaque token correlating this notification with
+  // the originating request.
+  string progress_token = 1;
+  // progress is the current progress value (e.g. bytes transferred).
+  double progress = 2;
+  // total is the expected total value. Zero means total is unknown.
+  double total = 3;
+  // message is an optional human-readable description of the current step.
+  string message = 4;
+}

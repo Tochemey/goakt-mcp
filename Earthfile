@@ -51,3 +51,16 @@ protogen:
 
     # save artifact to
     SAVE ARTIFACT gen/egrpc AS LOCAL  internal/egress/grpc/testdata
+
+protogen-ingress:
+    # copy the proto files to generate
+    COPY --dir protos/ ./
+    COPY buf.yaml buf.gen.yaml ./
+
+    # generate the Go code (.pb.go and _grpc.pb.go)
+    RUN buf generate \
+            --template buf.gen.yaml \
+            --path protos/mcp/v1
+
+    # save artifact to
+    SAVE ARTIFACT gen/mcp/v1 AS LOCAL internal/ingress/grpc/pb

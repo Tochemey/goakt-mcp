@@ -24,6 +24,7 @@
 package mcp
 
 import (
+	"context"
 	"net/http"
 	"time"
 )
@@ -75,4 +76,24 @@ type IngressConfig struct {
 	//
 	// Optional; when nil, no Bearer token enforcement is applied.
 	EnterpriseAuth *EnterpriseAuthConfig
+}
+
+// GRPCIdentityResolver extracts the tenant and client identity from the
+// incoming gRPC request context. Implementations typically read identity from
+// gRPC metadata via [metadata.FromIncomingContext].
+//
+// ResolveGRPCIdentity is called once per gRPC request. A non-nil error rejects
+// the request; the handler returns gRPC status Unauthenticated to the caller.
+type GRPCIdentityResolver interface {
+	ResolveGRPCIdentity(ctx context.Context) (tenantID TenantID, clientID ClientID, err error)
+}
+
+// GRPCIngressConfig configures the MCP gRPC ingress service registered via
+// [Gateway.RegisterGRPCService]. Callers register the resulting service on
+// their own [grpc.Server].
+type GRPCIngressConfig struct {
+	// IdentityResolver extracts caller identity from each incoming gRPC
+	// request context. Required; [Gateway.RegisterGRPCService] returns an
+	// error when this field is nil.
+	IdentityResolver GRPCIdentityResolver
 }

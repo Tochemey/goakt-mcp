@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### gRPC Ingress Transport
+
+- `MCPToolService` gRPC service definition (`protos/mcp/v1/mcp_tool_service.proto`) with `ListTools`, `CallTool`, and `CallToolStream` RPCs
+- `GRPCIdentityResolver` interface for extracting tenant and client identity from gRPC metadata via `metadata.FromIncomingContext`
+- `GRPCIngressConfig` configuration type for the gRPC ingress handler
+- `Gateway.RegisterGRPCService(srv, cfg)` method to register the MCP gRPC service on a user-provided `grpc.Server`
+- `StreamInvoker` interface extending `Invoker` with `InvokeStream` for streaming progress support in the gRPC ingress
+- Tool name resolution supporting both single-schema tools (tool name matches tool ID) and multi-schema tools (schema name maps to parent tool ID)
+- Full server-streaming support via `CallToolStream` RPC delivering progress events followed by the final result
+- Proto messages use JSON-encoded bytes for arguments and schemas, enabling transport-agnostic forwarding of arbitrary tool parameters
+- `ingress-grpc` example demonstrating metadata-based identity resolution and all three RPCs
+- Comprehensive test suite (21 tests) using `google.golang.org/grpc/test/bufconn` for in-process gRPC testing
+- Earthfile `protogen-ingress` target for generating Go code from the ingress proto definition
+
 #### gRPC Egress Transport
 
 - `TransportGRPC` transport type for tools backed by gRPC services

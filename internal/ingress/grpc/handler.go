@@ -1,0 +1,201 @@
+// MIT License
+//
+// Copyright (c) 2026 GoAkt Team
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
+
+package grpc
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	pb "github.com/tochemey/goakt-mcp/internal/ingress/grpc/pb"
+	"github.com/tochemey/goakt-mcp/internal/ingress/pkg"
+	"github.com/tochemey/goakt-mcp/mcp"
+)
+
+// mcpMethod is the standard MCP JSON-RPC method name for tool calls.
+const mcpMethod = "tools/call"
+
+// invocationParamName is the key in the invocation params map that holds the
+// backend tool name.
+const invocationParamName = "name"
+
+// invocationParamArguments is the key in the invocation params map that holds
+// the backend tool arguments.
+const invocationParamArguments = "arguments"
+
+// Compile-time check that server implements the generated gRPC service interface.
+var _ pb.MCPToolServiceServer = (*server)(nil)
+
+// server implements the MCPToolService gRPC service. It routes requests through
+// the gateway's Invoker/StreamInvoker interface and resolves caller identity via
+// the configured GRPCIdentityResolver.
+type server struct {
+	pb.UnimplementedMCPToolServiceServer
+	gw       pkg.StreamInvoker
+	resolver mcp.GRPCIdentityResolver
+}
+
+// NewServer creates a new MCPToolService gRPC server that routes tool calls
+// through gw and resolves caller identity via cfg.IdentityResolver.
+//
+// NewServer validates that cfg.IdentityResolver is non-nil and returns an error
+// if it is not.
+func NewServer(gw pkg.StreamInvoker, cfg mcp.GRPCIngressConfig) (pb.MCPToolServiceServer, error) {
+	if gw == nil {
+		return nil, fmt.Errorf("ingress/grpc: gateway must not be nil")
+	}
+	if cfg.IdentityResolver == nil {
+		return nil, fmt.Errorf("ingress/grpc: IdentityResolver must not be nil")
+	}
+	return &server{
+		gw:       gw,
+		resolver: cfg.IdentityResolver,
+	}, nil
+}
+
+// ListTools returns all tools currently registered in the gateway along with
+// their schemas.
+func (s *server) ListTools(ctx context.Context, _ *pb.ListToolsRequest) (*pb.ListToolsResponse, error) {
+	tools, err := s.gw.ListTools(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list tools: %v", err)
+	}
+	return toolsToListToolsResponse(tools), nil
+}
+
+// CallTool performs a synchronous tool invocation and returns the result.
+//
+// The handler resolves the caller identity from gRPC metadata, maps the
+// tool_name to a gateway ToolID, builds an Invocation, and forwards it
+// through the gateway. Identity resolution failures return
+// codes.Unauthenticated; unknown tool names return codes.NotFound.
+func (s *server) CallTool(ctx context.Context, req *pb.CallToolRequest) (*pb.CallToolResponse, error) {
+	inv, err := s.buildInvocation(ctx, req.GetToolName(), req.GetArguments())
+	if err != nil {
+		return nil, err
+	}
+
+	result, gwErr := s.gw.Invoke(ctx, inv)
+	if gwErr != nil && result == nil {
+		return nil, status.Errorf(codes.Internal, "invoke: %v", gwErr)
+	}
+
+	return executionResultToCallToolResponse(result), nil
+}
+
+// CallToolStream performs a tool invocation with streaming progress support.
+//
+// The server sends zero or more CallToolStreamResponse messages containing
+// ProgressEvent payloads, followed by exactly one message containing the
+// final CallToolResponse.
+func (s *server) CallToolStream(req *pb.CallToolStreamRequest, stream pb.MCPToolService_CallToolStreamServer) error {
+	ctx := stream.Context()
+
+	inv, err := s.buildInvocation(ctx, req.GetToolName(), req.GetArguments())
+	if err != nil {
+		return err
+	}
+
+	sr, gwErr := s.gw.InvokeStream(ctx, inv)
+	if gwErr != nil {
+		return status.Errorf(codes.Internal, "invoke stream: %v", gwErr)
+	}
+
+	// Deliver progress events as they arrive.
+	for pe := range sr.Progress {
+		var token string
+		if pe.ProgressToken != nil {
+			token = fmt.Sprintf("%v", pe.ProgressToken)
+		}
+		msg := &pb.CallToolStreamResponse{
+			Payload: &pb.CallToolStreamResponse_Progress{
+				Progress: &pb.ProgressEvent{
+					ProgressToken: token,
+					Progress:      pe.Progress,
+					Total:         pe.Total,
+					Message:       pe.Message,
+				},
+			},
+		}
+		if err := stream.Send(msg); err != nil {
+			return status.Errorf(codes.Internal, "send progress: %v", err)
+		}
+	}
+
+	// Deliver the final result.
+	result := <-sr.Final
+	msg := &pb.CallToolStreamResponse{
+		Payload: &pb.CallToolStreamResponse_Result{
+			Result: executionResultToCallToolResponse(result),
+		},
+	}
+	return stream.Send(msg)
+}
+
+// buildInvocation resolves the caller identity and tool ID, then constructs an
+// [mcp.Invocation] from the gRPC request parameters.
+//
+// Returns a gRPC status error on identity resolution failure
+// (codes.Unauthenticated) or unknown tool name (codes.NotFound).
+func (s *server) buildInvocation(ctx context.Context, toolName string, argsBytes []byte) (*mcp.Invocation, error) {
+	if toolName == "" {
+		return nil, status.Error(codes.InvalidArgument, "tool_name must not be empty")
+	}
+
+	tenantID, clientID, err := s.resolver.ResolveGRPCIdentity(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Unauthenticated, "identity resolution: %v", err)
+	}
+
+	toolID, err := resolveToolID(ctx, s.gw, toolName)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "%v", err)
+	}
+
+	var args map[string]any
+	if len(argsBytes) > 0 {
+		if err := json.Unmarshal(argsBytes, &args); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid arguments JSON: %v", err)
+		}
+	}
+
+	return &mcp.Invocation{
+		ToolID: toolID,
+		Method: mcpMethod,
+		Params: map[string]any{
+			invocationParamName:      toolName,
+			invocationParamArguments: args,
+		},
+		Correlation: mcp.CorrelationMeta{
+			TenantID:  tenantID,
+			ClientID:  clientID,
+			RequestID: pkg.NewRequestID(),
+		},
+		ReceivedAt: time.Now(),
+	}, nil
+}

@@ -37,8 +37,12 @@ import (
 	"github.com/tochemey/goakt/v4/remote"
 	gtls "github.com/tochemey/goakt/v4/tls"
 
+	"google.golang.org/grpc"
+
 	"github.com/tochemey/goakt-mcp/internal/discovery"
 	"github.com/tochemey/goakt-mcp/internal/egress"
+	ingressgrpc "github.com/tochemey/goakt-mcp/internal/ingress/grpc"
+	pb "github.com/tochemey/goakt-mcp/internal/ingress/grpc/pb"
 	ingresshttp "github.com/tochemey/goakt-mcp/internal/ingress/http"
 	ingresssse "github.com/tochemey/goakt-mcp/internal/ingress/sse"
 	ingressws "github.com/tochemey/goakt-mcp/internal/ingress/ws"
@@ -293,6 +297,24 @@ func (g *Gateway) SSEHandler(cfg mcp.IngressConfig) (http.Handler, error) {
 // tool discovery happens lazily per session.
 func (g *Gateway) WSHandler(cfg mcp.IngressConfig, wsCfg *mcp.WSConfig) (http.Handler, error) {
 	return ingressws.New(g, cfg, wsCfg)
+}
+
+// RegisterGRPCService registers the MCPToolService gRPC service on the
+// provided [grpc.Server], routing each tool call through this gateway.
+//
+// Unlike the HTTP handler factories ([Handler], [SSEHandler], [WSHandler])
+// which return an [http.Handler], gRPC services register directly on a
+// [grpc.Server]. This method validates the config and registers the service.
+//
+// The gateway does not need to be running at the time RegisterGRPCService is
+// called; tool discovery happens lazily per request via ListTools.
+func (g *Gateway) RegisterGRPCService(srv *grpc.Server, cfg mcp.GRPCIngressConfig) error {
+	svc, err := ingressgrpc.NewServer(g, cfg)
+	if err != nil {
+		return err
+	}
+	pb.RegisterMCPToolServiceServer(srv, svc)
+	return nil
 }
 
 // startEventConsumer subscribes to the actor system event stream and starts a

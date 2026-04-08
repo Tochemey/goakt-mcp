@@ -42,3 +42,17 @@ type Invoker interface {
 	// It is called once per new MCP session to populate the session's tool list.
 	ListTools(ctx context.Context) ([]mcp.Tool, error)
 }
+
+// StreamInvoker extends [Invoker] with streaming invocation support.
+//
+// The gRPC ingress handler requires this wider interface to implement the
+// CallToolStream RPC. HTTP/SSE/WebSocket ingress handlers do not need streaming
+// because the MCP SDK handles progress delivery internally.
+type StreamInvoker interface {
+	Invoker
+
+	// InvokeStream executes a tool invocation with streaming progress support.
+	// The returned [mcp.StreamingResult] delivers zero or more progress events
+	// followed by exactly one final [mcp.ExecutionResult].
+	InvokeStream(ctx context.Context, inv *mcp.Invocation) (*mcp.StreamingResult, error)
+}
