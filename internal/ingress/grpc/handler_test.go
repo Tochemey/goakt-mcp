@@ -29,13 +29,17 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
 	"testing"
+	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
@@ -863,4 +867,418 @@ func TestCallTool_ListToolsFailsDuringResolve(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, status.Code(err))
+}
+
+// --- enterprise auth helpers ------------------------------------------------
+
+// validTokenVerifier returns a TokenVerifier that always succeeds.
+func validTokenVerifier() auth.TokenVerifier {
+	return auth.TokenVerifier(func(_ context.Context, _ string, _ *http.Request) (*auth.TokenInfo, error) {
+		return &auth.TokenInfo{
+			UserID:     "user-42",
+			Scopes:     []string{"tools:read"},
+			Expiration: time.Now().Add(time.Hour),
+		}, nil
+	})
+}
+
+// invalidTokenVerifier returns a TokenVerifier that always fails.
+func invalidTokenVerifier() auth.TokenVerifier {
+	return auth.TokenVerifier(func(_ context.Context, _ string, _ *http.Request) (*auth.TokenInfo, error) {
+		return nil, auth.ErrInvalidToken
+	})
+}
+
+// newAuthTestClient spins up an in-process gRPC server with enterprise auth
+// interceptors and returns a connected client. It registers t.Cleanup to
+// close both.
+func newAuthTestClient(
+	t *testing.T,
+	gw *fakeStreamInvoker,
+	ea *mcp.EnterpriseAuthConfig,
+) pb.MCPToolServiceClient {
+	t.Helper()
+
+	lis := bufconn.Listen(bufconnBufSize)
+
+	unary, stream, err := ingressgrpc.AuthInterceptors(ea)
+	require.NoError(t, err)
+
+	srv := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(unary),
+		grpc.ChainStreamInterceptor(stream),
+	)
+	svc, err := ingressgrpc.NewServer(gw, mcp.GRPCIngressConfig{
+		EnterpriseAuth: ea,
+	})
+	require.NoError(t, err)
+	pb.RegisterMCPToolServiceServer(srv, svc)
+
+	go func() {
+		if err := srv.Serve(lis); err != nil {
+			return
+		}
+	}()
+	t.Cleanup(srv.GracefulStop)
+
+	conn, err := grpc.NewClient(
+		"passthrough://bufconn",
+		grpc.WithContextDialer(func(_ context.Context, _ string) (net.Conn, error) {
+			return lis.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	return pb.NewMCPToolServiceClient(conn)
+}
+
+// withBearerToken returns a context with the given bearer token in gRPC
+// outgoing metadata.
+func withBearerToken(ctx context.Context, token string) context.Context {
+	return metadata.NewOutgoingContext(ctx, metadata.Pairs("authorization", "Bearer "+token))
+}
+
+// --- enterprise auth tests --------------------------------------------------
+
+func TestAuthInterceptors_NilConfig(t *testing.T) {
+	_, _, err := ingressgrpc.AuthInterceptors(nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must not be nil")
+}
+
+func TestAuthInterceptors_NilTokenVerifier(t *testing.T) {
+	_, _, err := ingressgrpc.AuthInterceptors(&mcp.EnterpriseAuthConfig{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "TokenVerifier must not be nil")
+}
+
+func TestEnterpriseAuth_RejectsRequestWithoutToken(t *testing.T) {
+	gw := &fakeStreamInvoker{tools: []mcp.Tool{{ID: "echo"}}}
+	client := newAuthTestClient(t, gw, &mcp.EnterpriseAuthConfig{
+		TokenVerifier: validTokenVerifier(),
+	})
+
+	// No authorization metadata → Unauthenticated.
+	_, err := client.ListTools(context.Background(), &pb.ListToolsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Unauthenticated, status.Code(err))
+}
+
+func TestEnterpriseAuth_RejectsInvalidToken(t *testing.T) {
+	gw := &fakeStreamInvoker{tools: []mcp.Tool{{ID: "echo"}}}
+	client := newAuthTestClient(t, gw, &mcp.EnterpriseAuthConfig{
+		TokenVerifier: invalidTokenVerifier(),
+	})
+
+	ctx := withBearerToken(context.Background(), "bad-token")
+	_, err := client.ListTools(ctx, &pb.ListToolsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Unauthenticated, status.Code(err))
+}
+
+func TestEnterpriseAuth_AcceptsValidToken(t *testing.T) {
+	gw := &fakeStreamInvoker{
+		tools: []mcp.Tool{{ID: "echo"}},
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"content": []map[string]any{{"type": "text", "text": "pong"}},
+			},
+		},
+	}
+	client := newAuthTestClient(t, gw, &mcp.EnterpriseAuthConfig{
+		TokenVerifier: validTokenVerifier(),
+	})
+
+	ctx := withBearerToken(context.Background(), "valid-token")
+
+	// ListTools should work.
+	resp, err := client.ListTools(ctx, &pb.ListToolsRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetTools(), 1)
+
+	// CallTool should work.
+	callResp, err := client.CallTool(ctx, &pb.CallToolRequest{ToolName: "echo"})
+	require.NoError(t, err)
+	assert.False(t, callResp.GetIsError())
+}
+
+func TestEnterpriseAuth_RequiredScopeEnforcement(t *testing.T) {
+	gw := &fakeStreamInvoker{tools: []mcp.Tool{{ID: "echo"}}}
+	client := newAuthTestClient(t, gw, &mcp.EnterpriseAuthConfig{
+		TokenVerifier:  validTokenVerifier(), // grants "tools:read" only
+		RequiredScopes: []string{"tools:read", "tools:write"},
+	})
+
+	ctx := withBearerToken(context.Background(), "valid-token")
+
+	// Missing "tools:write" → PermissionDenied.
+	_, err := client.CallTool(ctx, &pb.CallToolRequest{ToolName: "echo"})
+	require.Error(t, err)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+}
+
+func TestEnterpriseAuth_StreamRejectsWithoutToken(t *testing.T) {
+	gw := &fakeStreamInvoker{tools: []mcp.Tool{{ID: "echo"}}}
+	client := newAuthTestClient(t, gw, &mcp.EnterpriseAuthConfig{
+		TokenVerifier: validTokenVerifier(),
+	})
+
+	stream, err := client.CallToolStream(context.Background(), &pb.CallToolStreamRequest{
+		ToolName: "echo",
+	})
+	require.NoError(t, err)
+
+	_, err = stream.Recv()
+	require.Error(t, err)
+	assert.Equal(t, codes.Unauthenticated, status.Code(err))
+}
+
+func TestEnterpriseAuth_StreamAcceptsValidToken(t *testing.T) {
+	progressCh := make(chan mcp.ProgressEvent)
+	close(progressCh)
+
+	finalCh := make(chan *mcp.ExecutionResult, 1)
+	finalCh <- &mcp.ExecutionResult{
+		Status: mcp.ExecutionStatusSuccess,
+		Output: map[string]any{
+			"content": []map[string]any{{"type": "text", "text": "streamed"}},
+		},
+	}
+	close(finalCh)
+
+	gw := &fakeStreamInvoker{
+		tools: []mcp.Tool{{ID: "echo"}},
+		streamResult: &mcp.StreamingResult{
+			Progress: progressCh,
+			Final:    finalCh,
+		},
+	}
+	client := newAuthTestClient(t, gw, &mcp.EnterpriseAuthConfig{
+		TokenVerifier: validTokenVerifier(),
+	})
+
+	ctx := withBearerToken(context.Background(), "valid-token")
+	stream, err := client.CallToolStream(ctx, &pb.CallToolStreamRequest{ToolName: "echo"})
+	require.NoError(t, err)
+
+	msg, err := stream.Recv()
+	require.NoError(t, err)
+	res, ok := msg.GetPayload().(*pb.CallToolStreamResponse_Result)
+	require.True(t, ok)
+	assert.False(t, res.Result.GetIsError())
+}
+
+func TestEnterpriseAuth_AutoInstallsIdentityResolver(t *testing.T) {
+	// When EnterpriseAuth is set and IdentityResolver is nil, NewServer should
+	// succeed because resolveGRPCAuthDefaults installs a token-based resolver.
+	gw := &fakeStreamInvoker{tools: []mcp.Tool{{ID: "echo"}}}
+	_, err := ingressgrpc.NewServer(gw, mcp.GRPCIngressConfig{
+		EnterpriseAuth: &mcp.EnterpriseAuthConfig{
+			TokenVerifier: validTokenVerifier(),
+		},
+	})
+	require.NoError(t, err)
+}
+
+func TestEnterpriseAuth_RejectsNonBearerScheme(t *testing.T) {
+	gw := &fakeStreamInvoker{tools: []mcp.Tool{{ID: "echo"}}}
+	client := newAuthTestClient(t, gw, &mcp.EnterpriseAuthConfig{
+		TokenVerifier: validTokenVerifier(),
+	})
+
+	// Send "Basic" instead of "Bearer".
+	ctx := metadata.NewOutgoingContext(context.Background(),
+		metadata.Pairs("authorization", "Basic dXNlcjpwYXNz"))
+	_, err := client.ListTools(ctx, &pb.ListToolsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Unauthenticated, status.Code(err))
+}
+
+// --- tool cache tests -------------------------------------------------------
+
+func TestToolCache_CachesToolResolution(t *testing.T) {
+	// The fakeStreamInvoker tracks calls via the tools slice. With caching
+	// enabled, the second CallTool should not re-call ListTools.
+	callCount := 0
+	gw := &fakeStreamInvoker{
+		tools: []mcp.Tool{{ID: "echo"}},
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"content": []map[string]any{{"type": "text", "text": "ok"}},
+			},
+		},
+	}
+
+	// Wrap ListTools to count calls.
+	countingGW := &listToolsCounter{fakeStreamInvoker: gw, count: &callCount}
+
+	lis := bufconn.Listen(bufconnBufSize)
+	srv := grpc.NewServer()
+	svc, err := ingressgrpc.NewServer(countingGW, mcp.GRPCIngressConfig{
+		IdentityResolver: &fixedGRPCResolver{tenantID: "acme", clientID: "c1"},
+		ToolCacheTTL:     10 * time.Second,
+	})
+	require.NoError(t, err)
+	pb.RegisterMCPToolServiceServer(srv, svc)
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.GracefulStop)
+
+	conn, err := grpc.NewClient(
+		"passthrough://bufconn",
+		grpc.WithContextDialer(func(_ context.Context, _ string) (net.Conn, error) {
+			return lis.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := pb.NewMCPToolServiceClient(conn)
+	ctx := context.Background()
+
+	// First call: cache miss → ListTools called.
+	_, err = client.CallTool(ctx, &pb.CallToolRequest{ToolName: "echo"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, callCount)
+
+	// Second call: cache hit → ListTools NOT called again.
+	_, err = client.CallTool(ctx, &pb.CallToolRequest{ToolName: "echo"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, callCount)
+}
+
+func TestToolCache_DisabledWithNegativeTTL(t *testing.T) {
+	callCount := 0
+	gw := &fakeStreamInvoker{
+		tools: []mcp.Tool{{ID: "echo"}},
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"content": []map[string]any{{"type": "text", "text": "ok"}},
+			},
+		},
+	}
+
+	countingGW := &listToolsCounter{fakeStreamInvoker: gw, count: &callCount}
+
+	lis := bufconn.Listen(bufconnBufSize)
+	srv := grpc.NewServer()
+	svc, err := ingressgrpc.NewServer(countingGW, mcp.GRPCIngressConfig{
+		IdentityResolver: &fixedGRPCResolver{tenantID: "acme", clientID: "c1"},
+		ToolCacheTTL:     -1, // disable caching
+	})
+	require.NoError(t, err)
+	pb.RegisterMCPToolServiceServer(srv, svc)
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.GracefulStop)
+
+	conn, err := grpc.NewClient(
+		"passthrough://bufconn",
+		grpc.WithContextDialer(func(_ context.Context, _ string) (net.Conn, error) {
+			return lis.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := pb.NewMCPToolServiceClient(conn)
+	ctx := context.Background()
+
+	// Every call should call ListTools when cache is disabled.
+	_, err = client.CallTool(ctx, &pb.CallToolRequest{ToolName: "echo"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, callCount)
+
+	_, err = client.CallTool(ctx, &pb.CallToolRequest{ToolName: "echo"})
+	require.NoError(t, err)
+	assert.Equal(t, 2, callCount)
+}
+
+func TestEnterpriseAuth_TokenVerificationNonInvalidTokenError(t *testing.T) {
+	// Covers the authenticateGRPC branch where the verifier returns a non-
+	// ErrInvalidToken error (e.g. network failure talking to IdP).
+	gw := &fakeStreamInvoker{tools: []mcp.Tool{{ID: "echo"}}}
+	client := newAuthTestClient(t, gw, &mcp.EnterpriseAuthConfig{
+		TokenVerifier: auth.TokenVerifier(func(_ context.Context, _ string, _ *http.Request) (*auth.TokenInfo, error) {
+			return nil, errors.New("idp unreachable")
+		}),
+	})
+
+	ctx := withBearerToken(context.Background(), "some-token")
+	_, err := client.ListTools(ctx, &pb.ListToolsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Unauthenticated, status.Code(err))
+	assert.Contains(t, status.Convert(err).Message(), "token verification failed")
+}
+
+func TestToolCache_NotFoundInFreshCache(t *testing.T) {
+	// Covers the cache path where the cache is fresh but the tool name is not
+	// in the cache (tool does not exist).
+	gw := &fakeStreamInvoker{
+		tools: []mcp.Tool{{ID: "echo"}},
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"content": []map[string]any{{"type": "text", "text": "ok"}},
+			},
+		},
+	}
+
+	lis := bufconn.Listen(bufconnBufSize)
+	srv := grpc.NewServer()
+	svc, err := ingressgrpc.NewServer(gw, mcp.GRPCIngressConfig{
+		IdentityResolver: &fixedGRPCResolver{tenantID: "acme", clientID: "c1"},
+		ToolCacheTTL:     10 * time.Second,
+	})
+	require.NoError(t, err)
+	pb.RegisterMCPToolServiceServer(srv, svc)
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.GracefulStop)
+
+	conn, err := grpc.NewClient(
+		"passthrough://bufconn",
+		grpc.WithContextDialer(func(_ context.Context, _ string) (net.Conn, error) {
+			return lis.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := pb.NewMCPToolServiceClient(conn)
+	ctx := context.Background()
+
+	// First call: populates cache with "echo".
+	_, err = client.CallTool(ctx, &pb.CallToolRequest{ToolName: "echo"})
+	require.NoError(t, err)
+
+	// Second call with unknown name: cache is fresh, tool not found.
+	_, err = client.CallTool(ctx, &pb.CallToolRequest{ToolName: "nonexistent"})
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestNewServer_EnterpriseAuthNilTokenVerifier(t *testing.T) {
+	gw := &fakeStreamInvoker{}
+	_, err := ingressgrpc.NewServer(gw, mcp.GRPCIngressConfig{
+		EnterpriseAuth: &mcp.EnterpriseAuthConfig{},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "TokenVerifier must not be nil")
+}
+
+// listToolsCounter wraps fakeStreamInvoker and counts ListTools calls.
+type listToolsCounter struct {
+	*fakeStreamInvoker
+	count *int
+}
+
+func (c *listToolsCounter) ListTools(ctx context.Context) ([]mcp.Tool, error) {
+	*c.count++
+	return c.fakeStreamInvoker.ListTools(ctx)
 }

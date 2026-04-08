@@ -58,23 +58,45 @@ type server struct {
 	pb.UnimplementedMCPToolServiceServer
 	gw       pkg.StreamInvoker
 	resolver mcp.GRPCIdentityResolver
+	cache    *toolNameCache // nil when caching is disabled
 }
 
 // NewServer creates a new MCPToolService gRPC server that routes tool calls
 // through gw and resolves caller identity via cfg.IdentityResolver.
 //
-// NewServer validates that cfg.IdentityResolver is non-nil and returns an error
-// if it is not.
+// When cfg.EnterpriseAuth is set and cfg.IdentityResolver is nil, a
+// [mcp.NewGRPCTokenIdentityResolver] is installed automatically. NewServer
+// returns an error when both IdentityResolver and EnterpriseAuth are nil.
+//
+// Tool name resolution results are cached with a configurable TTL
+// (cfg.ToolCacheTTL; zero uses [mcp.DefaultToolCacheTTL], negative disables).
 func NewServer(gw pkg.StreamInvoker, cfg mcp.GRPCIngressConfig) (pb.MCPToolServiceServer, error) {
 	if gw == nil {
 		return nil, fmt.Errorf("ingress/grpc: gateway must not be nil")
 	}
+
+	if err := resolveGRPCAuthDefaults(&cfg); err != nil {
+		return nil, err
+	}
+
 	if cfg.IdentityResolver == nil {
 		return nil, fmt.Errorf("ingress/grpc: IdentityResolver must not be nil")
 	}
+
+	ttl := cfg.ToolCacheTTL
+	if ttl == 0 {
+		ttl = mcp.DefaultToolCacheTTL
+	}
+
+	var cache *toolNameCache
+	if ttl > 0 {
+		cache = newToolNameCache(ttl)
+	}
+
 	return &server{
 		gw:       gw,
 		resolver: cfg.IdentityResolver,
+		cache:    cache,
 	}, nil
 }
 
@@ -172,7 +194,12 @@ func (s *server) buildInvocation(ctx context.Context, toolName string, argsBytes
 		return nil, status.Errorf(codes.Unauthenticated, "identity resolution: %v", err)
 	}
 
-	toolID, err := resolveToolID(ctx, s.gw, toolName)
+	var toolID mcp.ToolID
+	if s.cache != nil {
+		toolID, err = s.cache.resolve(ctx, s.gw, toolName)
+	} else {
+		toolID, err = resolveToolID(ctx, s.gw, toolName)
+	}
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "%v", err)
 	}
@@ -184,7 +211,7 @@ func (s *server) buildInvocation(ctx context.Context, toolName string, argsBytes
 		}
 	}
 
-	return &mcp.Invocation{
+	inv := &mcp.Invocation{
 		ToolID: toolID,
 		Method: mcpMethod,
 		Params: map[string]any{
@@ -197,5 +224,13 @@ func (s *server) buildInvocation(ctx context.Context, toolName string, argsBytes
 			RequestID: pkg.NewRequestID(),
 		},
 		ReceivedAt: time.Now(),
-	}, nil
+	}
+
+	// Propagate OAuth scopes from the validated bearer token into the
+	// invocation so the policy layer can make scope-aware decisions.
+	if info := mcp.GRPCTokenInfoFromContext(ctx); info != nil && len(info.Scopes) > 0 {
+		inv.Scopes = info.Scopes
+	}
+
+	return inv, nil
 }

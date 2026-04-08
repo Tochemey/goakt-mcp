@@ -306,6 +306,10 @@ func (g *Gateway) WSHandler(cfg mcp.IngressConfig, wsCfg *mcp.WSConfig) (http.Ha
 // which return an [http.Handler], gRPC services register directly on a
 // [grpc.Server]. This method validates the config and registers the service.
 //
+// When cfg.EnterpriseAuth is set and cfg.IdentityResolver is nil, a
+// token-based identity resolver is installed automatically (same pattern
+// as the HTTP ingress).
+//
 // The gateway does not need to be running at the time RegisterGRPCService is
 // called; tool discovery happens lazily per request via ListTools.
 func (g *Gateway) RegisterGRPCService(srv *grpc.Server, cfg mcp.GRPCIngressConfig) error {
@@ -315,6 +319,23 @@ func (g *Gateway) RegisterGRPCService(srv *grpc.Server, cfg mcp.GRPCIngressConfi
 	}
 	pb.RegisterMCPToolServiceServer(srv, svc)
 	return nil
+}
+
+// GRPCAuthInterceptors returns gRPC unary and stream server interceptors that
+// enforce Bearer token authentication per the MCP enterprise-managed
+// authorization extension.
+//
+// Install the returned interceptors on the [grpc.Server] before calling
+// [Gateway.RegisterGRPCService]:
+//
+//	unary, stream, err := goaktmcp.GRPCAuthInterceptors(enterpriseAuthCfg)
+//	srv := grpc.NewServer(
+//	    grpc.ChainUnaryInterceptor(unary),
+//	    grpc.ChainStreamInterceptor(stream),
+//	)
+//	gw.RegisterGRPCService(srv, cfg)
+func GRPCAuthInterceptors(ea *mcp.EnterpriseAuthConfig) (grpc.UnaryServerInterceptor, grpc.StreamServerInterceptor, error) {
+	return ingressgrpc.AuthInterceptors(ea)
 }
 
 // startEventConsumer subscribes to the actor system event stream and starts a

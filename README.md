@@ -257,7 +257,26 @@ for {
 
 Tool arguments are JSON-encoded bytes, not typed proto fields. This allows the gRPC ingress to forward arbitrary tool schemas without requiring compiled `.pb.go` types for every backend tool.
 
-Authentication middleware (mTLS, token validation) can be added via standard gRPC interceptors — the gateway does not bundle gRPC-specific auth, unlike the HTTP ingress which supports the MCP enterprise-managed authorization extension.
+**Enterprise auth for gRPC** uses interceptors. The `GRPCAuthInterceptors` function returns unary and stream interceptors that validate Bearer tokens from the `authorization` gRPC metadata key, enforce required scopes, and store the validated token info in the context:
+
+```go
+unary, stream, _ := goaktmcp.GRPCAuthInterceptors(&mcp.EnterpriseAuthConfig{
+    TokenVerifier:  myVerifier,
+    RequiredScopes: []string{"tools:read"},
+})
+srv := grpc.NewServer(
+    grpc.ChainUnaryInterceptor(unary),
+    grpc.ChainStreamInterceptor(stream),
+)
+gw.RegisterGRPCService(srv, mcp.GRPCIngressConfig{
+    EnterpriseAuth: &mcp.EnterpriseAuthConfig{
+        TokenVerifier: myVerifier,
+    },
+    // IdentityResolver auto-installed from token claims
+})
+```
+
+**Tool name caching:** By default, `CallTool` and `CallToolStream` cache the tool-name-to-ToolID mapping for 5 seconds (`DefaultToolCacheTTL`) to avoid a `ListTools` actor Ask on every request. Set `ToolCacheTTL` on `GRPCIngressConfig` to tune or disable (`-1`) the cache.
 
 ### Egress — connecting to tool backends
 
@@ -651,6 +670,7 @@ These methods provide live visibility and control over a running gateway. They a
 | `SSEHandler(cfg IngressConfig) (http.Handler, error)`                 | Server-Sent Events handler (2024-11-05 spec)                    |
 | `WSHandler(cfg IngressConfig, wsCfg *WSConfig) (http.Handler, error)` | WebSocket handler                                               |
 | `RegisterGRPCService(srv *grpc.Server, cfg GRPCIngressConfig) error`  | Register the MCPToolService gRPC service with streaming support |
+| `GRPCAuthInterceptors(ea *EnterpriseAuthConfig) (unary, stream, error)` | Bearer token auth interceptors for the gRPC ingress           |
 
 ### Options
 
