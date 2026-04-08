@@ -1027,6 +1027,34 @@ func (s *streamErrRouterActor) Receive(ctx *goaktactor.ReceiveContext) {
 }
 func (s *streamErrRouterActor) PostStop(_ *goaktactor.Context) error { return nil }
 
+// streamingRouterActor responds to RouteInvokeStream with a real StreamingResult
+// (StreamResult non-nil) to exercise the streaming return path.
+type streamingRouterActor struct{}
+
+func (s *streamingRouterActor) PreStart(_ *goaktactor.Context) error { return nil }
+func (s *streamingRouterActor) Receive(ctx *goaktactor.ReceiveContext) {
+	switch ctx.Message().(type) {
+	case *runtime.RouteInvokeStream:
+		progressCh := make(chan mcp.ProgressEvent)
+		close(progressCh)
+		finalCh := make(chan *mcp.ExecutionResult, 1)
+		finalCh <- &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{"type": "text", "text": "streamed"},
+		}
+		close(finalCh)
+		ctx.Response(&runtime.RouteStreamResult{
+			StreamResult: &mcp.StreamingResult{
+				Progress: progressCh,
+				Final:    finalCh,
+			},
+		})
+	default:
+		ctx.Response("unhandled")
+	}
+}
+func (s *streamingRouterActor) PostStop(_ *goaktactor.Context) error { return nil }
+
 // noResponseActor never responds to Ask messages, causing Ask to timeout.
 type noResponseActor struct{}
 
@@ -1540,6 +1568,44 @@ func TestInvokeStreamFallbackWrapping(t *testing.T) {
 		assert.Contains(t, err.Error(), "tool not found for stream")
 	})
 
+	t.Run("InvokeStream returns StreamingResult from streaming executor", func(t *testing.T) {
+		system, err := goaktactor.NewActorSystem("test-streaming-path",
+			goaktactor.WithLogger(goaktlog.DiscardLogger),
+		)
+		require.NoError(t, err)
+		require.NoError(t, system.Start(ctx))
+		defer func() { _ = system.Stop(ctx) }()
+
+		_, err = system.Spawn(ctx, naming.ActorNameGatewayManager, &minimalGatewayManager{})
+		require.NoError(t, err)
+		_, err = system.Spawn(ctx, naming.ActorNameRouter, &streamingRouterActor{})
+		require.NoError(t, err)
+		waitForActors()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		result, err := gw.InvokeStream(ctx, &mcp.Invocation{
+			ToolID:      "x",
+			Method:      "tools/call",
+			Params:      map[string]any{},
+			Correlation: mcp.CorrelationMeta{TenantID: "t", ClientID: "c", RequestID: "r"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, result)
+
+		// Drain progress
+		for range result.Progress {
+		}
+		// Get final result
+		final, ok := <-result.Final
+		require.True(t, ok)
+		require.NotNil(t, final)
+		assert.True(t, final.Succeeded())
+	})
+
 	t.Run("Invoke with synchronous result through stub router", func(t *testing.T) {
 		system, err := goaktactor.NewActorSystem("test-sync-invoke",
 			goaktactor.WithLogger(goaktlog.DiscardLogger),
@@ -1573,39 +1639,93 @@ func TestInvokeStreamFallbackWrapping(t *testing.T) {
 func TestResolverManagerNotFound(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("resolveRegistrar returns error when GatewayManager not found", func(t *testing.T) {
-		// Create a system with NO gateway manager at all.
-		system, err := goaktactor.NewActorSystem("test-no-manager-reg",
+	newNoManagerGateway := func(t *testing.T, name string) (*Gateway, func()) {
+		t.Helper()
+		system, err := goaktactor.NewActorSystem(name,
 			goaktactor.WithLogger(goaktlog.DiscardLogger),
 		)
 		require.NoError(t, err)
 		require.NoError(t, system.Start(ctx))
-		defer func() { _ = system.Stop(ctx) }()
 
 		gw, err := New(testConfig(), withSystemForTesting(system))
 		require.NoError(t, err)
 		require.NoError(t, gw.Start(ctx))
-		defer func() { _ = gw.Stop(ctx) }()
+		return gw, func() { _ = gw.Stop(ctx); _ = system.Stop(ctx) }
+	}
 
-		_, err = gw.ListTools(ctx)
+	t.Run("ListTools returns error when GatewayManager not found", func(t *testing.T) {
+		gw, stop := newNoManagerGateway(t, "test-no-mgr-list")
+		defer stop()
+		_, err := gw.ListTools(ctx)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "GatewayManager not found")
 	})
 
-	t.Run("resolveRouter returns error when GatewayManager not found", func(t *testing.T) {
-		system, err := goaktactor.NewActorSystem("test-no-manager-rtr",
-			goaktactor.WithLogger(goaktlog.DiscardLogger),
-		)
-		require.NoError(t, err)
-		require.NoError(t, system.Start(ctx))
-		defer func() { _ = system.Stop(ctx) }()
+	t.Run("RegisterTool returns error when GatewayManager not found", func(t *testing.T) {
+		gw, stop := newNoManagerGateway(t, "test-no-mgr-reg")
+		defer stop()
+		err := gw.RegisterTool(ctx, mcp.Tool{
+			ID: "x", Transport: mcp.TransportStdio,
+			Stdio: &mcp.StdioTransportConfig{Command: "echo"},
+			State: mcp.ToolStateEnabled,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GatewayManager not found")
+	})
 
-		gw, err := New(testConfig(), withSystemForTesting(system))
-		require.NoError(t, err)
-		require.NoError(t, gw.Start(ctx))
-		defer func() { _ = gw.Stop(ctx) }()
+	t.Run("UpdateTool returns error when GatewayManager not found", func(t *testing.T) {
+		gw, stop := newNoManagerGateway(t, "test-no-mgr-upd")
+		defer stop()
+		err := gw.UpdateTool(ctx, mcp.Tool{
+			ID: "x", Transport: mcp.TransportStdio,
+			Stdio: &mcp.StdioTransportConfig{Command: "echo"},
+			State: mcp.ToolStateEnabled,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GatewayManager not found")
+	})
 
-		_, err = gw.Invoke(ctx, &mcp.Invocation{
+	t.Run("DisableTool returns error when GatewayManager not found", func(t *testing.T) {
+		gw, stop := newNoManagerGateway(t, "test-no-mgr-dis")
+		defer stop()
+		err := gw.DisableTool(ctx, "some-tool")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GatewayManager not found")
+	})
+
+	t.Run("RemoveTool returns error when GatewayManager not found", func(t *testing.T) {
+		gw, stop := newNoManagerGateway(t, "test-no-mgr-rem")
+		defer stop()
+		err := gw.RemoveTool(ctx, "some-tool")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GatewayManager not found")
+	})
+
+	t.Run("EnableTool returns error when GatewayManager not found", func(t *testing.T) {
+		gw, stop := newNoManagerGateway(t, "test-no-mgr-ena")
+		defer stop()
+		err := gw.EnableTool(ctx, "some-tool")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GatewayManager not found")
+	})
+
+	t.Run("Invoke returns error when GatewayManager not found", func(t *testing.T) {
+		gw, stop := newNoManagerGateway(t, "test-no-mgr-inv")
+		defer stop()
+		_, err := gw.Invoke(ctx, &mcp.Invocation{
+			ToolID:      "x",
+			Method:      "tools/call",
+			Params:      map[string]any{},
+			Correlation: mcp.CorrelationMeta{TenantID: "t", ClientID: "c", RequestID: "r"},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GatewayManager not found")
+	})
+
+	t.Run("InvokeStream returns error when GatewayManager not found", func(t *testing.T) {
+		gw, stop := newNoManagerGateway(t, "test-no-mgr-invs")
+		defer stop()
+		_, err := gw.InvokeStream(ctx, &mcp.Invocation{
 			ToolID:      "x",
 			Method:      "tools/call",
 			Params:      map[string]any{},

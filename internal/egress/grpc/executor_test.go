@@ -605,7 +605,7 @@ func TestGRPCExecutor_ExecuteStream_afterClose(t *testing.T) {
 
 	streamResult, err := exec.ExecuteStream(context.Background(), inv)
 	require.NoError(t, err)
-	for range streamResult.Progress {
+	for range streamResult.Progress { //nolint:revive // intentional channel drain
 	}
 	finalResult := <-streamResult.Final
 	require.NotNil(t, finalResult)
@@ -636,7 +636,7 @@ func TestGRPCExecutor_ExecuteStream_nilParams(t *testing.T) {
 
 	streamResult, err := exec.ExecuteStream(context.Background(), inv)
 	require.NoError(t, err)
-	for range streamResult.Progress {
+	for range streamResult.Progress { //nolint:revive // intentional channel drain
 	}
 	finalResult := <-streamResult.Final
 	require.NotNil(t, finalResult)
@@ -751,7 +751,7 @@ func TestGRPCExecutor_ExecuteStream_invalidProtoArgs(t *testing.T) {
 
 	streamResult, err := exec.ExecuteStream(context.Background(), inv)
 	require.NoError(t, err)
-	for range streamResult.Progress {
+	for range streamResult.Progress { //nolint:revive // intentional channel drain
 	}
 	finalResult := <-streamResult.Final
 	require.NotNil(t, finalResult)
