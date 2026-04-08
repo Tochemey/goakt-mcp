@@ -232,6 +232,31 @@ func (m *mockStreamExecutor) ExecuteStream(_ context.Context, _ *mcp.Invocation)
 	return m.streamResult, nil
 }
 
+// mockResourceExecutor implements both ToolExecutor and ResourceExecutor for tests.
+type mockResourceExecutor struct {
+	mockExecutor
+	readResult *mcp.ExecutionResult
+	readErr    error
+}
+
+func (m *mockResourceExecutor) ReadResource(_ context.Context, inv *mcp.Invocation) (*mcp.ExecutionResult, error) {
+	if m.readErr != nil {
+		return nil, m.readErr
+	}
+	if m.readResult != nil {
+		return m.readResult, nil
+	}
+	return &mcp.ExecutionResult{
+		Status: mcp.ExecutionStatusSuccess,
+		Output: map[string]any{
+			"contents": []map[string]any{
+				{"uri": "file:///test", "text": "resource content"},
+			},
+		},
+		Correlation: inv.Correlation,
+	}, nil
+}
+
 // failingAuditSink is a test sink that returns an error on Write.
 type failingAuditSink struct{}
 

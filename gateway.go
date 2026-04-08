@@ -518,12 +518,14 @@ func (g *Gateway) remoteOptions() []remote.Option {
 func (g *Gateway) actorSystemOptions(tlsInfo *gtls.Info) []goaktactor.Option {
 	execFactory := egress.NewCompositeExecutorFactory(g.config.Runtime.StartupTimeout, nil)
 	schemaFetcher := egress.NewCompositeSchemaFetcher(g.config.Runtime.StartupTimeout, nil)
+	resourceFetcher := egress.NewCompositeResourceFetcher(g.config.Runtime.StartupTimeout, nil)
 	opts := []goaktactor.Option{
 		goaktactor.WithLogger(g.logger),
 		goaktactor.WithActorInitMaxRetries(3),
 		goaktactor.WithExtensions(
 			actorextension.NewExecutorFactoryExtension(execFactory),
 			actorextension.NewSchemaFetcherExtension(schemaFetcher),
+			actorextension.NewResourceFetcherExtension(resourceFetcher),
 			actorextension.NewToolConfigExtension(),
 			actorextension.NewConfigExtension(g.config),
 		),

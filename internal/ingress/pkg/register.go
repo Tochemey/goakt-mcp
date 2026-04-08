@@ -69,6 +69,7 @@ func BuildGetServer(gw Invoker, resolver mcp.IdentityResolver) func(*http.Reques
 
 		for _, t := range tools {
 			RegisterTool(srv, gw, t, tenantID, clientID)
+			RegisterResources(srv, gw, t, tenantID, clientID)
 		}
 
 		return srv
@@ -110,6 +111,41 @@ func RegisterTool(srv *sdkmcp.Server, gw Invoker, tool mcp.Tool, tenantID mcp.Te
 		}
 		srv.AddTool(sdkTool, func(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
 			return DispatchToolCall(ctx, gw, req, toolID, tenantID, clientID)
+		})
+	}
+}
+
+// RegisterResources adds resource and resource template capabilities to srv
+// with handler closures that capture the resolved session identity.
+//
+// Each resource discovered from the backend is registered on the per-session
+// SDK server so that MCP clients can call resources/list and resources/read.
+// The SDK server automatically advertises the resources capability when
+// resources are added.
+func RegisterResources(srv *sdkmcp.Server, gw Invoker, tool mcp.Tool, tenantID mcp.TenantID, clientID mcp.ClientID) {
+	toolID := tool.ID
+
+	for _, r := range tool.Resources {
+		res := &sdkmcp.Resource{
+			URI:         r.URI,
+			Name:        r.Name,
+			Description: r.Description,
+			MIMEType:    r.MIMEType,
+		}
+		srv.AddResource(res, func(ctx context.Context, req *sdkmcp.ReadResourceRequest) (*sdkmcp.ReadResourceResult, error) {
+			return DispatchResourceRead(ctx, gw, req, toolID, tenantID, clientID)
+		})
+	}
+
+	for _, t := range tool.ResourceTemplates {
+		tmpl := &sdkmcp.ResourceTemplate{
+			URITemplate: t.URITemplate,
+			Name:        t.Name,
+			Description: t.Description,
+			MIMEType:    t.MIMEType,
+		}
+		srv.AddResourceTemplate(tmpl, func(ctx context.Context, req *sdkmcp.ReadResourceRequest) (*sdkmcp.ReadResourceResult, error) {
+			return DispatchResourceRead(ctx, gw, req, toolID, tenantID, clientID)
 		})
 	}
 }

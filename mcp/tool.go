@@ -219,6 +219,14 @@ type Tool struct {
 	// Schemas holds the MCP tool schemas discovered from the backend server via
 	// tools/list. Populated by the runtime at registration time; ignored on input.
 	Schemas []ToolSchema
+
+	// Resources holds MCP resource metadata discovered from the backend server
+	// via resources/list. Populated by the runtime at registration time; ignored on input.
+	Resources []ResourceSchema
+	// ResourceTemplates holds MCP resource template metadata discovered from the
+	// backend server via resources/templates/list. Populated by the runtime at
+	// registration time; ignored on input.
+	ResourceTemplates []ResourceTemplateSchema
 }
 
 // IsStdio reports whether the tool uses the stdio transport.

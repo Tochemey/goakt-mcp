@@ -9,6 +9,7 @@
   <a href="https://go.dev/doc/install"><img src="https://badges.chse.dev/github/go-mod/go-version/Tochemey/goakt-mcp" alt="GitHub go.mod Go version"></a>
   <a href="https://goreportcard.com/report/github.com/tochemey/goakt-mcp"><img src="https://goreportcard.com/badge/github.com/tochemey/goakt-mcp" alt="Go Report Card"></a>
   <a href="https://www.bestpractices.dev/projects/12179"><img src="https://www.bestpractices.dev/projects/12179/badge" alt="OpenSSF Best Practices"></a>
+  <a href="https://pkg.go.dev/github.com/tochemey/goakt-mcp"><img src="https://pkg.go.dev/badge/github.com/tochemey/goakt-mcp" alt="Go Reference"></a>
 </p>
 
 **goakt-mcp** is a production-ready MCP (Model Context Protocol) gateway library for Go. It goes far beyond a thin JSON-RPC proxy : it is an operational control plane for MCP workloads that manages tool lifecycle, session affinity, credential brokering, policy enforcement, circuit breaking, auditing, and cluster-aware routing behind a single, clean `Gateway` API.
@@ -43,6 +44,7 @@ The actor model is a strong fit for this problem space. Each tool has a dedicate
 - **Health probing** : periodic health checks on every tool supervisor; circuit state transitions reflected in tool status
 - **Dynamic tool management** : register, update, enable, disable, drain, and remove tools without restarting the gateway
 - **Schema discovery** : automatically fetches and caches MCP tool schemas from backends at registration time
+- **Resource proxying** : discovers and caches MCP resources and resource templates from backends via `resources/list` and `resources/templates/list`; proxies `resources/read` through the full actor pipeline with the same resilience guarantees as tool calls
 - **Structured error codes** : 14 typed `ErrorCode` values (`TOOL_NOT_FOUND`, `POLICY_DENIED`, `RATE_LIMITED`, `TRANSPORT_FAILURE`, etc.) with `RuntimeError` wrapping and full `errors.Is`/`As` support
 - **OpenTelemetry** : traces and metrics exported via OTLP; W3C trace-context propagated on egress
 - **Structured logging** : pluggable `Logger` interface (zap, zerolog, slog, logrus, etc.) with structured correlation fields (tenant ID, tool ID, request ID, trace ID) on every log line
@@ -135,7 +137,7 @@ graph TB
 
 ## Request Lifecycle
 
-The following sequence shows the path of a `tools/call` invocation from client to backend and back.
+The following sequence shows the path of a `tools/call` or `resources/read` invocation from client to backend and back.
 
 ```mermaid
 sequenceDiagram
@@ -150,7 +152,7 @@ sequenceDiagram
     participant ToolBackend
     participant JournalActor
 
-    Client->>Ingress: POST /mcp (tools/call) or gRPC CallTool
+    Client->>Ingress: POST /mcp (tools/call, resources/read) or gRPC CallTool
     Ingress->>IdentityResolver: ResolveIdentity(request) or ResolveGRPCIdentity(ctx)
     IdentityResolver-->>Ingress: TenantID, ClientID
 
@@ -164,7 +166,7 @@ sequenceDiagram
 
     RouterActor->>ToolSupervisor: SessionInvoke(inv + credentials)
     ToolSupervisor->>SessionActor: Execute(invocation)
-    SessionActor->>ToolBackend: MCP tools/call (stdio or HTTP)
+    SessionActor->>ToolBackend: MCP tools/call or resources/read (stdio or HTTP)
     ToolBackend-->>SessionActor: result
 
     SessionActor-->>ToolSupervisor: ExecutionResult
@@ -291,6 +293,52 @@ goakt-mcp natively supports three backend transport types.
 **gRPC** connects to a remote gRPC service using dynamic protobuf messages. Proto descriptors can be loaded from a local `.binpb` file or fetched via gRPC server reflection. JSON Schemas are derived automatically from the proto message descriptors. Server-streaming RPCs are supported via the `ToolStreamExecutor` interface.
 
 All three transports fetch the backend's tool schemas at registration time and cache them. The gateway uses the actual tool names, descriptions, and JSON schemas to build the ingress server's tool registry, giving MCP clients accurate, discoverable schema information.
+
+For HTTP and stdio backends, the gateway also discovers MCP resources and resource templates at registration time. See the [MCP Resources](#mcp-resources) section below.
+
+## MCP Resources
+
+The MCP specification defines [resources](https://modelcontextprotocol.io/docs/concepts/resources) as server-managed data that clients can discover and read. Resources complement tools : where tools perform actions, resources expose data (files, database rows, API responses, configuration, etc.) for retrieval by LLM agents.
+
+goakt-mcp proxies the full MCP resource lifecycle between ingress clients and egress backends.
+
+### Discovery
+
+When a tool is registered (at startup via `Config.Tools` or dynamically via `RegisterTool`), the gateway connects to the backend and calls `resources/list` and `resources/templates/list` alongside the existing `tools/list` schema fetch. Discovered resource metadata (URI, name, description, MIME type) and resource template metadata (URI template, name, description, MIME type) are cached in the registrar actor and attached to the tool definition returned by `ListTools`.
+
+On each new MCP client session, the ingress layer registers the discovered resources and resource templates on the per-session SDK server. The SDK automatically advertises the `resources` capability in the `initialize` response, enabling MCP clients to call `resources/list` to browse available resources.
+
+gRPC backends do not expose MCP resources (they use protobuf service definitions) and return empty metadata during discovery.
+
+### Reading
+
+When an MCP client calls `resources/read` with a resource URI, the request flows through the same actor pipeline as `tools/call` :
+
+1. **Ingress** translates the SDK `ReadResourceRequest` into a gateway `Invocation` with method `resources/read` and the URI in `Params["uri"]`
+2. **Router** evaluates policy, resolves credentials, and routes to the tool supervisor
+3. **Session** dispatches to the executor's `ResourceExecutor.ReadResource` method via type assertion
+4. **Executor** calls `ClientSession.ReadResource` on the backend MCP server
+5. The response flows back through the pipeline with the same circuit breaking, executor recovery, passivation, and audit journaling guarantees as tool calls
+
+OAuth scope propagation applies : scopes from validated bearer tokens are attached to the invocation and available to custom `PolicyEvaluator` implementations for scope-aware authorization on resource access.
+
+### Resource templates
+
+Resource templates use [RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) URI templates (e.g. `file:///{path}`) to expose parameterised resources. The gateway discovers templates via `resources/templates/list` and registers them on the per-session SDK server via `AddResourceTemplate`. When a client reads a templated URI, the SDK resolves the template and dispatches to the same `resources/read` handler.
+
+### Executor support
+
+The `ResourceExecutor` interface is an optional extension of `ToolExecutor` :
+
+```go
+type ResourceExecutor interface {
+    ReadResource(ctx context.Context, inv *Invocation) (*ExecutionResult, error)
+}
+```
+
+The built-in HTTP and stdio executors implement `ResourceExecutor`. The gRPC executor does not (gRPC tools are protobuf-based, not MCP resource-based). The session actor checks for `ResourceExecutor` at runtime via type assertion; executors that do not implement it return an error for `resources/read` requests.
+
+Custom `ToolExecutor` implementations can opt into resource support by implementing `ResourceExecutor` alongside `ToolExecutor`.
 
 ## Multi-tenancy & Authorization
 

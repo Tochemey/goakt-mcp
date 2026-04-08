@@ -49,6 +49,9 @@ type StdioExecutor struct {
 	closeErr error
 }
 
+// Compile-time check that StdioExecutor satisfies the ResourceExecutor interface.
+var _ mcp.ResourceExecutor = (*StdioExecutor)(nil)
+
 // Execute runs the MCP tools/call invocation and returns the result.
 func (e *StdioExecutor) Execute(ctx context.Context, inv *mcp.Invocation) (*mcp.ExecutionResult, error) {
 	if e.sess == nil {
@@ -90,6 +93,51 @@ func (e *StdioExecutor) Execute(ctx context.Context, inv *mcp.Invocation) (*mcp.
 		Status:      status,
 		Output:      output,
 		Err:         rErr,
+		Correlation: inv.Correlation,
+	}, nil
+}
+
+// ReadResource reads an MCP resource from the backend server via resources/read.
+// The URI is extracted from the invocation parameters.
+func (e *StdioExecutor) ReadResource(ctx context.Context, inv *mcp.Invocation) (*mcp.ExecutionResult, error) {
+	if e.sess == nil {
+		return &mcp.ExecutionResult{
+			Status:      mcp.ExecutionStatusFailure,
+			Err:         mcp.NewRuntimeError(mcp.ErrCodeTransportFailure, "session not connected"),
+			Correlation: inv.Correlation,
+		}, nil
+	}
+
+	uri := mcpconv.ResourceParamsFromInvocation(inv)
+	if uri == "" {
+		return &mcp.ExecutionResult{
+			Status:      mcp.ExecutionStatusFailure,
+			Err:         mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "resource URI is required"),
+			Correlation: inv.Correlation,
+		}, nil
+	}
+
+	params := &sdkmcp.ReadResourceParams{URI: uri}
+	res, err := e.sess.ReadResource(ctx, params)
+	if err != nil {
+		if ctx.Err() != nil {
+			return &mcp.ExecutionResult{
+				Status:      mcp.ExecutionStatusTimeout,
+				Err:         mcp.WrapRuntimeError(mcp.ErrCodeInvocationTimeout, "resource read timed out", err),
+				Correlation: inv.Correlation,
+			}, nil
+		}
+		return &mcp.ExecutionResult{
+			Status:      mcp.ExecutionStatusFailure,
+			Err:         mcp.WrapRuntimeError(mcp.ErrCodeTransportFailure, "resource read failed", err),
+			Correlation: inv.Correlation,
+		}, nil
+	}
+
+	output := mcpconv.ReadResourceResultToOutput(res)
+	return &mcp.ExecutionResult{
+		Status:      mcp.ExecutionStatusSuccess,
+		Output:      output,
 		Correlation: inv.Correlation,
 	}, nil
 }

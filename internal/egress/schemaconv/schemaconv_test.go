@@ -64,6 +64,76 @@ func TestSDKToolsToSchemas(t *testing.T) {
 	})
 }
 
+func TestSDKResourcesToSchemas(t *testing.T) {
+	t.Run("nil input returns nil", func(t *testing.T) {
+		assert.Nil(t, SDKResourcesToSchemas(nil))
+	})
+
+	t.Run("empty input returns nil", func(t *testing.T) {
+		assert.Nil(t, SDKResourcesToSchemas([]*sdkmcp.Resource{}))
+	})
+
+	t.Run("nil resource entries are skipped", func(t *testing.T) {
+		resources := []*sdkmcp.Resource{nil, {URI: "file:///a.txt", Name: "a"}, nil}
+		schemas := SDKResourcesToSchemas(resources)
+		require.Len(t, schemas, 1)
+		assert.Equal(t, "file:///a.txt", schemas[0].URI)
+		assert.Equal(t, "a", schemas[0].Name)
+	})
+
+	t.Run("converts resources with all fields", func(t *testing.T) {
+		resources := []*sdkmcp.Resource{
+			{URI: "file:///readme.md", Name: "readme", Description: "The readme", MIMEType: "text/markdown"},
+			{URI: "file:///data.json", Name: "data"},
+		}
+		schemas := SDKResourcesToSchemas(resources)
+		require.Len(t, schemas, 2)
+		assert.Equal(t, "file:///readme.md", schemas[0].URI)
+		assert.Equal(t, "readme", schemas[0].Name)
+		assert.Equal(t, "The readme", schemas[0].Description)
+		assert.Equal(t, "text/markdown", schemas[0].MIMEType)
+		assert.Equal(t, "file:///data.json", schemas[1].URI)
+		assert.Equal(t, "data", schemas[1].Name)
+		assert.Empty(t, schemas[1].Description)
+		assert.Empty(t, schemas[1].MIMEType)
+	})
+}
+
+func TestSDKResourceTemplatesToSchemas(t *testing.T) {
+	t.Run("nil input returns nil", func(t *testing.T) {
+		assert.Nil(t, SDKResourceTemplatesToSchemas(nil))
+	})
+
+	t.Run("empty input returns nil", func(t *testing.T) {
+		assert.Nil(t, SDKResourceTemplatesToSchemas([]*sdkmcp.ResourceTemplate{}))
+	})
+
+	t.Run("nil template entries are skipped", func(t *testing.T) {
+		templates := []*sdkmcp.ResourceTemplate{nil, {URITemplate: "file:///{path}", Name: "file"}, nil}
+		schemas := SDKResourceTemplatesToSchemas(templates)
+		require.Len(t, schemas, 1)
+		assert.Equal(t, "file:///{path}", schemas[0].URITemplate)
+		assert.Equal(t, "file", schemas[0].Name)
+	})
+
+	t.Run("converts templates with all fields", func(t *testing.T) {
+		templates := []*sdkmcp.ResourceTemplate{
+			{URITemplate: "file:///{path}", Name: "file", Description: "A file resource", MIMEType: "application/octet-stream"},
+			{URITemplate: "db:///{table}", Name: "table"},
+		}
+		schemas := SDKResourceTemplatesToSchemas(templates)
+		require.Len(t, schemas, 2)
+		assert.Equal(t, "file:///{path}", schemas[0].URITemplate)
+		assert.Equal(t, "file", schemas[0].Name)
+		assert.Equal(t, "A file resource", schemas[0].Description)
+		assert.Equal(t, "application/octet-stream", schemas[0].MIMEType)
+		assert.Equal(t, "db:///{table}", schemas[1].URITemplate)
+		assert.Equal(t, "table", schemas[1].Name)
+		assert.Empty(t, schemas[1].Description)
+		assert.Empty(t, schemas[1].MIMEType)
+	})
+}
+
 func TestMarshalInputSchema(t *testing.T) {
 	t.Run("nil returns nil", func(t *testing.T) {
 		assert.Nil(t, MarshalInputSchema(nil))

@@ -75,6 +75,47 @@ func ContentErrorText(res *sdkmcp.CallToolResult) string {
 	return "tool error"
 }
 
+// ResourceParamsFromInvocation extracts the resource URI from an Invocation.
+// Params is expected to contain a "uri" key per the MCP resources/read convention.
+func ResourceParamsFromInvocation(inv *mcp.Invocation) string {
+	if inv == nil || inv.Params == nil {
+		return ""
+	}
+	uri, _ := inv.Params["uri"].(string)
+	return uri
+}
+
+// ReadResourceResultToOutput converts an MCP ReadResourceResult into the runtime
+// output map. Returns nil when res is nil.
+func ReadResourceResultToOutput(res *sdkmcp.ReadResourceResult) map[string]any {
+	if res == nil {
+		return nil
+	}
+	out := make(map[string]any, 1)
+	if len(res.Contents) > 0 {
+		contents := make([]map[string]any, 0, len(res.Contents))
+		for _, c := range res.Contents {
+			if c == nil {
+				continue
+			}
+			item := make(map[string]any, 4)
+			item["uri"] = c.URI
+			if c.MIMEType != "" {
+				item["mimeType"] = c.MIMEType
+			}
+			if c.Text != "" {
+				item["text"] = c.Text
+			}
+			if len(c.Blob) > 0 {
+				item["blob"] = c.Blob
+			}
+			contents = append(contents, item)
+		}
+		out["contents"] = contents
+	}
+	return out
+}
+
 func contentToSlice(c []sdkmcp.Content) []map[string]any {
 	s := make([]map[string]any, 0, len(c))
 	for _, item := range c {
