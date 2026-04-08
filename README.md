@@ -183,12 +183,10 @@ Identity resolution happens once per MCP session (at `initialize` time) for HTTP
 
 goakt-mcp exposes three factory methods on `Gateway` to create ingress HTTP handlers, plus a registration method for gRPC. Mount the returned `http.Handler` in your own HTTP server or router; register the gRPC service on your own `grpc.Server`.
 
-| Handler                       | Method             | MCP Transport         | Best for                                         |
-|-------------------------------|--------------------|-----------------------|--------------------------------------------------|
-| `Gateway.Handler`             | Streamable HTTP    | MCP 2025-11-25 spec   | Production clients, Claude Desktop, agents       |
-| `Gateway.SSEHandler`          | Server-Sent Events | MCP 2024-11-05 spec   | Legacy clients, browser-based agents             |
-| `Gateway.WSHandler`           | WebSocket          | Full-duplex streaming | Latency-sensitive, bidirectional streams         |
-| `Gateway.RegisterGRPCService` | gRPC               | Protobuf/gRPC         | Service-to-service, streaming progress, polyglot |
+- **`Gateway.Handler`** : Streamable HTTP, MCP 2025-11-25 spec, Production clients, Claude Desktop, agents
+- **`Gateway.SSEHandler`** : Server-Sent Events, MCP 2024-11-05 spec, Legacy clients, browser-based agents
+- **`Gateway.WSHandler`** : WebSocket, full-duplex streaming, Latency-sensitive, bidirectional streams
+- **`Gateway.RegisterGRPCService`** : gRPC, Protobuf/gRPC, Service-to-service, streaming progress, polyglot
 
 The three HTTP handlers accept an `mcp.IngressConfig` that specifies the `IdentityResolver`, session idle timeout, and statefulness mode.
 
@@ -200,11 +198,9 @@ In **stateless** mode (`Stateless: true`), a new session is created for every HT
 
 The gRPC ingress exposes the `MCPToolService` protobuf service with three RPCs:
 
-| RPC              | Description                                                                           |
-|------------------|---------------------------------------------------------------------------------------|
-| `ListTools`      | Returns all registered tools and their schemas                                        |
-| `CallTool`       | Synchronous tool invocation : send a request, get a result                            |
-| `CallToolStream` | Streaming invocation : delivers progress events as they arrive, then the final result |
+- **`ListTools`** : Returns all registered tools and their schemas
+- **`CallTool`** : Synchronous tool invocation : send a request, get a result
+- **`CallToolStream`** : Streaming invocation : delivers progress events as they arrive, then the final result
 
 Unlike the HTTP handlers (which return an `http.Handler`), gRPC services register directly on a `grpc.Server`. Identity is resolved on every request via `GRPCIdentityResolver`, which reads from gRPC metadata : the gRPC equivalent of HTTP headers.
 
@@ -326,12 +322,10 @@ Implementations typically read from gRPC metadata via `metadata.FromIncomingCont
 
 Each tenant can be configured with independent quota and policy settings. Tenants not listed in the configuration are accepted without quota enforcement.
 
-| Field                       | Description                                                           |
-|-----------------------------|-----------------------------------------------------------------------|
-| `ID`                        | Opaque string identifier : must match what `IdentityResolver` returns |
-| `Quotas.RequestsPerMinute`  | Maximum invocations per minute; zero means unlimited                  |
-| `Quotas.ConcurrentSessions` | Maximum live sessions at any moment; zero means unlimited             |
-| `Evaluator`                 | Optional custom `PolicyEvaluator` for this tenant                     |
+- **`ID`** : Opaque string identifier : must match what `IdentityResolver` returns
+- **`Quotas.RequestsPerMinute`** : Maximum invocations per minute; zero means unlimited
+- **`Quotas.ConcurrentSessions`** : Maximum live sessions at any moment; zero means unlimited
+- **`Evaluator`** : Optional custom `PolicyEvaluator` for this tenant
 
 ### Policy Enforcement
 
@@ -382,11 +376,9 @@ stateDiagram-v2
     HalfOpen --> Open: Probe fails
 ```
 
-| Parameter             | Default | Description                                        |
-|-----------------------|---------|----------------------------------------------------|
-| `FailureThreshold`    | 5       | Consecutive failures before opening                |
-| `OpenDuration`        | 30 s    | Time the circuit stays open before probing         |
-| `HalfOpenMaxRequests` | 1       | Maximum concurrent requests during half-open probe |
+- **`FailureThreshold`** (default `5`) : Consecutive failures before opening
+- **`OpenDuration`** (default `30 s`) : Time the circuit stays open before probing
+- **`HalfOpenMaxRequests`** (default `1`) : Maximum concurrent requests during half-open probe
 
 When the circuit is open, invocations fail immediately with `ErrCodeToolUnavailable` without contacting the backend. This prevents cascading failures across tenants sharing the same tool.
 
@@ -413,12 +405,10 @@ The audit journal actor uses a **bounded mailbox** with configurable capacity (`
 
 The `HealthActor` periodically probes every `ToolSupervisor` to check whether its tool is responsive. Probe results drive the tool's operational `State` field:
 
-| State         | Meaning                                               |
-|---------------|-------------------------------------------------------|
-| `enabled`     | Tool is healthy and accepting requests                |
-| `degraded`    | Tool is responding slowly or with intermittent errors |
-| `unavailable` | Tool is unreachable; circuit may be open              |
-| `disabled`    | Tool has been administratively disabled               |
+- **`enabled`** : Tool is healthy and accepting requests
+- **`degraded`** : Tool is responding slowly or with intermittent errors
+- **`unavailable`** : Tool is unreachable; circuit may be open
+- **`disabled`** : Tool has been administratively disabled
 
 Health state transitions are recorded in the audit journal and exported as metrics.
 
@@ -428,14 +418,12 @@ Health state transitions are recorded in the audit journal and exported as metri
 
 Enable metrics with the `WithMetrics()` option. Metrics are exported via OTLP to the endpoint configured in `mcp.Config.Telemetry.OTLPEndpoint`.
 
-| Metric              | Type      | Description                                                        |
-|---------------------|-----------|--------------------------------------------------------------------|
-| Invocation latency  | Histogram | End-to-end duration per tool                                       |
-| Invocation failures | Counter   | Failed invocations, tagged by tool and error code                  |
-| Tool state          | Gauge     | Operational state per tool (enabled/degraded/unavailable/disabled) |
-| Circuit state       | Gauge     | Circuit breaker state per tool (closed/open/half-open)             |
-| Session lifecycle   | Counter   | Session creation and termination events                            |
-| Health transitions  | Counter   | Tool health state changes                                          |
+- **Invocation latency** (Histogram) : End-to-end duration per tool
+- **Invocation failures** (Counter) : Failed invocations, tagged by tool and error code
+- **Tool state** (Gauge) : Operational state per tool (enabled/degraded/unavailable/disabled)
+- **Circuit state** (Gauge) : Circuit breaker state per tool (closed/open/half-open)
+- **Session lifecycle** (Counter) : Session creation and termination events
+- **Health transitions** (Counter) : Tool health state changes
 
 ### Distributed Tracing
 
@@ -467,14 +455,12 @@ type AuditSink interface {
 }
 ```
 
-| Event Type             | Captured when                                            |
-|------------------------|----------------------------------------------------------|
-| `policy_decision`      | Any invocation reaches policy evaluation (allow or deny) |
-| `invocation_start`     | An invocation begins executing against a tool backend    |
-| `invocation_complete`  | An invocation completes successfully                     |
-| `invocation_failed`    | An invocation fails (timeout, transport error, etc.)     |
-| `health_transition`    | A tool's operational state changes                       |
-| `circuit_state_change` | A circuit breaker transitions between states             |
+- **`policy_decision`** : Any invocation reaches policy evaluation (allow or deny)
+- **`invocation_start`** : An invocation begins executing against a tool backend
+- **`invocation_complete`** : An invocation completes successfully
+- **`invocation_failed`** : An invocation fails (timeout, transport error, etc.)
+- **`health_transition`** : A tool's operational state changes
+- **`circuit_state_change`** : A circuit breaker transitions between states
 
 Each event carries the tenant ID, client ID, tool ID, request ID, trace ID, outcome, error code, and a freeform metadata map. Built-in sinks include `MemorySink` (for testing) and `FileSink` (NDJSON line-delimited file). Custom sinks can write to any durable store : Postgres, Kafka, BigQuery, S3, etc.
 
@@ -554,76 +540,62 @@ Construct a `mcp.Config` and pass it to `goaktmcp.New`. Zero-valued fields are f
 
 Controls timeouts and probe intervals for the actor runtime.
 
-| Field                 | Default | Description                                                      |
-|-----------------------|---------|------------------------------------------------------------------|
-| `SessionIdleTimeout`  | 5 min   | Passivate a session actor after this period of inactivity        |
-| `RequestTimeout`      | 30 s    | Maximum time for a single actor Ask (router, registrar, session) |
-| `StartupTimeout`      | 10 s    | Maximum time to wait for the actor system to become ready        |
-| `HealthProbeInterval` | 30 s    | How often the health actor probes tool supervisors               |
-| `ShutdownTimeout`     | 30 s    | Maximum time for a graceful shutdown                             |
+- **`SessionIdleTimeout`** (default `5 min`) : Passivate a session actor after this period of inactivity
+- **`RequestTimeout`** (default `30 s`) : Maximum time for a single actor Ask (router, registrar, session)
+- **`StartupTimeout`** (default `10 s`) : Maximum time to wait for the actor system to become ready
+- **`HealthProbeInterval`** (default `30 s`) : How often the health actor probes tool supervisors
+- **`ShutdownTimeout`** (default `30 s`) : Maximum time for a graceful shutdown
 
 ### Cluster
 
-| Field               | Description                                                               |
-|---------------------|---------------------------------------------------------------------------|
-| `Enabled`           | Activate cluster mode                                                     |
-| `DiscoveryProvider` | Required when enabled : peer discovery implementation                     |
-| `DiscoveryPort`     | Port for the discovery protocol (default 15000)                           |
-| `PeersPort`         | Port for the gossip memberlist protocol (default 15000)                   |
-| `RemotingPort`      | Port for GoAkt actor-to-actor remoting (default 15001)                    |
-| `RegistrarRole`     | Optional cluster role that pins the singleton registrar to specific nodes |
-| `TLS`               | Optional `*RemotingTLSConfig` for encrypted remoting                      |
+- **`Enabled`** : Activate cluster mode
+- **`DiscoveryProvider`** : Required when enabled : peer discovery implementation
+- **`DiscoveryPort`** : Port for the discovery protocol (default 15000)
+- **`PeersPort`** : Port for the gossip memberlist protocol (default 15000)
+- **`RemotingPort`** : Port for GoAkt actor-to-actor remoting (default 15001)
+- **`RegistrarRole`** : Optional cluster role that pins the singleton registrar to specific nodes
+- **`TLS`** : Optional `*RemotingTLSConfig` for encrypted remoting
 
 ### Telemetry
 
-| Field          | Description                                                                         |
-|----------------|-------------------------------------------------------------------------------------|
-| `OTLPEndpoint` | OTLP HTTP endpoint for metrics and trace export (e.g. `http://otel-collector:4318`) |
+- **`OTLPEndpoint`** : OTLP HTTP endpoint for metrics and trace export (e.g. `http://otel-collector:4318`)
 
 ### Audit
 
-| Field         | Default      | Description                                                                    |
-|---------------|--------------|--------------------------------------------------------------------------------|
-| `Sink`        | `MemorySink` | `mcp.AuditSink` implementation; use `FileSink` or a custom sink for production |
-| `MailboxSize` | 1024         | Maximum in-flight audit events before senders block (backpressure)             |
+- **`Sink`** (default `MemorySink`) : `mcp.AuditSink` implementation; use `FileSink` or a custom sink for production
+- **`MailboxSize`** (default `1024`) : Maximum in-flight audit events before senders block (backpressure)
 
 ### Credentials
 
-| Field             | Default | Description                                                  |
-|-------------------|---------|--------------------------------------------------------------|
-| `Providers`       | :       | Ordered slice of `mcp.CredentialsProvider` implementations   |
-| `CacheTTL`        | :       | How long to cache resolved credentials before re-fetching    |
-| `MaxCacheEntries` | :       | Maximum cached entries; evicts least-recently-used when full |
+- **`Providers`** (default `:`) : Ordered slice of `mcp.CredentialsProvider` implementations
+- **`CacheTTL`** (default `:`) : How long to cache resolved credentials before re-fetching
+- **`MaxCacheEntries`** (default `:`) : Maximum cached entries; evicts least-recently-used when full
 
 ### Tenants
 
-| Field                       | Description                                              |
-|-----------------------------|----------------------------------------------------------|
-| `ID`                        | Tenant identifier : must match `IdentityResolver` output |
-| `Quotas.RequestsPerMinute`  | Requests-per-minute rate limit; zero = unlimited         |
-| `Quotas.ConcurrentSessions` | Concurrent session cap; zero = unlimited                 |
-| `Evaluator`                 | Optional `mcp.PolicyEvaluator` for custom authorization  |
+- **`ID`** : Tenant identifier : must match `IdentityResolver` output
+- **`Quotas.RequestsPerMinute`** : Requests-per-minute rate limit; zero = unlimited
+- **`Quotas.ConcurrentSessions`** : Concurrent session cap; zero = unlimited
+- **`Evaluator`** : Optional `mcp.PolicyEvaluator` for custom authorization
 
 ### Tool Definition
 
 Each entry in `Config.Tools` (or a call to `RegisterTool`) accepts the following fields.
 
-| Field                 | Description                                                                                   |
-|-----------------------|-----------------------------------------------------------------------------------------------|
-| `ID`                  | Unique tool identifier                                                                        |
-| `Transport`           | `stdio`, `http`, or `grpc`                                                                    |
-| `Stdio`               | `*StdioTransportConfig` : command, args, env, working directory                               |
-| `HTTP`                | `*HTTPTransportConfig` : URL and optional TLS config                                          |
-| `GRPC`                | `*GRPCTransportConfig` : target, service, method, TLS, metadata, descriptor set or reflection |
-| `State`               | Initial state: `enabled` or `disabled`                                                        |
-| `Routing`             | `sticky` (session affinity, default) or `least_loaded`                                        |
-| `MaxSessionsPerTool`  | Backpressure limit; zero = unlimited                                                          |
-| `RequestTimeout`      | Per-tool invocation timeout; overrides runtime default                                        |
-| `IdleTimeout`         | Passivate idle sessions after this duration                                                   |
-| `StartupTimeout`      | Timeout for executor creation                                                                 |
-| `Circuit`             | `CircuitConfig` : failure threshold, open duration, half-open max requests                    |
-| `CredentialPolicy`    | `optional` (default) or `required`                                                            |
-| `AuthorizationPolicy` | `tenant_allowlist` to restrict tool to specific tenants                                       |
+- **`ID`** : Unique tool identifier
+- **`Transport`** : `stdio`, `http`, or `grpc`
+- **`Stdio`** : `*StdioTransportConfig` : command, args, env, working directory
+- **`HTTP`** : `*HTTPTransportConfig` : URL and optional TLS config
+- **`GRPC`** : `*GRPCTransportConfig` : target, service, method, TLS, metadata, descriptor set or reflection
+- **`State`** : Initial state: `enabled` or `disabled`
+- **`Routing`** : `sticky` (session affinity, default) or `least_loaded`
+- **`MaxSessionsPerTool`** : Backpressure limit; zero = unlimited
+- **`RequestTimeout`** : Per-tool invocation timeout; overrides runtime default
+- **`IdleTimeout`** : Passivate idle sessions after this duration
+- **`StartupTimeout`** : Timeout for executor creation
+- **`Circuit`** : `CircuitConfig` : failure threshold, open duration, half-open max requests
+- **`CredentialPolicy`** : `optional` (default) or `required`
+- **`AuthorizationPolicy`** : `tenant_allowlist` to restrict tool to specific tenants
 
 ## Public API
 
@@ -631,68 +603,57 @@ The `Gateway` struct is the sole public entry point. All methods are safe to cal
 
 ### Lifecycle
 
-| Method                                | Description                                                                      |
-|---------------------------------------|----------------------------------------------------------------------------------|
-| `New(cfg, ...opts) (*Gateway, error)` | Construct the gateway; validates config and applies options                      |
-| `Start(ctx) error`                    | Start the actor system, spawn the runtime actors, and bootstrap configured tools |
-| `Stop(ctx) error`                     | Gracefully drain in-flight invocations and shut down the actor system            |
-| `System() ActorSystem`                | Access the underlying GoAkt actor system (e.g. for custom actor interactions)    |
+- **`New(cfg, ...opts) (*Gateway, error)`** : Construct the gateway; validates config and applies options
+- **`Start(ctx) error`** : Start the actor system, spawn the runtime actors, and bootstrap configured tools
+- **`Stop(ctx) error`** : Gracefully drain in-flight invocations and shut down the actor system
+- **`System() ActorSystem`** : Access the underlying GoAkt actor system (e.g. for custom actor interactions)
 
 ### Tool Invocation
 
-| Method                                             | Description                                                                                      |
-|----------------------------------------------------|--------------------------------------------------------------------------------------------------|
-| `Invoke(ctx, inv) (*ExecutionResult, error)`       | Synchronous tool execution : blocks until the backend responds or times out                      |
-| `InvokeStream(ctx, inv) (*StreamingResult, error)` | Streaming execution; returns a `StreamingResult` with a `Progress` channel and a `Final` channel |
+- **`Invoke(ctx, inv) (*ExecutionResult, error)`** : Synchronous tool execution : blocks until the backend responds or times out
+- **`InvokeStream(ctx, inv) (*StreamingResult, error)`** : Streaming execution; returns a `StreamingResult` with a `Progress` channel and a `Final` channel
 
 ### Tool Management
 
-| Method                                             | Description                                                                             |
-|----------------------------------------------------|-----------------------------------------------------------------------------------------|
-| `ListTools(ctx) ([]Tool, error)`                   | Return all registered tools with their current schemas                                  |
-| `RegisterTool(ctx, tool) error`                    | Dynamically register a new tool or replace an existing one                              |
-| `UpdateTool(ctx, tool) error`                      | Update a tool's metadata; the tool must exist                                           |
-| `EnableTool(ctx, toolID) error`                    | Re-enable a previously disabled tool                                                    |
-| `DisableTool(ctx, toolID) error`                   | Administratively disable a tool; in-flight requests complete, new requests are rejected |
-| `RemoveTool(ctx, toolID) error`                    | Remove a tool from the registry entirely                                                |
-| `GetToolSchema(ctx, toolID) ([]ToolSchema, error)` | Return the cached MCP schemas discovered from the backend                               |
+- **`ListTools(ctx) ([]Tool, error)`** : Return all registered tools with their current schemas
+- **`RegisterTool(ctx, tool) error`** : Dynamically register a new tool or replace an existing one
+- **`UpdateTool(ctx, tool) error`** : Update a tool's metadata; the tool must exist
+- **`EnableTool(ctx, toolID) error`** : Re-enable a previously disabled tool
+- **`DisableTool(ctx, toolID) error`** : Administratively disable a tool; in-flight requests complete, new requests are rejected
+- **`RemoveTool(ctx, toolID) error`** : Remove a tool from the registry entirely
+- **`GetToolSchema(ctx, toolID) ([]ToolSchema, error)`** : Return the cached MCP schemas discovered from the backend
 
 ### Admin & Operational API
 
 These methods provide live visibility and control over a running gateway. They are safe to call while serving traffic and return immediately.
 
-| Method                                            | Description                                                                                             |
-|---------------------------------------------------|---------------------------------------------------------------------------------------------------------|
-| `GetGatewayStatus(ctx) (*GatewayStatus, error)`   | Overall status: running flag, registered tool count, total active session count                         |
-| `GetToolStatus(ctx, toolID) (*ToolStatus, error)` | Per-tool status: operational state, circuit state, session count, drain flag, cached schemas            |
-| `ListSessions(ctx) ([]SessionInfo, error)`        | Every active session across all tools, with tool ID, tenant ID, and client ID                           |
-| `DrainTool(ctx, toolID) error`                    | Stop accepting new sessions for a tool while existing sessions finish; use before disabling or removing |
-| `ResetCircuit(ctx, toolID) error`                 | Manually close an open circuit breaker after confirming the backend is healthy                          |
+- **`GetGatewayStatus(ctx) (*GatewayStatus, error)`** : Overall status: running flag, registered tool count, total active session count
+- **`GetToolStatus(ctx, toolID) (*ToolStatus, error)`** : Per-tool status: operational state, circuit state, session count, drain flag, cached schemas
+- **`ListSessions(ctx) ([]SessionInfo, error)`** : Every active session across all tools, with tool ID, tenant ID, and client ID
+- **`DrainTool(ctx, toolID) error`** : Stop accepting new sessions for a tool while existing sessions finish; use before disabling or removing
+- **`ResetCircuit(ctx, toolID) error`** : Manually close an open circuit breaker after confirming the backend is healthy
 
 ### Ingress Handlers
 
-| Method                                                                  | Description                                                     |
-|-------------------------------------------------------------------------|-----------------------------------------------------------------|
-| `Handler(cfg IngressConfig) (http.Handler, error)`                      | MCP Streamable HTTP handler (2025-11-25 spec)                   |
-| `SSEHandler(cfg IngressConfig) (http.Handler, error)`                   | Server-Sent Events handler (2024-11-05 spec)                    |
-| `WSHandler(cfg IngressConfig, wsCfg *WSConfig) (http.Handler, error)`   | WebSocket handler                                               |
-| `RegisterGRPCService(srv *grpc.Server, cfg GRPCIngressConfig) error`    | Register the MCPToolService gRPC service with streaming support |
-| `GRPCAuthInterceptors(ea *EnterpriseAuthConfig) (unary, stream, error)` | Bearer token auth interceptors for the gRPC ingress             |
+- **`Handler(cfg IngressConfig) (http.Handler, error)`** : MCP Streamable HTTP handler (2025-11-25 spec)
+- **`SSEHandler(cfg IngressConfig) (http.Handler, error)`** : Server-Sent Events handler (2024-11-05 spec)
+- **`WSHandler(cfg IngressConfig, wsCfg *WSConfig) (http.Handler, error)`** : WebSocket handler
+- **`RegisterGRPCService(srv *grpc.Server, cfg GRPCIngressConfig) error`** : Register the MCPToolService gRPC service with streaming support
+- **`GRPCAuthInterceptors(ea *EnterpriseAuthConfig) (unary, stream, error)`** : Bearer token auth interceptors for the gRPC ingress
 
 ### Options
 
-| Option                      | Description                                                         |
-|-----------------------------|---------------------------------------------------------------------|
-| `WithLogger(logger Logger)` | Plug in a custom logging backend (zap, zerolog, slog, logrus, etc.) |
-| `WithDebug()`               | Enable verbose debug logging from the actor engine to stdout        |
-| `WithMetrics()`             | Enable OpenTelemetry metrics export                                 |
-| `WithTracing()`             | Enable OpenTelemetry tracing and W3C trace-context propagation      |
+- **`WithLogger(logger Logger)`** : Plug in a custom logging backend (zap, zerolog, slog, logrus, etc.)
+- **`WithDebug()`** : Enable verbose debug logging from the actor engine to stdout
+- **`WithMetrics()`** : Enable OpenTelemetry metrics export
+- **`WithTracing()`** : Enable OpenTelemetry tracing and W3C trace-context propagation
 
 ## Key Interfaces
 
 The following interfaces are the extension points for customising goakt-mcp behaviour. All are defined in the `mcp` package.
 
 **Identity resolution (HTTP)** : called once per new HTTP/SSE/WebSocket session:
+
 ```go
 type IdentityResolver interface {
     ResolveIdentity(r *http.Request) (TenantID, ClientID, error)
@@ -700,6 +661,7 @@ type IdentityResolver interface {
 ```
 
 **Identity resolution (gRPC)** : called once per gRPC request:
+
 ```go
 type GRPCIdentityResolver interface {
     ResolveGRPCIdentity(ctx context.Context) (TenantID, ClientID, error)
@@ -707,6 +669,7 @@ type GRPCIdentityResolver interface {
 ```
 
 **Policy evaluation** : called on every invocation, after built-in checks:
+
 ```go
 type PolicyEvaluator interface {
     Evaluate(ctx context.Context, input PolicyInput) *RuntimeError
@@ -714,6 +677,7 @@ type PolicyEvaluator interface {
 ```
 
 **Credential resolution** : called by the credential broker per invocation:
+
 ```go
 type CredentialsProvider interface {
     ID() string
@@ -722,6 +686,7 @@ type CredentialsProvider interface {
 ```
 
 **Audit persistence** : receives every significant event:
+
 ```go
 type AuditSink interface {
     Write(event *AuditEvent) error
@@ -730,6 +695,7 @@ type AuditSink interface {
 ```
 
 **Cluster peer discovery** : returns live peer addresses for gossip and remoting:
+
 ```go
 type DiscoveryProvider interface {
     ID() string
@@ -740,6 +706,7 @@ type DiscoveryProvider interface {
 ```
 
 **Custom tool executor** : bring your own transport:
+
 ```go
 type ToolExecutor interface {
     Execute(ctx context.Context, inv *Invocation) (*ExecutionResult, error)
@@ -748,6 +715,7 @@ type ToolExecutor interface {
 ```
 
 **Custom executor factory** : creates fresh executors per session:
+
 ```go
 type ExecutorFactory interface {
     Create(ctx context.Context, tool Tool, credentials map[string]string) (ToolExecutor, error)
@@ -758,17 +726,15 @@ type ExecutorFactory interface {
 
 All examples are in the [`examples/`](examples/) directory and can be run with `go run ./examples/<name>`.
 
-| Example                               | Demonstrates                                                                                                                                                                       |
-|---------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [filesystem](examples/filesystem)     | Minimal gateway with a stdio filesystem tool                                                                                                                                       |
-| [audit-http](examples/audit-http)     | Durable file audit sink with an HTTP egress tool                                                                                                                                   |
-| [ingress](examples/ingress)           | MCP Streamable HTTP ingress with header-based identity resolution                                                                                                                  |
-| [ingress-grpc](examples/ingress-grpc) | gRPC ingress with metadata-based identity resolution, ListTools, CallTool, and CallToolStream                                                                                      |
-| [admin](examples/admin-policy)        | Full admin API and a custom `PolicyEvaluator`                                                                                                                                      |
-| [quotas](examples/quota-assess)       | Per-tenant rate limiting and concurrency enforcement                                                                                                                               |
-| [full-config](examples/full-config)   | Complete configuration reference covering every field                                                                                                                              |
-| [ai-hub](examples/ai-hub)             | Production-grade multi-tenant AI tool hub: stdio + HTTP egress, Streamable HTTP ingress, pluggable policy, credential broker, durable audit, OpenTelemetry, and the full admin API |
-| [cluster](examples/cluster)           | Three-node Kubernetes cluster with Kubernetes peer discovery, nginx session affinity, and Jaeger tracing                                                                           |
+- **[filesystem](examples/filesystem)** : Minimal gateway with a stdio filesystem tool
+- **[audit-http](examples/audit-http)** : Durable file audit sink with an HTTP egress tool
+- **[ingress](examples/ingress)** : MCP Streamable HTTP ingress with header-based identity resolution
+- **[ingress-grpc](examples/ingress-grpc)** : gRPC ingress with metadata-based identity resolution, ListTools, CallTool, and CallToolStream
+- **[admin](examples/admin-policy)** : Full admin API and a custom `PolicyEvaluator`
+- **[quotas](examples/quota-assess)** : Per-tenant rate limiting and concurrency enforcement
+- **[full-config](examples/full-config)** : Complete configuration reference covering every field
+- **[ai-hub](examples/ai-hub)** : Production-grade multi-tenant AI tool hub: stdio + HTTP egress, Streamable HTTP ingress, pluggable policy, credential broker, durable audit, OpenTelemetry, and the full admin API
+- **[cluster](examples/cluster)** : Three-node Kubernetes cluster with Kubernetes peer discovery, nginx session affinity, and Jaeger tracing
 
 The [ai-hub](examples/ai-hub) example is the recommended starting point for understanding how all pieces fit together in a real deployment. The [cluster](examples/cluster) example includes a complete [Makefile](examples/cluster/Makefile) and Kubernetes manifests for deploying to a local [Kind](https://kind.sigs.k8s.io/) cluster.
 
