@@ -224,6 +224,128 @@ func OutputToCallToolResult(output map[string]any) *sdkmcp.CallToolResult {
 	return result
 }
 
+// DispatchResourceRead translates an SDK ReadResourceRequest into a gateway
+// Invocation with Method "resources/read", forwards it through gw, and converts
+// the result back to an SDK ReadResourceResult.
+func DispatchResourceRead(
+	ctx context.Context,
+	gw Invoker,
+	req *sdkmcp.ReadResourceRequest,
+	toolID mcp.ToolID,
+	tenantID mcp.TenantID,
+	clientID mcp.ClientID,
+) (*sdkmcp.ReadResourceResult, error) {
+	if req == nil || req.Params == nil {
+		return nil, fmt.Errorf("invalid read resource request: request and params are required")
+	}
+
+	inv := &mcp.Invocation{
+		ToolID: toolID,
+		Method: "resources/read",
+		Params: map[string]any{
+			"uri": req.Params.URI,
+		},
+		Correlation: mcp.CorrelationMeta{
+			TenantID:  tenantID,
+			ClientID:  clientID,
+			RequestID: NewRequestID(),
+		},
+		ReceivedAt: time.Now(),
+	}
+
+	// Propagate OAuth scopes from validated bearer token into the invocation
+	// so the policy layer can make scope-aware authorization decisions.
+	if info := auth.TokenInfoFromContext(ctx); info != nil && len(info.Scopes) > 0 {
+		inv.Scopes = info.Scopes
+	}
+
+	result, gwErr := gw.Invoke(ctx, inv)
+	return ExecutionResultToReadResourceResult(result, gwErr)
+}
+
+// ExecutionResultToReadResourceResult converts a gateway ExecutionResult into
+// an SDK ReadResourceResult. Non-success statuses are returned as errors.
+//
+// When both gwErr and res are non-nil, the result takes precedence (matching
+// the behavior of [ExecutionResultToCallToolResult]).
+func ExecutionResultToReadResourceResult(res *mcp.ExecutionResult, gwErr error) (*sdkmcp.ReadResourceResult, error) {
+	if gwErr != nil && res == nil {
+		return nil, gwErr
+	}
+	if res == nil {
+		return nil, fmt.Errorf("empty result from gateway")
+	}
+	if res.Status != mcp.ExecutionStatusSuccess {
+		errMsg := string(res.Status)
+		if res.Err != nil {
+			errMsg = res.Err.Error()
+		}
+		return nil, fmt.Errorf("%s", errMsg)
+	}
+
+	return OutputToReadResourceResult(res.Output), nil
+}
+
+// OutputToReadResourceResult converts the gateway's normalized output map back
+// to an SDK ReadResourceResult. The output is expected to contain a "contents"
+// key with a slice of resource content maps, each containing "uri" and
+// optionally "mimeType", "text", and "blob" fields.
+func OutputToReadResourceResult(output map[string]any) *sdkmcp.ReadResourceResult {
+	if output == nil {
+		return &sdkmcp.ReadResourceResult{}
+	}
+
+	result := &sdkmcp.ReadResourceResult{}
+
+	rawContents, ok := output["contents"]
+	if !ok {
+		data, err := json.Marshal(output)
+		if err != nil {
+			return result
+		}
+		result.Contents = []*sdkmcp.ResourceContents{
+			{Text: string(data)},
+		}
+		return result
+	}
+
+	var items []map[string]any
+	switch v := rawContents.(type) {
+	case []map[string]any:
+		items = v
+	case []any:
+		items = make([]map[string]any, 0, len(v))
+		for _, raw := range v {
+			if m, ok := raw.(map[string]any); ok {
+				items = append(items, m)
+			}
+		}
+	}
+
+	if len(items) > 0 {
+		contents := make([]*sdkmcp.ResourceContents, 0, len(items))
+		for _, item := range items {
+			rc := &sdkmcp.ResourceContents{}
+			if uri, _ := item["uri"].(string); uri != "" {
+				rc.URI = uri
+			}
+			if mimeType, _ := item["mimeType"].(string); mimeType != "" {
+				rc.MIMEType = mimeType
+			}
+			if text, _ := item["text"].(string); text != "" {
+				rc.Text = text
+			}
+			if blob, ok := item["blob"].([]byte); ok && len(blob) > 0 {
+				rc.Blob = blob
+			}
+			contents = append(contents, rc)
+		}
+		result.Contents = contents
+	}
+
+	return result
+}
+
 // requestIDCounter is the fallback counter used when crypto/rand fails.
 var requestIDCounter atomic.Uint64
 

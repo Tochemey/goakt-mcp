@@ -192,6 +192,7 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 					attribute.String("mcp.tool_id", string(x.toolID)),
 					attribute.String("mcp.tenant_id", string(x.tenantID)),
 					attribute.String("mcp.client_id", string(x.clientID)),
+					attribute.String("mcp.method", msg.Invocation.Method),
 				),
 				trace.WithSpanKind(trace.SpanKindInternal),
 			)
@@ -204,7 +205,12 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 			}()
 		}
 
-		result, err = x.executor.Execute(execCtx, msg.Invocation)
+		switch msg.Invocation.Method {
+		case "resources/read":
+			result, err = x.executeResourceRead(execCtx, msg.Invocation)
+		default:
+			result, err = x.executor.Execute(execCtx, msg.Invocation)
+		}
 		duration := time.Since(start)
 
 		// Recovery is attempted when:
@@ -225,7 +231,12 @@ func (x *session) handleSessionInvoke(ctx *goaktactor.ReceiveContext, msg *runti
 				retryCtx, retryCancel := context.WithTimeout(ctx.Context(), timeout)
 				defer retryCancel()
 				retryStart := time.Now()
-				result, err = x.executor.Execute(retryCtx, msg.Invocation)
+				switch msg.Invocation.Method {
+				case "resources/read":
+					result, err = x.executeResourceRead(retryCtx, msg.Invocation)
+				default:
+					result, err = x.executor.Execute(retryCtx, msg.Invocation)
+				}
 				duration = time.Since(retryStart)
 			}
 			if err != nil {
@@ -411,6 +422,21 @@ func (x *session) handleSessionInvokeStream(ctx *goaktactor.ReceiveContext, msg 
 	})
 	// Handler returns immediately; the goroutine handles streaming completion
 	// and supervisor reporting without holding the actor receive context open.
+}
+
+// executeResourceRead delegates a resources/read invocation to the executor's
+// ResourceExecutor interface. Returns an error result when the executor does
+// not support resources.
+func (x *session) executeResourceRead(ctx context.Context, inv *mcp.Invocation) (*mcp.ExecutionResult, error) {
+	re, ok := x.executor.(mcp.ResourceExecutor)
+	if !ok {
+		return &mcp.ExecutionResult{
+			Status:      mcp.ExecutionStatusFailure,
+			Err:         mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "executor does not support resources"),
+			Correlation: inv.Correlation,
+		}, nil
+	}
+	return re.ReadResource(ctx, inv)
 }
 
 // isTransportFailure returns true when the execution result indicates a

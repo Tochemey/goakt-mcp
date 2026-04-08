@@ -53,10 +53,12 @@ import (
 //     when cluster.IsClusterConfigured(cfg) is true. NewRegistrar() is registered
 //     as a cluster kind in cluster.BuildOptions.
 type registrar struct {
-	tools       map[mcp.ToolID]mcp.Tool
-	schemas     map[mcp.ToolID][]mcp.ToolSchema
-	supervisors map[mcp.ToolID]*goaktactor.PID
-	logger      goaktlog.Logger
+	tools             map[mcp.ToolID]mcp.Tool
+	schemas           map[mcp.ToolID][]mcp.ToolSchema
+	resources         map[mcp.ToolID][]mcp.ResourceSchema
+	resourceTemplates map[mcp.ToolID][]mcp.ResourceTemplateSchema
+	supervisors       map[mcp.ToolID]*goaktactor.PID
+	logger            goaktlog.Logger
 }
 
 var _ goaktactor.Actor = (*registrar)(nil)
@@ -75,6 +77,8 @@ func (x *registrar) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
 	x.tools = make(map[mcp.ToolID]mcp.Tool)
 	x.schemas = make(map[mcp.ToolID][]mcp.ToolSchema)
+	x.resources = make(map[mcp.ToolID][]mcp.ResourceSchema)
+	x.resourceTemplates = make(map[mcp.ToolID][]mcp.ResourceTemplateSchema)
 	x.supervisors = make(map[mcp.ToolID]*goaktactor.PID)
 	ctx.Logger().Infof("actor=%s starting", naming.ActorNameRegistrar)
 	return nil
@@ -145,12 +149,15 @@ func (x *registrar) handleRegisterTool(ctx *goaktactor.ReceiveContext, msg *runt
 	x.stopSupervisorIfExists(ctx, tool.ID)
 	x.tools[tool.ID] = tool
 	x.fetchAndCacheSchemas(ctx, tool)
+	x.fetchAndCacheResources(ctx, tool)
 	pid := x.spawnSupervisor(ctx, tool)
 	if pid != nil {
 		x.supervisors[tool.ID] = pid
 	}
 
-	x.logger.Infof("actor=%s registered tool=%s schemas=%d", naming.ActorNameRegistrar, tool.ID, len(x.schemas[tool.ID]))
+	x.logger.Infof("actor=%s registered tool=%s schemas=%d resources=%d templates=%d",
+		naming.ActorNameRegistrar, tool.ID, len(x.schemas[tool.ID]),
+		len(x.resources[tool.ID]), len(x.resourceTemplates[tool.ID]))
 	x.respondIfAsk(ctx, &runtime.RegisterToolResult{})
 }
 
@@ -212,6 +219,8 @@ func (x *registrar) handleRemoveTool(ctx *goaktactor.ReceiveContext, msg *runtim
 	x.stopSupervisorIfExists(ctx, msg.ToolID)
 	delete(x.tools, msg.ToolID)
 	delete(x.schemas, msg.ToolID)
+	delete(x.resources, msg.ToolID)
+	delete(x.resourceTemplates, msg.ToolID)
 	delete(x.supervisors, msg.ToolID)
 	x.logger.Infof("actor=%s removed tool=%s", naming.ActorNameRegistrar, msg.ToolID)
 	x.respondIfAsk(ctx, &runtime.RemoveToolResult{})
@@ -255,10 +264,13 @@ func (x *registrar) handleBootstrapTools(ctx *goaktactor.ReceiveContext, msg *ru
 		x.stopSupervisorIfExists(ctx, tool.ID)
 		x.tools[tool.ID] = tool
 		x.fetchAndCacheSchemas(ctx, tool)
+		x.fetchAndCacheResources(ctx, tool)
 		if pid := x.spawnSupervisor(ctx, tool); pid != nil {
 			x.supervisors[tool.ID] = pid
 		}
-		x.logger.Infof("actor=%s bootstrap registered tool=%s schemas=%d", naming.ActorNameRegistrar, tool.ID, len(x.schemas[tool.ID]))
+		x.logger.Infof("actor=%s bootstrap registered tool=%s schemas=%d resources=%d templates=%d",
+			naming.ActorNameRegistrar, tool.ID, len(x.schemas[tool.ID]),
+			len(x.resources[tool.ID]), len(x.resourceTemplates[tool.ID]))
 	}
 }
 
@@ -278,6 +290,8 @@ func (x *registrar) handleListTools(ctx *goaktactor.ReceiveContext) {
 	tools := make([]mcp.Tool, 0, len(x.tools))
 	for _, t := range x.tools {
 		t.Schemas = x.schemas[t.ID]
+		t.Resources = x.resources[t.ID]
+		t.ResourceTemplates = x.resourceTemplates[t.ID]
 		tools = append(tools, t)
 	}
 	x.respondIfAsk(ctx, &runtime.ListToolsResult{Tools: tools})
@@ -547,6 +561,38 @@ func (x *registrar) fetchAndCacheSchemas(ctx *goaktactor.ReceiveContext, tool mc
 		return
 	}
 	x.schemas[tool.ID] = schemas
+}
+
+// fetchAndCacheResources resolves the ResourceFetcherExtension from the actor
+// system, fetches resource metadata from the backend MCP server, and stores them
+// in the resources and resourceTemplates maps. Stale entries are cleared before
+// fetching so that a failed re-registration does not leave outdated data.
+// Fetch failures are logged and result in empty caches for the tool, allowing
+// the runtime to operate without resources.
+func (x *registrar) fetchAndCacheResources(ctx *goaktactor.ReceiveContext, tool mcp.Tool) {
+	delete(x.resources, tool.ID)
+	delete(x.resourceTemplates, tool.ID)
+
+	ext := ctx.Extension(actorextension.ResourceFetcherExtensionID)
+	fetcherExt, ok := ext.(*actorextension.ResourceFetcherExtension)
+	if !ok || fetcherExt == nil {
+		x.logger.Debugf("actor=%s resource fetcher extension not configured, skipping resource fetch for tool=%s", naming.ActorNameRegistrar, tool.ID)
+		return
+	}
+
+	fetcher := fetcherExt.Fetcher()
+	if fetcher == nil {
+		x.logger.Debugf("actor=%s resource fetcher is nil, skipping resource fetch for tool=%s", naming.ActorNameRegistrar, tool.ID)
+		return
+	}
+
+	resources, templates, err := fetcher.FetchResources(ctx.Context(), tool)
+	if err != nil {
+		x.logger.Warnf("actor=%s resource fetch failed for tool=%s: %v", naming.ActorNameRegistrar, tool.ID, err)
+		return
+	}
+	x.resources[tool.ID] = resources
+	x.resourceTemplates[tool.ID] = templates
 }
 
 // handleGetToolSchema returns the cached schemas for a tool.

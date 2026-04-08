@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### MCP Resources (List + Read)
+
+- `ResourceSchema` and `ResourceTemplateSchema` domain types for resource metadata discovered from backend MCP servers via `resources/list` and `resources/templates/list`
+- `ResourceFetcher` interface for discovering resources from backend MCP servers at registration time
+- `ResourceExecutor` optional interface on `ToolExecutor` for handling `resources/read` invocations
+- `Resources` and `ResourceTemplates` fields on `Tool` struct, populated at registration time and returned by `ListTools`
+- HTTP, stdio, and gRPC transport-specific `FetchResources` functions mirroring the existing schema fetch pattern
+- `CompositeResourceFetcher` that routes to the appropriate transport-specific fetcher based on the tool's transport type
+- `ResourceFetcherExtension` actor system extension for dependency injection into the registrar
+- Registrar actor caches resource metadata alongside tool schemas, clears on tool removal, and attaches to `ListTools` results
+- Session actor method-based dispatch : `resources/read` invocations are routed to `ResourceExecutor.ReadResource` on the executor
+- `ReadResource` method on `HTTPExecutor` and `StdioExecutor` : proxies `resources/read` to backend MCP servers via the SDK's `ClientSession.ReadResource`
+- Ingress `RegisterResources` function : registers resources and resource templates on the per-session SDK server with handler closures that dispatch through the gateway
+- `DispatchResourceRead` ingress dispatch function : translates SDK `ReadResourceRequest` into a gateway `Invocation` with method `resources/read`, including OAuth scope propagation
+- `ExecutionResultToReadResourceResult` and `OutputToReadResourceResult` conversion functions for mapping gateway results back to SDK types
+- `ReadResourceResultToOutput` and `ResourceParamsFromInvocation` egress conversion helpers in `mcpconv`
+- `SDKResourcesToSchemas` and `SDKResourceTemplatesToSchemas` conversion helpers in `schemaconv`
+- Resources capability is automatically advertised by the SDK server when resources are registered on the per-session server
+- Resource reads flow through the full actor pipeline (Router → Registrar → ToolSupervisor → Session → Executor) and benefit from circuit breaking, passivation, executor recovery, policy evaluation, credential brokering, and audit journaling
+- gRPC egress returns empty resource slices (gRPC tools use protobuf service definitions, not MCP resources)
+
 #### gRPC Ingress Transport
 
 - `MCPToolService` gRPC service definition (`protos/mcp/v1/mcp_tool_service.proto`) with `ListTools`, `CallTool`, and `CallToolStream` RPCs

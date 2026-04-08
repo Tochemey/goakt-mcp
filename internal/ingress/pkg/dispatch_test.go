@@ -446,6 +446,333 @@ func contextWithTokenInfo(info *auth.TokenInfo) context.Context {
 	return captured
 }
 
+// --- DispatchResourceRead ---------------------------------------------------
+
+func TestDispatchResourceRead(t *testing.T) {
+	t.Run("successful invocation returns resource contents", func(t *testing.T) {
+		gw := &stubInvoker{
+			result: &mcp.ExecutionResult{
+				Status: mcp.ExecutionStatusSuccess,
+				Output: map[string]any{
+					"contents": []map[string]any{
+						{"uri": "file:///readme.md", "mimeType": "text/plain", "text": "hello world"},
+					},
+				},
+			},
+		}
+		req := &sdkmcp.ReadResourceRequest{
+			Params: &sdkmcp.ReadResourceParams{URI: "file:///readme.md"},
+		}
+		r, err := DispatchResourceRead(context.Background(), gw, req, "tool-a", "t1", "c1")
+		require.NoError(t, err)
+		require.NotNil(t, r)
+		require.Len(t, r.Contents, 1)
+		assert.Equal(t, "file:///readme.md", r.Contents[0].URI)
+		assert.Equal(t, "text/plain", r.Contents[0].MIMEType)
+		assert.Equal(t, "hello world", r.Contents[0].Text)
+	})
+
+	t.Run("nil request returns error", func(t *testing.T) {
+		gw := &stubInvoker{}
+		_, err := DispatchResourceRead(context.Background(), gw, nil, "tool", "t", "c")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "request and params are required")
+	})
+
+	t.Run("nil params returns error", func(t *testing.T) {
+		gw := &stubInvoker{}
+		req := &sdkmcp.ReadResourceRequest{}
+		_, err := DispatchResourceRead(context.Background(), gw, req, "tool", "t", "c")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "request and params are required")
+	})
+
+	t.Run("gateway invoke error is returned", func(t *testing.T) {
+		gw := &stubInvoker{err: errors.New("gateway failure")}
+		req := &sdkmcp.ReadResourceRequest{
+			Params: &sdkmcp.ReadResourceParams{URI: "file:///a.txt"},
+		}
+		_, err := DispatchResourceRead(context.Background(), gw, req, "tool-c", "t1", "c1")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "gateway failure")
+	})
+
+	t.Run("invocation has correct method and URI", func(t *testing.T) {
+		var captured *mcp.Invocation
+		gw := &capturingInvoker{
+			result: &mcp.ExecutionResult{
+				Status: mcp.ExecutionStatusSuccess,
+				Output: map[string]any{
+					"contents": []map[string]any{
+						{"uri": "file:///test", "text": "ok"},
+					},
+				},
+			},
+			capture: func(inv *mcp.Invocation) { captured = inv },
+		}
+		req := &sdkmcp.ReadResourceRequest{
+			Params: &sdkmcp.ReadResourceParams{URI: "file:///test"},
+		}
+		_, err := DispatchResourceRead(context.Background(), gw, req, "my-tool", "tenant-1", "client-1")
+		require.NoError(t, err)
+		require.NotNil(t, captured)
+		assert.Equal(t, "resources/read", captured.Method)
+		assert.Equal(t, mcp.ToolID("my-tool"), captured.ToolID)
+		assert.Equal(t, "file:///test", captured.Params["uri"])
+		assert.Equal(t, mcp.TenantID("tenant-1"), captured.Correlation.TenantID)
+		assert.Equal(t, mcp.ClientID("client-1"), captured.Correlation.ClientID)
+		assert.NotEmpty(t, captured.Correlation.RequestID)
+		assert.False(t, captured.ReceivedAt.IsZero())
+	})
+}
+
+// --- DispatchResourceRead scope propagation ---------------------------------
+
+func TestDispatchResourceRead_ScopePropagation(t *testing.T) {
+	t.Run("scopes from TokenInfo are attached to invocation", func(t *testing.T) {
+		var captured *mcp.Invocation
+		gw := &capturingInvoker{
+			result: &mcp.ExecutionResult{
+				Status: mcp.ExecutionStatusSuccess,
+				Output: map[string]any{"contents": []map[string]any{{"uri": "file:///x", "text": "ok"}}},
+			},
+			capture: func(inv *mcp.Invocation) { captured = inv },
+		}
+
+		info := &auth.TokenInfo{
+			Scopes:     []string{"resources:read"},
+			Expiration: time.Now().Add(time.Hour),
+			UserID:     "user-1",
+		}
+		ctx := contextWithTokenInfo(info)
+
+		req := &sdkmcp.ReadResourceRequest{
+			Params: &sdkmcp.ReadResourceParams{URI: "file:///x"},
+		}
+		_, err := DispatchResourceRead(ctx, gw, req, "tool-x", "t1", "c1")
+		require.NoError(t, err)
+		require.NotNil(t, captured)
+		assert.Equal(t, []string{"resources:read"}, captured.Scopes)
+	})
+
+	t.Run("no TokenInfo means empty scopes", func(t *testing.T) {
+		var captured *mcp.Invocation
+		gw := &capturingInvoker{
+			result: &mcp.ExecutionResult{
+				Status: mcp.ExecutionStatusSuccess,
+				Output: map[string]any{"contents": []map[string]any{{"uri": "file:///y", "text": "ok"}}},
+			},
+			capture: func(inv *mcp.Invocation) { captured = inv },
+		}
+
+		req := &sdkmcp.ReadResourceRequest{
+			Params: &sdkmcp.ReadResourceParams{URI: "file:///y"},
+		}
+		_, err := DispatchResourceRead(context.Background(), gw, req, "tool-y", "t1", "c1")
+		require.NoError(t, err)
+		require.NotNil(t, captured)
+		assert.Nil(t, captured.Scopes)
+	})
+
+	t.Run("TokenInfo with empty scopes does not set scopes", func(t *testing.T) {
+		var captured *mcp.Invocation
+		gw := &capturingInvoker{
+			result: &mcp.ExecutionResult{
+				Status: mcp.ExecutionStatusSuccess,
+				Output: map[string]any{"contents": []map[string]any{{"uri": "file:///z", "text": "ok"}}},
+			},
+			capture: func(inv *mcp.Invocation) { captured = inv },
+		}
+
+		info := &auth.TokenInfo{
+			Scopes:     nil,
+			Expiration: time.Now().Add(time.Hour),
+		}
+		ctx := contextWithTokenInfo(info)
+
+		req := &sdkmcp.ReadResourceRequest{
+			Params: &sdkmcp.ReadResourceParams{URI: "file:///z"},
+		}
+		_, err := DispatchResourceRead(ctx, gw, req, "tool-z", "t1", "c1")
+		require.NoError(t, err)
+		require.NotNil(t, captured)
+		assert.Nil(t, captured.Scopes)
+	})
+}
+
+// --- ExecutionResultToReadResourceResult ------------------------------------
+
+func TestExecutionResultToReadResourceResult(t *testing.T) {
+	t.Run("non-nil gateway error with nil result returns error", func(t *testing.T) {
+		_, err := ExecutionResultToReadResourceResult(nil, errors.New("boom"))
+		require.Error(t, err)
+		assert.Equal(t, "boom", err.Error())
+	})
+
+	t.Run("nil result with nil error returns empty error", func(t *testing.T) {
+		_, err := ExecutionResultToReadResourceResult(nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "empty result from gateway")
+	})
+
+	t.Run("non-success status with RuntimeError returns error message", func(t *testing.T) {
+		res := &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusDenied,
+			Err:    mcp.NewRuntimeError(mcp.ErrCodePolicyDenied, "policy denied"),
+		}
+		_, err := ExecutionResultToReadResourceResult(res, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "policy denied")
+	})
+
+	t.Run("non-success status without RuntimeError uses status string", func(t *testing.T) {
+		res := &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusThrottled,
+		}
+		_, err := ExecutionResultToReadResourceResult(res, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "throttled")
+	})
+
+	t.Run("success status with output returns resource result", func(t *testing.T) {
+		res := &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"contents": []map[string]any{
+					{"uri": "file:///a.txt", "text": "content"},
+				},
+			},
+		}
+		r, err := ExecutionResultToReadResourceResult(res, nil)
+		require.NoError(t, err)
+		require.NotNil(t, r)
+		require.Len(t, r.Contents, 1)
+		assert.Equal(t, "file:///a.txt", r.Contents[0].URI)
+		assert.Equal(t, "content", r.Contents[0].Text)
+	})
+
+	t.Run("gateway error with non-nil result uses result", func(t *testing.T) {
+		res := &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"contents": []map[string]any{
+					{"uri": "file:///b.txt", "text": "ok"},
+				},
+			},
+		}
+		r, err := ExecutionResultToReadResourceResult(res, errors.New("soft-err"))
+		require.NoError(t, err)
+		require.NotNil(t, r)
+		require.Len(t, r.Contents, 1)
+		assert.Equal(t, "ok", r.Contents[0].Text)
+	})
+
+	t.Run("success status with nil output returns empty result", func(t *testing.T) {
+		res := &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: nil,
+		}
+		r, err := ExecutionResultToReadResourceResult(res, nil)
+		require.NoError(t, err)
+		require.NotNil(t, r)
+		assert.Empty(t, r.Contents)
+	})
+}
+
+// --- OutputToReadResourceResult ---------------------------------------------
+
+func TestOutputToReadResourceResult(t *testing.T) {
+	t.Run("nil output returns empty result", func(t *testing.T) {
+		r := OutputToReadResourceResult(nil)
+		require.NotNil(t, r)
+		assert.Empty(t, r.Contents)
+	})
+
+	t.Run("output with contents key reconstructs resource contents", func(t *testing.T) {
+		out := map[string]any{
+			"contents": []map[string]any{
+				{"uri": "file:///a.txt", "mimeType": "text/plain", "text": "hello"},
+				{"uri": "file:///b.bin", "mimeType": "application/octet-stream", "blob": []byte{0x01, 0x02}},
+			},
+		}
+		r := OutputToReadResourceResult(out)
+		require.Len(t, r.Contents, 2)
+		assert.Equal(t, "file:///a.txt", r.Contents[0].URI)
+		assert.Equal(t, "text/plain", r.Contents[0].MIMEType)
+		assert.Equal(t, "hello", r.Contents[0].Text)
+		assert.Equal(t, "file:///b.bin", r.Contents[1].URI)
+		assert.Equal(t, "application/octet-stream", r.Contents[1].MIMEType)
+		assert.Equal(t, []byte{0x01, 0x02}, r.Contents[1].Blob)
+	})
+
+	t.Run("output without contents key falls back to JSON text resource", func(t *testing.T) {
+		out := map[string]any{"result": "value"}
+		r := OutputToReadResourceResult(out)
+		require.Len(t, r.Contents, 1)
+		assert.Contains(t, r.Contents[0].Text, "value")
+	})
+
+	t.Run("contents with empty fields are handled gracefully", func(t *testing.T) {
+		out := map[string]any{
+			"contents": []map[string]any{
+				{},
+			},
+		}
+		r := OutputToReadResourceResult(out)
+		require.Len(t, r.Contents, 1)
+		assert.Empty(t, r.Contents[0].URI)
+		assert.Empty(t, r.Contents[0].Text)
+	})
+
+	t.Run("JSON-decoded contents ([]any) are reconstructed correctly", func(t *testing.T) {
+		raw := map[string]any{
+			"contents": []map[string]any{
+				{"uri": "file:///c.txt", "mimeType": "text/plain", "text": "decoded"},
+			},
+		}
+		encoded, err := json.Marshal(raw)
+		require.NoError(t, err)
+		var decoded map[string]any
+		require.NoError(t, json.Unmarshal(encoded, &decoded))
+
+		r := OutputToReadResourceResult(decoded)
+		require.Len(t, r.Contents, 1)
+		assert.Equal(t, "file:///c.txt", r.Contents[0].URI)
+		assert.Equal(t, "text/plain", r.Contents[0].MIMEType)
+		assert.Equal(t, "decoded", r.Contents[0].Text)
+	})
+
+	t.Run("contents with non-map items in []any are skipped", func(t *testing.T) {
+		out := map[string]any{
+			"contents": []any{
+				"not-a-map",
+				map[string]any{"uri": "file:///d.txt", "text": "valid"},
+			},
+		}
+		r := OutputToReadResourceResult(out)
+		require.Len(t, r.Contents, 1)
+		assert.Equal(t, "file:///d.txt", r.Contents[0].URI)
+	})
+
+	t.Run("contents with unrecognized type value in []any produces empty items", func(t *testing.T) {
+		out := map[string]any{
+			"contents": []any{
+				42, // not a map — skipped
+			},
+		}
+		r := OutputToReadResourceResult(out)
+		assert.Empty(t, r.Contents)
+	})
+
+	t.Run("contents as unsupported type produces empty result", func(t *testing.T) {
+		out := map[string]any{
+			"contents": "not-a-slice",
+		}
+		r := OutputToReadResourceResult(out)
+		assert.Empty(t, r.Contents)
+	})
+}
+
 // --- NewRequestID ------------------------------------------------------------
 
 func TestNewRequestID(t *testing.T) {
