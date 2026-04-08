@@ -100,14 +100,44 @@ func TestPolicyEvaluatorInterface(t *testing.T) {
 }
 
 func TestPolicyInput(t *testing.T) {
-	in := mcp.PolicyInput{
-		TenantID:                "tenant-a",
-		ToolID:                  "weather-tool",
-		ActiveSessionCount:      5,
-		RequestsInCurrentMinute: 42,
+	t.Run("basic fields", func(t *testing.T) {
+		in := mcp.PolicyInput{
+			TenantID:                "tenant-a",
+			ToolID:                  "weather-tool",
+			ActiveSessionCount:      5,
+			RequestsInCurrentMinute: 42,
+		}
+		assert.Equal(t, mcp.TenantID("tenant-a"), in.TenantID)
+		assert.Equal(t, mcp.ToolID("weather-tool"), in.ToolID)
+		assert.Equal(t, 5, in.ActiveSessionCount)
+		assert.Equal(t, 42, in.RequestsInCurrentMinute)
+	})
+
+	t.Run("scopes field is settable", func(t *testing.T) {
+		in := mcp.PolicyInput{
+			TenantID: "tenant-a",
+			ToolID:   "tool-1",
+			Scopes:   []string{"tools:read", "tools:write"},
+		}
+		assert.Equal(t, []string{"tools:read", "tools:write"}, in.Scopes)
+	})
+
+	t.Run("scopes field defaults to nil", func(t *testing.T) {
+		in := mcp.PolicyInput{}
+		assert.Nil(t, in.Scopes)
+	})
+}
+
+func TestPolicyEvaluator_ReceivesScopes(t *testing.T) {
+	capturing := &inputCapturingEvaluator{}
+	var ev mcp.PolicyEvaluator = capturing
+	input := mcp.PolicyInput{
+		TenantID: "tenant-a",
+		ToolID:   "tool-1",
+		Scopes:   []string{"tools:read", "admin"},
 	}
-	assert.Equal(t, mcp.TenantID("tenant-a"), in.TenantID)
-	assert.Equal(t, mcp.ToolID("weather-tool"), in.ToolID)
-	assert.Equal(t, 5, in.ActiveSessionCount)
-	assert.Equal(t, 42, in.RequestsInCurrentMinute)
+	result := ev.Evaluate(context.Background(), input)
+	assert.Nil(t, result)
+	require.NotNil(t, capturing.captured)
+	assert.Equal(t, []string{"tools:read", "admin"}, capturing.captured.Scopes)
 }

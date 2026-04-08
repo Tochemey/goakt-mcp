@@ -39,11 +39,10 @@ import (
 
 	"github.com/tochemey/goakt-mcp/internal/discovery"
 	"github.com/tochemey/goakt-mcp/internal/egress"
-	"github.com/tochemey/goakt-mcp/internal/naming"
-	"github.com/tochemey/goakt-mcp/internal/security"
 	ingresshttp "github.com/tochemey/goakt-mcp/internal/ingress/http"
 	ingresssse "github.com/tochemey/goakt-mcp/internal/ingress/sse"
 	ingressws "github.com/tochemey/goakt-mcp/internal/ingress/ws"
+	"github.com/tochemey/goakt-mcp/internal/naming"
 	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
@@ -51,6 +50,7 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime/config"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
+	"github.com/tochemey/goakt-mcp/internal/security"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 

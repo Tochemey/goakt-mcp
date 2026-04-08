@@ -28,4 +28,4 @@
 // consumed by all ingress handlers), the per-session server factory
 // ([BuildGetServer]), and the tool dispatch and conversion functions that
 // translate between the MCP SDK types and the gateway runtime types.
-package shared
+package pkg

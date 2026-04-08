@@ -34,7 +34,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tochemey/goakt-mcp/internal/ingress/shared"
+	"github.com/tochemey/goakt-mcp/internal/ingress/pkg"
 	ingresssse "github.com/tochemey/goakt-mcp/internal/ingress/sse"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
@@ -78,7 +78,7 @@ func (f *fakeInvoker) ListTools(_ context.Context) ([]mcp.Tool, error) {
 
 func newTestSSESession(
 	t *testing.T,
-	gw shared.Invoker,
+	gw pkg.Invoker,
 	cfg mcp.IngressConfig,
 ) *sdkmcp.ClientSession {
 	t.Helper()

@@ -142,6 +142,7 @@ func (x *policyMaker) handleEvaluate(ctx *goaktactor.ReceiveContext, msg *policy
 			ToolID:                  in.Tool.ID,
 			ActiveSessionCount:      in.ActiveSessionCount,
 			RequestsInCurrentMinute: in.RequestsInCurrentMinute,
+			Scopes:                  in.Scopes,
 		}
 		if runtimeErr := in.TenantConfig.Evaluator.Evaluate(ctx.Context(), policyInput); runtimeErr != nil {
 			ctx.Response(&policy.EvaluateResult{

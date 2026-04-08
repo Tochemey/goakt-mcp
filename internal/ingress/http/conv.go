@@ -28,7 +28,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tochemey/goakt-mcp/internal/ingress/shared"
+	"github.com/tochemey/goakt-mcp/internal/ingress/pkg"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -38,13 +38,13 @@ import (
 
 func dispatchToolCall(
 	ctx context.Context,
-	gw shared.Invoker,
+	gw pkg.Invoker,
 	req *sdkmcp.CallToolRequest,
 	toolID mcp.ToolID,
 	tenantID mcp.TenantID,
 	clientID mcp.ClientID,
 ) (*sdkmcp.CallToolResult, error) {
-	return shared.DispatchToolCall(ctx, gw, req, toolID, tenantID, clientID)
+	return pkg.DispatchToolCall(ctx, gw, req, toolID, tenantID, clientID)
 }
 
 func requestToInvocation(
@@ -53,17 +53,17 @@ func requestToInvocation(
 	tenantID mcp.TenantID,
 	clientID mcp.ClientID,
 ) (*mcp.Invocation, error) {
-	return shared.RequestToInvocation(req, toolID, tenantID, clientID)
+	return pkg.RequestToInvocation(req, toolID, tenantID, clientID)
 }
 
 func executionResultToCallToolResult(res *mcp.ExecutionResult, gwErr error) *sdkmcp.CallToolResult {
-	return shared.ExecutionResultToCallToolResult(res, gwErr)
+	return pkg.ExecutionResultToCallToolResult(res, gwErr)
 }
 
 func outputToCallToolResult(output map[string]any) *sdkmcp.CallToolResult {
-	return shared.OutputToCallToolResult(output)
+	return pkg.OutputToCallToolResult(output)
 }
 
 func newRequestID() mcp.RequestID {
-	return shared.NewRequestID()
+	return pkg.NewRequestID()
 }

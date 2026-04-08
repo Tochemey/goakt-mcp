@@ -27,9 +27,10 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tochemey/goakt-mcp/internal/ingress/shared"
+	"github.com/tochemey/goakt-mcp/internal/ingress/pkg"
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
@@ -45,17 +46,30 @@ import (
 // New validates that cfg.IdentityResolver is non-nil and returns an error
 // if it is not. The gateway does not need to be started at the time New is
 // called; tool registration happens lazily on first session creation.
-func New(gw shared.Invoker, cfg mcp.IngressConfig) (http.Handler, error) {
+func New(gw pkg.Invoker, cfg mcp.IngressConfig) (http.Handler, error) {
+	if err := pkg.ResolveAuthDefaults(&cfg); err != nil {
+		return nil, err
+	}
+
 	if cfg.IdentityResolver == nil {
 		return nil, errors.New("ingress: IdentityResolver must not be nil")
 	}
 
-	getServer := shared.BuildGetServer(gw, cfg.IdentityResolver)
+	getServer := pkg.BuildGetServer(gw, cfg.IdentityResolver)
 
 	opts := &sdkmcp.StreamableHTTPOptions{
 		Stateless:      cfg.Stateless,
 		SessionTimeout: cfg.SessionIdleTimeout,
 	}
 
-	return sdkmcp.NewStreamableHTTPHandler(getServer, opts), nil
+	var handler http.Handler = sdkmcp.NewStreamableHTTPHandler(getServer, opts)
+
+	if cfg.EnterpriseAuth != nil {
+		handler = auth.RequireBearerToken(cfg.EnterpriseAuth.TokenVerifier, &auth.RequireBearerTokenOptions{
+			ResourceMetadataURL: pkg.ResourceMetadataURL(cfg.EnterpriseAuth.ResourceMetadata),
+			Scopes:              cfg.EnterpriseAuth.RequiredScopes,
+		})(handler)
+	}
+
+	return handler, nil
 }

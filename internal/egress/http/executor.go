@@ -171,9 +171,10 @@ func NewHTTPExecutor(cfg *mcp.HTTPTransportConfig, fallbackClient *http.Client, 
 
 	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "goakt-mcp", Version: mcp.Version()}, nil)
 	transport := &sdkmcp.StreamableClientTransport{
-		Endpoint:   cfg.URL,
-		HTTPClient: httpClient,
-		MaxRetries: 2,
+		Endpoint:     cfg.URL,
+		HTTPClient:   httpClient,
+		MaxRetries:   2,
+		OAuthHandler: cfg.OAuthHandler,
 	}
 
 	ctx := context.Background()

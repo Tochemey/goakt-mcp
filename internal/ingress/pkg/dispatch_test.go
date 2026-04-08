@@ -21,14 +21,18 @@
 // SOFTWARE.
 //
 
-package shared
+package pkg
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -319,6 +323,127 @@ func TestDispatchToolCall(t *testing.T) {
 		require.NotNil(t, r)
 		assert.True(t, r.IsError)
 	})
+}
+
+// --- Scope propagation -------------------------------------------------------
+
+func TestDispatchToolCall_ScopePropagation(t *testing.T) {
+	t.Run("scopes from TokenInfo are attached to invocation", func(t *testing.T) {
+		// capturingInvoker records the invocation so we can inspect it.
+		var captured *mcp.Invocation
+		gw := &capturingInvoker{
+			result: &mcp.ExecutionResult{
+				Status: mcp.ExecutionStatusSuccess,
+				Output: map[string]any{"content": []map[string]any{{"type": "text", "text": "ok"}}},
+			},
+			capture: func(inv *mcp.Invocation) { captured = inv },
+		}
+
+		info := &auth.TokenInfo{
+			Scopes:     []string{"tools:read", "tools:write"},
+			Expiration: time.Now().Add(time.Hour),
+			UserID:     "user-1",
+		}
+		ctx := contextWithTokenInfo(info)
+
+		req := makeCallToolRequest("tool-x", map[string]any{"key": "val"})
+		r, err := DispatchToolCall(ctx, gw, req, "tool-x", "t1", "c1")
+		require.NoError(t, err)
+		require.NotNil(t, r)
+		assert.False(t, r.IsError)
+		require.NotNil(t, captured)
+		assert.Equal(t, []string{"tools:read", "tools:write"}, captured.Scopes)
+	})
+
+	t.Run("no TokenInfo means empty scopes", func(t *testing.T) {
+		var captured *mcp.Invocation
+		gw := &capturingInvoker{
+			result: &mcp.ExecutionResult{
+				Status: mcp.ExecutionStatusSuccess,
+				Output: map[string]any{"content": []map[string]any{{"type": "text", "text": "ok"}}},
+			},
+			capture: func(inv *mcp.Invocation) { captured = inv },
+		}
+
+		req := makeCallToolRequest("tool-y", map[string]any{"a": 1})
+		r, err := DispatchToolCall(context.Background(), gw, req, "tool-y", "t1", "c1")
+		require.NoError(t, err)
+		require.NotNil(t, r)
+		assert.False(t, r.IsError)
+		require.NotNil(t, captured)
+		assert.Nil(t, captured.Scopes)
+	})
+
+	t.Run("TokenInfo with empty scopes does not set scopes", func(t *testing.T) {
+		var captured *mcp.Invocation
+		gw := &capturingInvoker{
+			result: &mcp.ExecutionResult{
+				Status: mcp.ExecutionStatusSuccess,
+				Output: map[string]any{"content": []map[string]any{{"type": "text", "text": "ok"}}},
+			},
+			capture: func(inv *mcp.Invocation) { captured = inv },
+		}
+
+		info := &auth.TokenInfo{
+			Scopes:     nil,
+			Expiration: time.Now().Add(time.Hour),
+		}
+		ctx := contextWithTokenInfo(info)
+
+		req := makeCallToolRequest("tool-z", nil)
+		r, err := DispatchToolCall(ctx, gw, req, "tool-z", "t1", "c1")
+		require.NoError(t, err)
+		require.NotNil(t, r)
+		require.NotNil(t, captured)
+		assert.Nil(t, captured.Scopes)
+	})
+}
+
+// capturingInvoker records the invocation for assertion.
+type capturingInvoker struct {
+	result  *mcp.ExecutionResult
+	err     error
+	listErr error
+	tools   []mcp.Tool
+	capture func(*mcp.Invocation)
+}
+
+func (c *capturingInvoker) Invoke(_ context.Context, inv *mcp.Invocation) (*mcp.ExecutionResult, error) {
+	if c.capture != nil {
+		c.capture(inv)
+	}
+	return c.result, c.err
+}
+
+func (c *capturingInvoker) ListTools(_ context.Context) ([]mcp.Tool, error) {
+	if c.listErr != nil {
+		return nil, c.listErr
+	}
+	return c.tools, nil
+}
+
+// contextWithTokenInfo creates a context.Context with auth.TokenInfo injected
+// via the SDK's RequireBearerToken middleware so TokenInfoFromContext works.
+func contextWithTokenInfo(info *auth.TokenInfo) context.Context {
+	verifier := auth.TokenVerifier(func(_ context.Context, _ string, _ *http.Request) (*auth.TokenInfo, error) {
+		return info, nil
+	})
+	middleware := auth.RequireBearerToken(verifier, nil)
+
+	var captured context.Context
+	inner := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		captured = r.Context()
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	middleware(inner).ServeHTTP(rec, req)
+
+	if captured == nil {
+		return context.Background()
+	}
+	return captured
 }
 
 // --- NewRequestID ------------------------------------------------------------

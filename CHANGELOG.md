@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### Enterprise-Managed Authorization (MCP Extension)
+
+- MCP enterprise-managed authorization extension (`io.modelcontextprotocol/enterprise-managed-authorization`) support for centralized access control through enterprise identity providers
+- `EnterpriseAuthConfig` on `IngressConfig` enables Bearer token enforcement per RFC 9728 on all ingress transports (Streamable HTTP, SSE, WebSocket)
+- `IdentityMapper` interface for mapping validated token claims to the gateway's `TenantID` and `ClientID` identity model
+- `IdentityMapperFunc` adapter for using plain functions as `IdentityMapper`
+- `DefaultIdentityMapper()` maps `TokenInfo.UserID` to `ClientID` with `TenantID` defaulting to "default"
+- `NewTokenIdentityResolver()` creates an `IdentityResolver` backed by validated bearer tokens from request context
+- `ProtectedResourceMetadataHandler()` serves OAuth 2.0 Protected Resource Metadata (RFC 9728) for client discovery of authorization servers
+- OAuth scope propagation from bearer tokens through to `PolicyInput.Scopes`, enabling scope-aware custom `PolicyEvaluator` implementations
+- `Scopes` field on `Invocation` carries granted OAuth scopes through the full request lifecycle
+- `Scopes` field on `PolicyInput` exposes granted scopes to custom policy evaluators
+- Automatic `IdentityResolver` installation when `EnterpriseAuth` is configured without an explicit resolver
+- `RequiredScopes` enforcement at the middleware level with HTTP 403 Forbidden for insufficient scopes
+- Validation of `EnterpriseAuthConfig` (requires `TokenVerifier`, `ResourceMetadata` with non-empty `Resource`)
+- `OAuthHandler` field on `HTTPTransportConfig` enables enterprise-managed authorization on outbound connections to tool backends, supporting the full 3-step flow (OIDC login, RFC 8693 token exchange, RFC 7523 JWT bearer grant) via the SDK's `extauth.EnterpriseHandler`
+- Built on the MCP Go SDK's `auth` and `oauthex` packages for standards-compliant OAuth 2.0 token verification, RFC 8693 token exchange, and RFC 7523 JWT bearer grants
+
 ## [v0.1.0] - 2026-03-15
 
 Initial release of goakt-mcp -- a production-ready MCP gateway library for Go, built on the GoAkt actor framework.

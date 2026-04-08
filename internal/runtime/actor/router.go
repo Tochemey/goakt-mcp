@@ -359,6 +359,7 @@ func (x *router) evaluatePolicy(goCtx context.Context, inv *mcp.Invocation, tool
 		TenantID:           tenantID,
 		ClientID:           clientID,
 		ActiveSessionCount: activeSessions,
+		Scopes:             inv.Scopes,
 	}
 
 	policyStart := time.Now()
