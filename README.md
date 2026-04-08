@@ -31,17 +31,23 @@ The actor model is a strong fit for this problem space. Each tool has a dedicate
 
 - **Triple transport egress** — invoke tools over stdio (child process), HTTP (remote MCP server), or gRPC (with proto descriptor sets or server reflection)
 - **Four ingress transports** — serve MCP clients via Streamable HTTP, Server-Sent Events, WebSocket, or gRPC (with streaming progress support)
+- **Streaming invocations** — `InvokeStream` returns a `StreamingResult` with a progress event channel and a final result channel, backed by gRPC server-streaming RPCs
+- **Enterprise authentication** — OAuth 2.0 Bearer token validation, pluggable `TokenVerifier`, `IdentityMapper`, and RFC 9728 Protected Resource Metadata discovery (`/.well-known/oauth-protected-resource`); includes gRPC auth interceptors for unary and streaming RPCs
 - **Multi-tenancy** — per-tenant quota enforcement (rate limiting + concurrency caps) and pluggable policy evaluation
 - **Credential brokering** — resolve secrets from any source (vault, env, KMS) and inject them into invocations, with a configurable LRU cache
 - **Session affinity** — sticky session ownership per tenant + client + tool; or least-loaded balancing for stateless tools
+- **Session idle passivation** — sessions are automatically passivated after a configurable idle timeout (default 5 min), reclaiming resources without client intervention
 - **Circuit breakers** — per-tool circuit breakers with configurable failure thresholds, open durations, and half-open probing
 - **Transparent recovery** — failed sessions re-create their executor and retry automatically, without waiting for passivation
+- **Backpressure** — `MaxSessionsPerTool` hard cap prevents overloaded tools from starving shared resources; bounded mailbox on the audit journal provides natural backpressure without dropping events
 - **Health probing** — periodic health checks on every tool supervisor; circuit state transitions reflected in tool status
 - **Dynamic tool management** — register, update, enable, disable, drain, and remove tools without restarting the gateway
 - **Schema discovery** — automatically fetches and caches MCP tool schemas from backends at registration time
+- **Structured error codes** — 14 typed `ErrorCode` values (`TOOL_NOT_FOUND`, `POLICY_DENIED`, `RATE_LIMITED`, `TRANSPORT_FAILURE`, etc.) with `RuntimeError` wrapping and full `errors.Is`/`As` support
 - **OpenTelemetry** — traces and metrics exported via OTLP; W3C trace-context propagated on egress
+- **Structured logging** — pluggable `Logger` interface (zap, zerolog, slog, logrus, etc.) with structured correlation fields (tenant ID, tool ID, request ID, trace ID) on every log line
 - **Durable audit trail** — every policy decision, invocation, circuit state change, and health transition is written to a pluggable `AuditSink`
-- **Cluster mode** — multi-node operation with gossip membership, distributed actor messaging, cluster-singleton registrar, and pluggable peer discovery (Kubernetes, DNS-SD, or custom)
+- **Cluster mode** — multi-node operation with gossip membership, distributed actor messaging, cluster-singleton registrar, and pluggable peer discovery
 - **TLS everywhere** — optional mutual TLS for cluster remoting and tool-backend HTTP connections
 - **Fully pluggable** — every operational concern (identity, policy, credentials, audit, discovery) is an interface you implement
 
@@ -530,7 +536,7 @@ type DiscoveryProvider interface {
 }
 ```
 
-`DiscoverPeers` returns a list of peer addresses (host:port for the discovery port). goakt-mcp ships with two ready-made implementations:
+`DiscoverPeers` returns a list of peer addresses (host:port for the discovery port). goakt-mcp defines the `DiscoveryProvider` interface — you supply the implementation that matches your infrastructure (Kubernetes, Consul, DNS-SD, static list, etc.). The [cluster example](examples/cluster/) includes a sample Kubernetes-based provider.
 
 ### TLS
 
@@ -562,9 +568,9 @@ Controls timeouts and probe intervals for the actor runtime.
 |---------------------|---------------------------------------------------------------------------|
 | `Enabled`           | Activate cluster mode                                                     |
 | `DiscoveryProvider` | Required when enabled — peer discovery implementation                     |
-| `DiscoveryPort`     | Port for the discovery protocol (default 3322)                            |
-| `PeersPort`         | Port for the gossip memberlist protocol (default 3320)                    |
-| `RemotingPort`      | Port for GoAkt actor-to-actor remoting (default 3321)                     |
+| `DiscoveryPort`     | Port for the discovery protocol (default 15000)                           |
+| `PeersPort`         | Port for the gossip memberlist protocol (default 15000)                   |
+| `RemotingPort`      | Port for GoAkt actor-to-actor remoting (default 15001)                    |
 | `RegistrarRole`     | Optional cluster role that pins the singleton registrar to specific nodes |
 | `TLS`               | Optional `*RemotingTLSConfig` for encrypted remoting                      |
 
@@ -630,6 +636,7 @@ The `Gateway` struct is the sole public entry point. All methods are safe to cal
 | `New(cfg, ...opts) (*Gateway, error)` | Construct the gateway; validates config and applies options                      |
 | `Start(ctx) error`                    | Start the actor system, spawn the runtime actors, and bootstrap configured tools |
 | `Stop(ctx) error`                     | Gracefully drain in-flight invocations and shut down the actor system            |
+| `System() ActorSystem`                | Access the underlying GoAkt actor system (e.g. for custom actor interactions)    |
 
 ### Tool Invocation
 
@@ -664,13 +671,13 @@ These methods provide live visibility and control over a running gateway. They a
 
 ### Ingress Handlers
 
-| Method                                                                | Description                                                     |
-|-----------------------------------------------------------------------|-----------------------------------------------------------------|
-| `Handler(cfg IngressConfig) (http.Handler, error)`                    | MCP Streamable HTTP handler (2025-11-25 spec)                   |
-| `SSEHandler(cfg IngressConfig) (http.Handler, error)`                 | Server-Sent Events handler (2024-11-05 spec)                    |
-| `WSHandler(cfg IngressConfig, wsCfg *WSConfig) (http.Handler, error)` | WebSocket handler                                               |
-| `RegisterGRPCService(srv *grpc.Server, cfg GRPCIngressConfig) error`  | Register the MCPToolService gRPC service with streaming support |
-| `GRPCAuthInterceptors(ea *EnterpriseAuthConfig) (unary, stream, error)` | Bearer token auth interceptors for the gRPC ingress           |
+| Method                                                                  | Description                                                     |
+|-------------------------------------------------------------------------|-----------------------------------------------------------------|
+| `Handler(cfg IngressConfig) (http.Handler, error)`                      | MCP Streamable HTTP handler (2025-11-25 spec)                   |
+| `SSEHandler(cfg IngressConfig) (http.Handler, error)`                   | Server-Sent Events handler (2024-11-05 spec)                    |
+| `WSHandler(cfg IngressConfig, wsCfg *WSConfig) (http.Handler, error)`   | WebSocket handler                                               |
+| `RegisterGRPCService(srv *grpc.Server, cfg GRPCIngressConfig) error`    | Register the MCPToolService gRPC service with streaming support |
+| `GRPCAuthInterceptors(ea *EnterpriseAuthConfig) (unary, stream, error)` | Bearer token auth interceptors for the gRPC ingress             |
 
 ### Options
 
@@ -780,4 +787,3 @@ goakt-mcp requires Go 1.26 or later. The `mcp` package contains all public domai
 ## License
 
 This project is licensed under the terms in [LICENSE](LICENSE).
-```
