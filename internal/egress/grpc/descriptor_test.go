@@ -34,6 +34,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
 
 	egressgrpc "github.com/tochemey/goakt-mcp/internal/egress/grpc"
 	"github.com/tochemey/goakt-mcp/internal/egress/grpc/testdata"
@@ -129,6 +131,22 @@ func TestFetchDescriptorSetViaReflection(t *testing.T) {
 		_, err := egressgrpc.FetchDescriptorSetViaReflection(ctx, conn, "testpkg.TestService")
 		require.Error(t, err)
 	})
+
+	t.Run("returns error for non-reflection server", func(t *testing.T) {
+		noRefAddr, noRefCleanup, err := testdata.StartTestServer(false)
+		require.NoError(t, err)
+		defer noRefCleanup()
+
+		noRefConn, err := grpc.NewClient(noRefAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		require.NoError(t, err)
+		defer noRefConn.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		_, err = egressgrpc.FetchDescriptorSetViaReflection(ctx, noRefConn, "testpkg.TestService")
+		require.Error(t, err)
+	})
 }
 
 func TestResolveService(t *testing.T) {
@@ -152,6 +170,22 @@ func TestResolveService(t *testing.T) {
 		_, err := egressgrpc.ResolveService(fds, "testpkg.EchoRequest")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not a service descriptor")
+	})
+
+	t.Run("returns error for invalid file descriptor set", func(t *testing.T) {
+		// Create a FileDescriptorSet with an invalid file descriptor that
+		// references a non-existent dependency, causing protodesc.NewFiles to fail.
+		badFDS := &descriptorpb.FileDescriptorSet{
+			File: []*descriptorpb.FileDescriptorProto{
+				{
+					Name:       proto.String("bad.proto"),
+					Dependency: []string{"nonexistent.proto"},
+				},
+			},
+		}
+		_, err := egressgrpc.ResolveService(badFDS, "some.Service")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "build file registry")
 	})
 }
 

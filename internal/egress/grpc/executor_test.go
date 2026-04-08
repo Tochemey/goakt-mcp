@@ -575,6 +575,221 @@ func TestGRPCExecutor_Execute_afterClose(t *testing.T) {
 	assert.Equal(t, mcp.ExecutionStatusFailure, result.Status)
 }
 
+func TestGRPCExecutor_ExecuteStream_afterClose(t *testing.T) {
+	addr, cleanup, err := testdata.StartTestServer(false)
+	require.NoError(t, err)
+	defer cleanup()
+
+	absPath, err := filepath.Abs(testDescriptorSetPath(t))
+	require.NoError(t, err)
+
+	cfg := &mcp.GRPCTransportConfig{
+		Target:        addr,
+		Service:       "testpkg.TestService",
+		DescriptorSet: absPath,
+	}
+	exec, err := egressgrpc.NewGRPCExecutor(cfg, 5*time.Second)
+	require.NoError(t, err)
+	require.NoError(t, exec.Close())
+
+	inv := &mcp.Invocation{
+		ToolID: "test-tool",
+		Params: map[string]any{
+			"name": "StreamEcho",
+			"arguments": map[string]any{
+				"message": "after-close",
+				"count":   1,
+			},
+		},
+	}
+
+	streamResult, err := exec.ExecuteStream(context.Background(), inv)
+	require.NoError(t, err)
+	for range streamResult.Progress {
+	}
+	finalResult := <-streamResult.Final
+	require.NotNil(t, finalResult)
+	assert.Equal(t, mcp.ExecutionStatusFailure, finalResult.Status)
+}
+
+func TestGRPCExecutor_ExecuteStream_nilParams(t *testing.T) {
+	addr, cleanup, err := testdata.StartTestServer(false)
+	require.NoError(t, err)
+	defer cleanup()
+
+	absPath, err := filepath.Abs(testDescriptorSetPath(t))
+	require.NoError(t, err)
+
+	cfg := &mcp.GRPCTransportConfig{
+		Target:        addr,
+		Service:       "testpkg.TestService",
+		DescriptorSet: absPath,
+	}
+	exec, err := egressgrpc.NewGRPCExecutor(cfg, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	inv := &mcp.Invocation{
+		ToolID: "Echo",
+		Params: nil,
+	}
+
+	streamResult, err := exec.ExecuteStream(context.Background(), inv)
+	require.NoError(t, err)
+	for range streamResult.Progress {
+	}
+	finalResult := <-streamResult.Final
+	require.NotNil(t, finalResult)
+	assert.Equal(t, mcp.ExecutionStatusFailure, finalResult.Status)
+}
+
+func TestGRPCExecutor_ExecuteStream_withMetadata(t *testing.T) {
+	addr, cleanup, err := testdata.StartTestServer(false)
+	require.NoError(t, err)
+	defer cleanup()
+
+	absPath, err := filepath.Abs(testDescriptorSetPath(t))
+	require.NoError(t, err)
+
+	cfg := &mcp.GRPCTransportConfig{
+		Target:        addr,
+		Service:       "testpkg.TestService",
+		DescriptorSet: absPath,
+		Metadata: map[string]string{
+			"x-api-key": "test-key",
+		},
+	}
+	exec, err := egressgrpc.NewGRPCExecutor(cfg, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	inv := &mcp.Invocation{
+		ToolID: "test-tool",
+		Params: map[string]any{
+			"name": "StreamEcho",
+			"arguments": map[string]any{
+				"message": "with-metadata",
+				"count":   2,
+			},
+		},
+	}
+
+	streamResult, err := exec.ExecuteStream(context.Background(), inv)
+	require.NoError(t, err)
+	var events []mcp.ProgressEvent
+	for evt := range streamResult.Progress {
+		events = append(events, evt)
+	}
+	assert.Len(t, events, 2)
+	finalResult := <-streamResult.Final
+	require.NotNil(t, finalResult)
+	assert.Equal(t, mcp.ExecutionStatusSuccess, finalResult.Status)
+}
+
+func TestGRPCExecutor_Execute_invalidProtoArgs(t *testing.T) {
+	addr, cleanup, err := testdata.StartTestServer(false)
+	require.NoError(t, err)
+	defer cleanup()
+
+	absPath, err := filepath.Abs(testDescriptorSetPath(t))
+	require.NoError(t, err)
+
+	cfg := &mcp.GRPCTransportConfig{
+		Target:        addr,
+		Service:       "testpkg.TestService",
+		Method:        "Echo",
+		DescriptorSet: absPath,
+	}
+	exec, err := egressgrpc.NewGRPCExecutor(cfg, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	// Pass an argument with a key that doesn't exist in the proto schema
+	inv := &mcp.Invocation{
+		ToolID: "test-tool",
+		Params: map[string]any{
+			"name": "Echo",
+			"arguments": map[string]any{
+				"nonexistent_field": "value",
+			},
+		},
+	}
+
+	result, err := exec.Execute(context.Background(), inv)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	// protojson should reject unknown fields
+	assert.Equal(t, mcp.ExecutionStatusFailure, result.Status)
+}
+
+func TestGRPCExecutor_ExecuteStream_invalidProtoArgs(t *testing.T) {
+	addr, cleanup, err := testdata.StartTestServer(false)
+	require.NoError(t, err)
+	defer cleanup()
+
+	absPath, err := filepath.Abs(testDescriptorSetPath(t))
+	require.NoError(t, err)
+
+	cfg := &mcp.GRPCTransportConfig{
+		Target:        addr,
+		Service:       "testpkg.TestService",
+		DescriptorSet: absPath,
+	}
+	exec, err := egressgrpc.NewGRPCExecutor(cfg, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	inv := &mcp.Invocation{
+		ToolID: "test-tool",
+		Params: map[string]any{
+			"name": "StreamEcho",
+			"arguments": map[string]any{
+				"nonexistent_field": "value",
+			},
+		},
+	}
+
+	streamResult, err := exec.ExecuteStream(context.Background(), inv)
+	require.NoError(t, err)
+	for range streamResult.Progress {
+	}
+	finalResult := <-streamResult.Final
+	require.NotNil(t, finalResult)
+	assert.Equal(t, mcp.ExecutionStatusFailure, finalResult.Status)
+}
+
+func TestGRPCExecutor_NewWithReflection_AllMethods(t *testing.T) {
+	addr, cleanup, err := testdata.StartTestServer(true)
+	require.NoError(t, err)
+	defer cleanup()
+
+	cfg := &mcp.GRPCTransportConfig{
+		Target:     addr,
+		Service:    "testpkg.TestService",
+		Reflection: true,
+	}
+	exec, err := egressgrpc.NewGRPCExecutor(cfg, 5*time.Second)
+	require.NoError(t, err)
+	defer exec.Close()
+
+	// Execute with all-methods mode via reflection
+	inv := &mcp.Invocation{
+		ToolID: "test-tool",
+		Params: map[string]any{
+			"name": "Echo",
+			"arguments": map[string]any{
+				"message": "reflection-all",
+				"count":   1,
+			},
+		},
+	}
+
+	result, err := exec.Execute(context.Background(), inv)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, mcp.ExecutionStatusSuccess, result.Status)
+}
+
 func TestGRPCExecutor_Close(t *testing.T) {
 	addr, cleanup, err := testdata.StartTestServer(false)
 	require.NoError(t, err)

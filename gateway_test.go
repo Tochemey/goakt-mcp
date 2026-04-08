@@ -37,6 +37,7 @@ import (
 
 	"github.com/tochemey/goakt-mcp/internal/egress"
 	"github.com/tochemey/goakt-mcp/internal/naming"
+	"github.com/tochemey/goakt-mcp/internal/runtime"
 	"github.com/tochemey/goakt-mcp/internal/runtime/actor"
 	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/mcp"
@@ -358,13 +359,22 @@ func TestGatewayAPI(t *testing.T) {
 		_, err = gw.Invoke(ctx, &mcp.Invocation{})
 		require.Error(t, err)
 
+		_, err = gw.InvokeStream(ctx, &mcp.Invocation{})
+		require.Error(t, err)
+
 		err = gw.RegisterTool(ctx, mcp.Tool{ID: "x", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "y"}})
+		require.Error(t, err)
+
+		err = gw.UpdateTool(ctx, mcp.Tool{ID: "x", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "y"}})
 		require.Error(t, err)
 
 		err = gw.DisableTool(ctx, "x")
 		require.Error(t, err)
 
 		err = gw.RemoveTool(ctx, "x")
+		require.Error(t, err)
+
+		err = gw.EnableTool(ctx, "x")
 		require.Error(t, err)
 	})
 
@@ -503,6 +513,19 @@ func TestGatewayAPI(t *testing.T) {
 			},
 		})
 		require.Error(t, err)
+
+		// Exercise InvokeStream through the resolver fallback path
+		_, err = gw.InvokeStream(ctx, &mcp.Invocation{
+			ToolID: "fallback-tool",
+			Method: "tools/call",
+			Params: map[string]any{},
+			Correlation: mcp.CorrelationMeta{
+				TenantID:  "test-tenant",
+				ClientID:  "test-client",
+				RequestID: "req-stream-fallback",
+			},
+		})
+		require.Error(t, err) // tool execution will fail but routing should work
 	})
 }
 
@@ -604,6 +627,14 @@ func TestGatewayDraining(t *testing.T) {
 		assert.Contains(t, err.Error(), "shutting down")
 
 		err = gw.RemoveTool(ctx, "x")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "shutting down")
+
+		_, err = gw.InvokeStream(ctx, &mcp.Invocation{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "shutting down")
+
+		err = gw.UpdateTool(ctx, mcp.Tool{ID: "x", Transport: mcp.TransportStdio, Stdio: &mcp.StdioTransportConfig{Command: "y"}})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "shutting down")
 
@@ -952,4 +983,635 @@ func TestToolIDFromPassivatedPath(t *testing.T) {
 			assert.Equal(t, tt.expected, toolIDFromPath(tt.path))
 		})
 	}
+}
+
+// syncStreamRouterActor responds to RouteInvokeStream with a synchronous result
+// (StreamResult nil, Result non-nil) to exercise the fallback wrapping path.
+type syncStreamRouterActor struct{}
+
+func (s *syncStreamRouterActor) PreStart(_ *goaktactor.Context) error { return nil }
+func (s *syncStreamRouterActor) Receive(ctx *goaktactor.ReceiveContext) {
+	switch ctx.Message().(type) {
+	case *runtime.RouteInvokeStream:
+		ctx.Response(&runtime.RouteStreamResult{
+			Result: &mcp.ExecutionResult{
+				Output: map[string]any{"type": "text", "text": "sync-fallback"},
+			},
+		})
+	case *runtime.RouteInvocation:
+		ctx.Response(&runtime.RouteResult{
+			Result: &mcp.ExecutionResult{
+				Output: map[string]any{"type": "text", "text": "sync"},
+			},
+		})
+	default:
+		ctx.Response("unhandled")
+	}
+}
+func (s *syncStreamRouterActor) PostStop(_ *goaktactor.Context) error { return nil }
+
+// streamErrRouterActor responds to RouteInvokeStream with an error result
+// to exercise the result.Err != nil path in InvokeStream.
+type streamErrRouterActor struct{}
+
+func (s *streamErrRouterActor) PreStart(_ *goaktactor.Context) error { return nil }
+func (s *streamErrRouterActor) Receive(ctx *goaktactor.ReceiveContext) {
+	switch ctx.Message().(type) {
+	case *runtime.RouteInvokeStream:
+		ctx.Response(&runtime.RouteStreamResult{
+			Err: mcp.NewRuntimeError(mcp.ErrCodeToolNotFound, "tool not found for stream"),
+		})
+	default:
+		ctx.Response("unhandled")
+	}
+}
+func (s *streamErrRouterActor) PostStop(_ *goaktactor.Context) error { return nil }
+
+// noResponseActor never responds to Ask messages, causing Ask to timeout.
+type noResponseActor struct{}
+
+func (n *noResponseActor) PreStart(_ *goaktactor.Context) error { return nil }
+func (n *noResponseActor) Receive(_ *goaktactor.ReceiveContext) {}
+func (n *noResponseActor) PostStop(_ *goaktactor.Context) error { return nil }
+
+// wrongTypeActor always responds with a plain string regardless of the message
+// type, causing type assertions in the API layer to fail.
+type wrongTypeActor struct{}
+
+func (w *wrongTypeActor) PreStart(_ *goaktactor.Context) error { return nil }
+func (w *wrongTypeActor) Receive(ctx *goaktactor.ReceiveContext) {
+	ctx.Response("unexpected-type")
+}
+func (w *wrongTypeActor) PostStop(_ *goaktactor.Context) error { return nil }
+
+// newTestSystemWithWrongTypeActors creates an actor system with a
+// minimalGatewayManager plus system-wide registrar and router stubs that return
+// wrong response types. This lets us exercise the !ok type-assertion branches.
+func newTestSystemWithWrongTypeActors(t *testing.T) (goaktactor.ActorSystem, func()) {
+	t.Helper()
+	ctx := context.Background()
+	system, err := goaktactor.NewActorSystem("test-wrong-type",
+		goaktactor.WithLogger(goaktlog.DiscardLogger),
+	)
+	require.NoError(t, err)
+	require.NoError(t, system.Start(ctx))
+
+	// Spawn a minimal gateway manager so resolveRegistrar/resolveRouter can look it up.
+	_, err = system.Spawn(ctx, naming.ActorNameGatewayManager, &minimalGatewayManager{})
+	require.NoError(t, err)
+
+	// Spawn wrong-type actors at system level (the fallback path in resolveRegistrar/resolveRouter).
+	_, err = system.Spawn(ctx, naming.ActorNameRegistrar, &wrongTypeActor{})
+	require.NoError(t, err)
+	_, err = system.Spawn(ctx, naming.ActorNameRouter, &wrongTypeActor{})
+	require.NoError(t, err)
+
+	waitForActors()
+	return system, func() { _ = system.Stop(ctx) }
+}
+
+func TestAPIUnexpectedResponseType(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Invoke returns error on unexpected response type", func(t *testing.T) {
+		system, stop := newTestSystemWithWrongTypeActors(t)
+		defer stop()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		_, err = gw.Invoke(ctx, &mcp.Invocation{
+			ToolID:      "x",
+			Method:      "tools/call",
+			Params:      map[string]any{},
+			Correlation: mcp.CorrelationMeta{TenantID: "t", ClientID: "c", RequestID: "r"},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected response type")
+	})
+
+	t.Run("InvokeStream returns error on unexpected response type", func(t *testing.T) {
+		system, stop := newTestSystemWithWrongTypeActors(t)
+		defer stop()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		_, err = gw.InvokeStream(ctx, &mcp.Invocation{
+			ToolID:      "x",
+			Method:      "tools/call",
+			Params:      map[string]any{},
+			Correlation: mcp.CorrelationMeta{TenantID: "t", ClientID: "c", RequestID: "r"},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected response type")
+	})
+
+	t.Run("ListTools returns error on unexpected response type", func(t *testing.T) {
+		system, stop := newTestSystemWithWrongTypeActors(t)
+		defer stop()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		_, err = gw.ListTools(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected response type")
+	})
+
+	t.Run("RegisterTool returns error on unexpected response type", func(t *testing.T) {
+		system, stop := newTestSystemWithWrongTypeActors(t)
+		defer stop()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.RegisterTool(ctx, mcp.Tool{
+			ID: "x", Transport: mcp.TransportStdio,
+			Stdio: &mcp.StdioTransportConfig{Command: "echo"},
+			State: mcp.ToolStateEnabled,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected response type")
+	})
+
+	t.Run("UpdateTool returns error on unexpected response type", func(t *testing.T) {
+		system, stop := newTestSystemWithWrongTypeActors(t)
+		defer stop()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.UpdateTool(ctx, mcp.Tool{
+			ID: "x", Transport: mcp.TransportStdio,
+			Stdio: &mcp.StdioTransportConfig{Command: "echo"},
+			State: mcp.ToolStateEnabled,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected response type")
+	})
+
+	t.Run("DisableTool returns error on unexpected response type", func(t *testing.T) {
+		system, stop := newTestSystemWithWrongTypeActors(t)
+		defer stop()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.DisableTool(ctx, "some-tool")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected response type")
+	})
+
+	t.Run("RemoveTool returns error on unexpected response type", func(t *testing.T) {
+		system, stop := newTestSystemWithWrongTypeActors(t)
+		defer stop()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.RemoveTool(ctx, "some-tool")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected response type")
+	})
+
+	t.Run("EnableTool returns error on unexpected response type", func(t *testing.T) {
+		system, stop := newTestSystemWithWrongTypeActors(t)
+		defer stop()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.EnableTool(ctx, "some-tool")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected response type")
+	})
+}
+
+func TestResolverFallbackError(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("resolveRegistrar returns error when system-wide fallback fails", func(t *testing.T) {
+		// Create an actor system with only a minimalGatewayManager but NO
+		// system-wide registrar actor. The child lookup will fail (no children),
+		// then system.ActorOf will also fail, triggering the error path.
+		system, err := goaktactor.NewActorSystem("test-resolve-reg-err",
+			goaktactor.WithLogger(goaktlog.DiscardLogger),
+		)
+		require.NoError(t, err)
+		require.NoError(t, system.Start(ctx))
+		defer func() { _ = system.Stop(ctx) }()
+
+		_, err = system.Spawn(ctx, naming.ActorNameGatewayManager, &minimalGatewayManager{})
+		require.NoError(t, err)
+		waitForActors()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		// ListTools uses resolveRegistrar
+		_, err = gw.ListTools(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "registrar not found")
+	})
+
+	t.Run("resolveRouter returns error when system-wide fallback fails", func(t *testing.T) {
+		// Create an actor system with only a minimalGatewayManager but NO
+		// system-wide router actor.
+		system, err := goaktactor.NewActorSystem("test-resolve-rtr-err",
+			goaktactor.WithLogger(goaktlog.DiscardLogger),
+		)
+		require.NoError(t, err)
+		require.NoError(t, system.Start(ctx))
+		defer func() { _ = system.Stop(ctx) }()
+
+		_, err = system.Spawn(ctx, naming.ActorNameGatewayManager, &minimalGatewayManager{})
+		require.NoError(t, err)
+		waitForActors()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		// Invoke uses resolveRouter
+		_, err = gw.Invoke(ctx, &mcp.Invocation{
+			ToolID:      "x",
+			Method:      "tools/call",
+			Params:      map[string]any{},
+			Correlation: mcp.CorrelationMeta{TenantID: "t", ClientID: "c", RequestID: "r"},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "router not found")
+
+		// InvokeStream uses resolveRouter too
+		_, err = gw.InvokeStream(ctx, &mcp.Invocation{
+			ToolID:      "x",
+			Method:      "tools/call",
+			Params:      map[string]any{},
+			Correlation: mcp.CorrelationMeta{TenantID: "t", ClientID: "c", RequestID: "r"},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "router not found")
+	})
+}
+
+// newTestSystemWithNoResponseActors creates an actor system where the registrar
+// and router actors never respond, causing Ask to timeout.
+func newTestSystemWithNoResponseActors(t *testing.T) (goaktactor.ActorSystem, func()) {
+	t.Helper()
+	ctx := context.Background()
+	system, err := goaktactor.NewActorSystem("test-no-response",
+		goaktactor.WithLogger(goaktlog.DiscardLogger),
+	)
+	require.NoError(t, err)
+	require.NoError(t, system.Start(ctx))
+
+	_, err = system.Spawn(ctx, naming.ActorNameGatewayManager, &minimalGatewayManager{})
+	require.NoError(t, err)
+	_, err = system.Spawn(ctx, naming.ActorNameRegistrar, &noResponseActor{})
+	require.NoError(t, err)
+	_, err = system.Spawn(ctx, naming.ActorNameRouter, &noResponseActor{})
+	require.NoError(t, err)
+
+	waitForActors()
+	return system, func() { _ = system.Stop(ctx) }
+}
+
+func TestAPIAskError(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Invoke returns error when Ask times out", func(t *testing.T) {
+		system, stop := newTestSystemWithNoResponseActors(t)
+		defer stop()
+
+		cfg := testConfig()
+		cfg.Runtime.RequestTimeout = 200 * time.Millisecond
+		gw, err := New(cfg, withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		_, err = gw.Invoke(ctx, &mcp.Invocation{
+			ToolID:      "x",
+			Method:      "tools/call",
+			Params:      map[string]any{},
+			Correlation: mcp.CorrelationMeta{TenantID: "t", ClientID: "c", RequestID: "r"},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "router ask failed")
+	})
+
+	t.Run("InvokeStream returns error when Ask times out", func(t *testing.T) {
+		system, stop := newTestSystemWithNoResponseActors(t)
+		defer stop()
+
+		cfg := testConfig()
+		cfg.Runtime.RequestTimeout = 200 * time.Millisecond
+		gw, err := New(cfg, withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		_, err = gw.InvokeStream(ctx, &mcp.Invocation{
+			ToolID:      "x",
+			Method:      "tools/call",
+			Params:      map[string]any{},
+			Correlation: mcp.CorrelationMeta{TenantID: "t", ClientID: "c", RequestID: "r"},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "router ask failed")
+	})
+
+	t.Run("ListTools returns error when Ask times out", func(t *testing.T) {
+		system, stop := newTestSystemWithNoResponseActors(t)
+		defer stop()
+
+		cfg := testConfig()
+		cfg.Runtime.RequestTimeout = 200 * time.Millisecond
+		gw, err := New(cfg, withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		_, err = gw.ListTools(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "registrar ask failed")
+	})
+
+	t.Run("RegisterTool returns error when Ask times out", func(t *testing.T) {
+		system, stop := newTestSystemWithNoResponseActors(t)
+		defer stop()
+
+		cfg := testConfig()
+		cfg.Runtime.RequestTimeout = 200 * time.Millisecond
+		gw, err := New(cfg, withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.RegisterTool(ctx, mcp.Tool{
+			ID: "x", Transport: mcp.TransportStdio,
+			Stdio: &mcp.StdioTransportConfig{Command: "echo"},
+			State: mcp.ToolStateEnabled,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "registrar ask failed")
+	})
+
+	t.Run("UpdateTool returns error when Ask times out", func(t *testing.T) {
+		system, stop := newTestSystemWithNoResponseActors(t)
+		defer stop()
+
+		cfg := testConfig()
+		cfg.Runtime.RequestTimeout = 200 * time.Millisecond
+		gw, err := New(cfg, withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.UpdateTool(ctx, mcp.Tool{
+			ID: "x", Transport: mcp.TransportStdio,
+			Stdio: &mcp.StdioTransportConfig{Command: "echo"},
+			State: mcp.ToolStateEnabled,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "registrar ask failed")
+	})
+
+	t.Run("DisableTool returns error when Ask times out", func(t *testing.T) {
+		system, stop := newTestSystemWithNoResponseActors(t)
+		defer stop()
+
+		cfg := testConfig()
+		cfg.Runtime.RequestTimeout = 200 * time.Millisecond
+		gw, err := New(cfg, withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.DisableTool(ctx, "some-tool")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "registrar ask failed")
+	})
+
+	t.Run("RemoveTool returns error when Ask times out", func(t *testing.T) {
+		system, stop := newTestSystemWithNoResponseActors(t)
+		defer stop()
+
+		cfg := testConfig()
+		cfg.Runtime.RequestTimeout = 200 * time.Millisecond
+		gw, err := New(cfg, withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.RemoveTool(ctx, "some-tool")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "registrar ask failed")
+	})
+
+	t.Run("EnableTool returns error when Ask times out", func(t *testing.T) {
+		system, stop := newTestSystemWithNoResponseActors(t)
+		defer stop()
+
+		cfg := testConfig()
+		cfg.Runtime.RequestTimeout = 200 * time.Millisecond
+		gw, err := New(cfg, withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		err = gw.EnableTool(ctx, "some-tool")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "registrar ask failed")
+	})
+}
+
+func TestInvokeStreamNonExistentTool(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("InvokeStream returns error for non-existent tool", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		waitForActors()
+		defer func() { _ = gw.Stop(ctx) }()
+
+		_, err = gw.InvokeStream(ctx, &mcp.Invocation{
+			ToolID: "does-not-exist",
+			Method: "tools/call",
+			Params: map[string]any{},
+			Correlation: mcp.CorrelationMeta{
+				TenantID:  "test-tenant",
+				ClientID:  "test-client",
+				RequestID: "req-stream-missing",
+			},
+		})
+		require.Error(t, err)
+	})
+}
+
+func TestInvokeStreamFallbackWrapping(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("InvokeStream wraps synchronous result in StreamingResult", func(t *testing.T) {
+		system, err := goaktactor.NewActorSystem("test-sync-stream",
+			goaktactor.WithLogger(goaktlog.DiscardLogger),
+		)
+		require.NoError(t, err)
+		require.NoError(t, system.Start(ctx))
+		defer func() { _ = system.Stop(ctx) }()
+
+		_, err = system.Spawn(ctx, naming.ActorNameGatewayManager, &minimalGatewayManager{})
+		require.NoError(t, err)
+		_, err = system.Spawn(ctx, naming.ActorNameRouter, &syncStreamRouterActor{})
+		require.NoError(t, err)
+		waitForActors()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		result, err := gw.InvokeStream(ctx, &mcp.Invocation{
+			ToolID:      "x",
+			Method:      "tools/call",
+			Params:      map[string]any{},
+			Correlation: mcp.CorrelationMeta{TenantID: "t", ClientID: "c", RequestID: "r"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, result)
+
+		// Progress channel must be closed immediately (non-streaming fallback)
+		_, open := <-result.Progress
+		assert.False(t, open, "Progress channel should be closed for synchronous fallback")
+
+		// Final channel must have exactly one result buffered
+		final, ok := <-result.Final
+		require.True(t, ok)
+		require.NotNil(t, final)
+	})
+
+	t.Run("InvokeStream returns error from RouteStreamResult.Err", func(t *testing.T) {
+		system, err := goaktactor.NewActorSystem("test-stream-err",
+			goaktactor.WithLogger(goaktlog.DiscardLogger),
+		)
+		require.NoError(t, err)
+		require.NoError(t, system.Start(ctx))
+		defer func() { _ = system.Stop(ctx) }()
+
+		_, err = system.Spawn(ctx, naming.ActorNameGatewayManager, &minimalGatewayManager{})
+		require.NoError(t, err)
+		_, err = system.Spawn(ctx, naming.ActorNameRouter, &streamErrRouterActor{})
+		require.NoError(t, err)
+		waitForActors()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		_, err = gw.InvokeStream(ctx, &mcp.Invocation{
+			ToolID:      "x",
+			Method:      "tools/call",
+			Params:      map[string]any{},
+			Correlation: mcp.CorrelationMeta{TenantID: "t", ClientID: "c", RequestID: "r"},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "tool not found for stream")
+	})
+
+	t.Run("Invoke with synchronous result through stub router", func(t *testing.T) {
+		system, err := goaktactor.NewActorSystem("test-sync-invoke",
+			goaktactor.WithLogger(goaktlog.DiscardLogger),
+		)
+		require.NoError(t, err)
+		require.NoError(t, system.Start(ctx))
+		defer func() { _ = system.Stop(ctx) }()
+
+		_, err = system.Spawn(ctx, naming.ActorNameGatewayManager, &minimalGatewayManager{})
+		require.NoError(t, err)
+		_, err = system.Spawn(ctx, naming.ActorNameRouter, &syncStreamRouterActor{})
+		require.NoError(t, err)
+		waitForActors()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		result, err := gw.Invoke(ctx, &mcp.Invocation{
+			ToolID:      "x",
+			Method:      "tools/call",
+			Params:      map[string]any{},
+			Correlation: mcp.CorrelationMeta{TenantID: "t", ClientID: "c", RequestID: "r"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, result)
+	})
+}
+
+func TestResolverManagerNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("resolveRegistrar returns error when GatewayManager not found", func(t *testing.T) {
+		// Create a system with NO gateway manager at all.
+		system, err := goaktactor.NewActorSystem("test-no-manager-reg",
+			goaktactor.WithLogger(goaktlog.DiscardLogger),
+		)
+		require.NoError(t, err)
+		require.NoError(t, system.Start(ctx))
+		defer func() { _ = system.Stop(ctx) }()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		_, err = gw.ListTools(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GatewayManager not found")
+	})
+
+	t.Run("resolveRouter returns error when GatewayManager not found", func(t *testing.T) {
+		system, err := goaktactor.NewActorSystem("test-no-manager-rtr",
+			goaktactor.WithLogger(goaktlog.DiscardLogger),
+		)
+		require.NoError(t, err)
+		require.NoError(t, system.Start(ctx))
+		defer func() { _ = system.Stop(ctx) }()
+
+		gw, err := New(testConfig(), withSystemForTesting(system))
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		defer func() { _ = gw.Stop(ctx) }()
+
+		_, err = gw.Invoke(ctx, &mcp.Invocation{
+			ToolID:      "x",
+			Method:      "tools/call",
+			Params:      map[string]any{},
+			Correlation: mcp.CorrelationMeta{TenantID: "t", ClientID: "c", RequestID: "r"},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GatewayManager not found")
+	})
 }
