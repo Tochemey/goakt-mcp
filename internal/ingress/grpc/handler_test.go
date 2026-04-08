@@ -630,3 +630,237 @@ func TestCallToolStream_ErrorResult(t *testing.T) {
 	assert.True(t, result.Result.GetIsError())
 	assert.Contains(t, result.Result.GetContent()[0].GetText(), "stream backend error")
 }
+
+// --- coverage: convert.go paths ---
+
+func TestCallTool_SuccessWithNilOutput(t *testing.T) {
+	// Covers executionResultToCallToolResponse with success status but nil output,
+	// and outputToContentItems with nil output.
+	gw := &fakeStreamInvoker{
+		tools: []mcp.Tool{{ID: "echo"}},
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: nil,
+		},
+	}
+
+	client := newTestClient(t, gw, &fixedGRPCResolver{tenantID: "acme", clientID: "c1"})
+
+	resp, err := client.CallTool(context.Background(), &pb.CallToolRequest{
+		ToolName: "echo",
+	})
+	require.NoError(t, err)
+	assert.False(t, resp.GetIsError())
+	assert.Empty(t, resp.GetContent())
+	assert.Empty(t, resp.GetStructuredContent())
+}
+
+func TestCallTool_SuccessWithOutputMissingContentKey(t *testing.T) {
+	// Covers outputToContentItems when the output map has no "content" key.
+	gw := &fakeStreamInvoker{
+		tools: []mcp.Tool{{ID: "echo"}},
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{"result": "no content key here"},
+		},
+	}
+
+	client := newTestClient(t, gw, &fixedGRPCResolver{tenantID: "acme", clientID: "c1"})
+
+	resp, err := client.CallTool(context.Background(), &pb.CallToolRequest{
+		ToolName: "echo",
+	})
+	require.NoError(t, err)
+	assert.False(t, resp.GetIsError())
+	assert.Empty(t, resp.GetContent())
+	// structured_content should still be present since output is non-nil.
+	assert.NotEmpty(t, resp.GetStructuredContent())
+}
+
+func TestCallTool_SuccessWithJSONDecodedContent(t *testing.T) {
+	// Covers the []any type assertion path in outputToContentItems.
+	// When output goes through JSON encode/decode, []map[string]any becomes []any.
+	gw := &fakeStreamInvoker{
+		tools: []mcp.Tool{{ID: "echo"}},
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"content": []any{
+					map[string]any{"type": "text", "text": "from json decode"},
+				},
+			},
+		},
+	}
+
+	client := newTestClient(t, gw, &fixedGRPCResolver{tenantID: "acme", clientID: "c1"})
+
+	resp, err := client.CallTool(context.Background(), &pb.CallToolRequest{
+		ToolName: "echo",
+	})
+	require.NoError(t, err)
+	assert.False(t, resp.GetIsError())
+	require.Len(t, resp.GetContent(), 1)
+	assert.Equal(t, "text", resp.GetContent()[0].GetType())
+	assert.Equal(t, "from json decode", resp.GetContent()[0].GetText())
+}
+
+func TestCallTool_SuccessWithMimeTypeAndData(t *testing.T) {
+	// Covers mime_type and data content fields in outputToContentItems.
+	gw := &fakeStreamInvoker{
+		tools: []mcp.Tool{{ID: "echo"}},
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"content": []map[string]any{
+					{
+						"type":      "image",
+						"mime_type": "image/png",
+						"data":      "iVBORw0KGgo=",
+					},
+				},
+			},
+		},
+	}
+
+	client := newTestClient(t, gw, &fixedGRPCResolver{tenantID: "acme", clientID: "c1"})
+
+	resp, err := client.CallTool(context.Background(), &pb.CallToolRequest{
+		ToolName: "echo",
+	})
+	require.NoError(t, err)
+	assert.False(t, resp.GetIsError())
+	require.Len(t, resp.GetContent(), 1)
+	assert.Equal(t, "image", resp.GetContent()[0].GetType())
+	assert.Equal(t, "image/png", resp.GetContent()[0].GetMimeType())
+	assert.Equal(t, []byte("iVBORw0KGgo="), resp.GetContent()[0].GetData())
+}
+
+func TestCallTool_SuccessWithEmptyContentArray(t *testing.T) {
+	// Covers the empty items path in outputToContentItems (len(items) == 0).
+	gw := &fakeStreamInvoker{
+		tools: []mcp.Tool{{ID: "echo"}},
+		result: &mcp.ExecutionResult{
+			Status: mcp.ExecutionStatusSuccess,
+			Output: map[string]any{
+				"content": []map[string]any{},
+			},
+		},
+	}
+
+	client := newTestClient(t, gw, &fixedGRPCResolver{tenantID: "acme", clientID: "c1"})
+
+	resp, err := client.CallTool(context.Background(), &pb.CallToolRequest{
+		ToolName: "echo",
+	})
+	require.NoError(t, err)
+	assert.False(t, resp.GetIsError())
+	assert.Empty(t, resp.GetContent())
+}
+
+func TestCallTool_SuccessWithNilResultFromStream(t *testing.T) {
+	// Covers executionResultToCallToolResponse nil path via streaming.
+	// When the final channel delivers nil, the converter handles it gracefully.
+	progressCh := make(chan mcp.ProgressEvent)
+	close(progressCh)
+
+	finalCh := make(chan *mcp.ExecutionResult, 1)
+	finalCh <- nil
+	close(finalCh)
+
+	gw := &fakeStreamInvoker{
+		tools: []mcp.Tool{{ID: "stream-tool"}},
+		streamResult: &mcp.StreamingResult{
+			Progress: progressCh,
+			Final:    finalCh,
+		},
+	}
+
+	client := newTestClient(t, gw, &fixedGRPCResolver{tenantID: "acme", clientID: "c1"})
+
+	stream, err := client.CallToolStream(context.Background(), &pb.CallToolStreamRequest{
+		ToolName: "stream-tool",
+	})
+	require.NoError(t, err)
+
+	msg, err := stream.Recv()
+	require.NoError(t, err)
+
+	result, ok := msg.GetPayload().(*pb.CallToolStreamResponse_Result)
+	require.True(t, ok)
+	assert.True(t, result.Result.GetIsError())
+	assert.Contains(t, result.Result.GetContent()[0].GetText(), "empty result from gateway")
+}
+
+// --- coverage: handler.go ProgressToken path ---
+
+func TestCallToolStream_WithProgressToken(t *testing.T) {
+	// Covers the non-nil ProgressToken branch in CallToolStream.
+	progressCh := make(chan mcp.ProgressEvent, 1)
+	finalCh := make(chan *mcp.ExecutionResult, 1)
+
+	progressCh <- mcp.ProgressEvent{
+		ProgressToken: "tok-42",
+		Message:       "processing",
+		Progress:      1,
+		Total:         2,
+	}
+	close(progressCh)
+
+	finalCh <- &mcp.ExecutionResult{
+		Status: mcp.ExecutionStatusSuccess,
+		Output: map[string]any{
+			"content": []map[string]any{
+				{"type": "text", "text": "done"},
+			},
+		},
+	}
+	close(finalCh)
+
+	gw := &fakeStreamInvoker{
+		tools: []mcp.Tool{{ID: "stream-tool"}},
+		streamResult: &mcp.StreamingResult{
+			Progress: progressCh,
+			Final:    finalCh,
+		},
+	}
+
+	client := newTestClient(t, gw, &fixedGRPCResolver{tenantID: "acme", clientID: "c1"})
+
+	stream, err := client.CallToolStream(context.Background(), &pb.CallToolStreamRequest{
+		ToolName: "stream-tool",
+	})
+	require.NoError(t, err)
+
+	// First message: progress with token.
+	msg, err := stream.Recv()
+	require.NoError(t, err)
+	pe, ok := msg.GetPayload().(*pb.CallToolStreamResponse_Progress)
+	require.True(t, ok)
+	assert.Equal(t, "tok-42", pe.Progress.GetProgressToken())
+	assert.Equal(t, "processing", pe.Progress.GetMessage())
+
+	// Second message: final result.
+	msg, err = stream.Recv()
+	require.NoError(t, err)
+	res, ok := msg.GetPayload().(*pb.CallToolStreamResponse_Result)
+	require.True(t, ok)
+	assert.False(t, res.Result.GetIsError())
+}
+
+// --- coverage: resolve.go ListTools error during tool resolution ---
+
+func TestCallTool_ListToolsFailsDuringResolve(t *testing.T) {
+	// Covers the resolveToolID error path when ListTools fails.
+	// Identity resolution succeeds but tool resolution calls ListTools which fails.
+	gw := &fakeStreamInvoker{
+		listErr: errors.New("registry unavailable"),
+	}
+
+	client := newTestClient(t, gw, &fixedGRPCResolver{tenantID: "acme", clientID: "c1"})
+
+	_, err := client.CallTool(context.Background(), &pb.CallToolRequest{
+		ToolName: "echo",
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+}
