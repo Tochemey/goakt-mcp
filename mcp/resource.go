@@ -48,4 +48,3 @@ type ResourceTemplateSchema struct {
 	// MIMEType is the MIME type of the resource content.
 	MIMEType string
 }
-
