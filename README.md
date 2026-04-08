@@ -1,5 +1,5 @@
 <h2 align="center">
-  <img src="assets/logo.png" alt="goakt-mcp — Distributed MCP gateway library" width="800"/><br />
+  <img src="assets/logo.png" alt="goakt-mcp : Distributed MCP gateway library" width="800"/><br />
   Distributed MCP Gateway Library
 </h2>
 
@@ -11,9 +11,9 @@
   <a href="https://www.bestpractices.dev/projects/12179"><img src="https://www.bestpractices.dev/projects/12179/badge" alt="OpenSSF Best Practices"></a>
 </p>
 
-**goakt-mcp** is a production-ready MCP (Model Context Protocol) gateway library for Go. It goes far beyond a thin JSON-RPC proxy — it is an operational control plane for MCP workloads that manages tool lifecycle, session affinity, credential brokering, policy enforcement, circuit breaking, auditing, and cluster-aware routing behind a single, clean `Gateway` API.
+**goakt-mcp** is a production-ready MCP (Model Context Protocol) gateway library for Go. It goes far beyond a thin JSON-RPC proxy : it is an operational control plane for MCP workloads that manages tool lifecycle, session affinity, credential brokering, policy enforcement, circuit breaking, auditing, and cluster-aware routing behind a single, clean `Gateway` API.
 
-Built on [GoAkt](https://github.com/Tochemey/goakt), a high-performance Go actor framework, every tool, session, and control-plane concern is modelled as a supervised actor with clear lifecycle boundaries — making the system inherently resilient, observable, and scalable from a single node to a multi-node Kubernetes cluster.
+Built on [GoAkt](https://github.com/Tochemey/goakt), a high-performance Go actor framework, every tool, session, and control-plane concern is modelled as a supervised actor with clear lifecycle boundaries : making the system inherently resilient, observable, and scalable from a single node to a multi-node Kubernetes cluster.
 
 ## Why goakt-mcp
 
@@ -22,38 +22,38 @@ MCP workloads are stateful, concurrent, and failure-prone in ways that a generic
 - **Tools are heterogeneous.** Some are local child processes over stdio; others are remote HTTP services. Their failure modes, latency profiles, and startup costs differ wildly.
 - **Sessions carry state.** Sticky ownership of sessions per tenant and client is a correctness requirement, not an optimisation.
 - **Tool backends fail.** Connection drops, process crashes, and slow calls are the norm. Without a supervision layer, a single tool failure silently corrupts the entire request pipeline.
-- **Multi-tenancy is an operational necessity.** Rate limits, concurrency caps, and policy enforcement must be applied consistently across every invocation — not bolted on in application code.
+- **Multi-tenancy is an operational necessity.** Rate limits, concurrency caps, and policy enforcement must be applied consistently across every invocation : not bolted on in application code.
 - **Observability is not optional.** Latency, failures, circuit states, policy decisions, and audit trails are required for production operation.
 
 The actor model is a strong fit for this problem space. Each tool has a dedicated supervisor actor. Each session has its own actor, isolated from every other session. The control plane (router, credential broker, policy engine, journal) runs as supervised actors with deterministic names, clean message boundaries, and automatic restart semantics. Failures are contained, recovery is local, and the system degrades gracefully rather than catastrophically.
 
 ## Features
 
-- **Triple transport egress** — invoke tools over stdio (child process), HTTP (remote MCP server), or gRPC (with proto descriptor sets or server reflection)
-- **Four ingress transports** — serve MCP clients via Streamable HTTP, Server-Sent Events, WebSocket, or gRPC (with streaming progress support)
-- **Streaming invocations** — `InvokeStream` returns a `StreamingResult` with a progress event channel and a final result channel, backed by gRPC server-streaming RPCs
-- **Enterprise authentication** — OAuth 2.0 Bearer token validation, pluggable `TokenVerifier`, `IdentityMapper`, and RFC 9728 Protected Resource Metadata discovery (`/.well-known/oauth-protected-resource`); includes gRPC auth interceptors for unary and streaming RPCs
-- **Multi-tenancy** — per-tenant quota enforcement (rate limiting + concurrency caps) and pluggable policy evaluation
-- **Credential brokering** — resolve secrets from any source (vault, env, KMS) and inject them into invocations, with a configurable LRU cache
-- **Session affinity** — sticky session ownership per tenant + client + tool; or least-loaded balancing for stateless tools
-- **Session idle passivation** — sessions are automatically passivated after a configurable idle timeout (default 5 min), reclaiming resources without client intervention
-- **Circuit breakers** — per-tool circuit breakers with configurable failure thresholds, open durations, and half-open probing
-- **Transparent recovery** — failed sessions re-create their executor and retry automatically, without waiting for passivation
-- **Backpressure** — `MaxSessionsPerTool` hard cap prevents overloaded tools from starving shared resources; bounded mailbox on the audit journal provides natural backpressure without dropping events
-- **Health probing** — periodic health checks on every tool supervisor; circuit state transitions reflected in tool status
-- **Dynamic tool management** — register, update, enable, disable, drain, and remove tools without restarting the gateway
-- **Schema discovery** — automatically fetches and caches MCP tool schemas from backends at registration time
-- **Structured error codes** — 14 typed `ErrorCode` values (`TOOL_NOT_FOUND`, `POLICY_DENIED`, `RATE_LIMITED`, `TRANSPORT_FAILURE`, etc.) with `RuntimeError` wrapping and full `errors.Is`/`As` support
-- **OpenTelemetry** — traces and metrics exported via OTLP; W3C trace-context propagated on egress
-- **Structured logging** — pluggable `Logger` interface (zap, zerolog, slog, logrus, etc.) with structured correlation fields (tenant ID, tool ID, request ID, trace ID) on every log line
-- **Durable audit trail** — every policy decision, invocation, circuit state change, and health transition is written to a pluggable `AuditSink`
-- **Cluster mode** — multi-node operation with gossip membership, distributed actor messaging, cluster-singleton registrar, and pluggable peer discovery
-- **TLS everywhere** — optional mutual TLS for cluster remoting and tool-backend HTTP connections
-- **Fully pluggable** — every operational concern (identity, policy, credentials, audit, discovery) is an interface you implement
+- **Triple transport egress** : invoke tools over stdio (child process), HTTP (remote MCP server), or gRPC (with proto descriptor sets or server reflection)
+- **Four ingress transports** : serve MCP clients via Streamable HTTP, Server-Sent Events, WebSocket, or gRPC (with streaming progress support)
+- **Streaming invocations** : `InvokeStream` returns a `StreamingResult` with a progress event channel and a final result channel, backed by gRPC server-streaming RPCs
+- **Enterprise authentication** : OAuth 2.0 Bearer token validation, pluggable `TokenVerifier`, `IdentityMapper`, and RFC 9728 Protected Resource Metadata discovery (`/.well-known/oauth-protected-resource`); includes gRPC auth interceptors for unary and streaming RPCs
+- **Multi-tenancy** : per-tenant quota enforcement (rate limiting + concurrency caps) and pluggable policy evaluation
+- **Credential brokering** : resolve secrets from any source (vault, env, KMS) and inject them into invocations, with a configurable LRU cache
+- **Session affinity** : sticky session ownership per tenant + client + tool; or least-loaded balancing for stateless tools
+- **Session idle passivation** : sessions are automatically passivated after a configurable idle timeout (default 5 min), reclaiming resources without client intervention
+- **Circuit breakers** : per-tool circuit breakers with configurable failure thresholds, open durations, and half-open probing
+- **Transparent recovery** : failed sessions re-create their executor and retry automatically, without waiting for passivation
+- **Backpressure** : `MaxSessionsPerTool` hard cap prevents overloaded tools from starving shared resources; bounded mailbox on the audit journal provides natural backpressure without dropping events
+- **Health probing** : periodic health checks on every tool supervisor; circuit state transitions reflected in tool status
+- **Dynamic tool management** : register, update, enable, disable, drain, and remove tools without restarting the gateway
+- **Schema discovery** : automatically fetches and caches MCP tool schemas from backends at registration time
+- **Structured error codes** : 14 typed `ErrorCode` values (`TOOL_NOT_FOUND`, `POLICY_DENIED`, `RATE_LIMITED`, `TRANSPORT_FAILURE`, etc.) with `RuntimeError` wrapping and full `errors.Is`/`As` support
+- **OpenTelemetry** : traces and metrics exported via OTLP; W3C trace-context propagated on egress
+- **Structured logging** : pluggable `Logger` interface (zap, zerolog, slog, logrus, etc.) with structured correlation fields (tenant ID, tool ID, request ID, trace ID) on every log line
+- **Durable audit trail** : every policy decision, invocation, circuit state change, and health transition is written to a pluggable `AuditSink`
+- **Cluster mode** : multi-node operation with gossip membership, distributed actor messaging, cluster-singleton registrar, and pluggable peer discovery
+- **TLS everywhere** : optional mutual TLS for cluster remoting and tool-backend HTTP connections
+- **Fully pluggable** : every operational concern (identity, policy, credentials, audit, discovery) is an interface you implement
 
 ## Architecture
 
-goakt-mcp is structured as three layers — ingress, gateway core, and egress — connected by a supervised actor runtime.
+goakt-mcp is structured as three layers : ingress, gateway core, and egress : connected by a supervised actor runtime.
 
 ```mermaid
 graph TB
@@ -125,7 +125,7 @@ graph TB
 
 **Router** is the central dispatch actor. It receives every invocation, evaluates policy, resolves credentials, selects the appropriate tool supervisor, and routes the request to a session. It also writes to the audit journal asynchronously.
 
-**Registrar** is the tool registry actor. It owns the authoritative list of registered tools and their supervisors. In cluster mode, it runs as a cluster-wide singleton — all nodes share a single registrar.
+**Registrar** is the tool registry actor. It owns the authoritative list of registered tools and their supervisors. In cluster mode, it runs as a cluster-wide singleton : all nodes share a single registrar.
 
 **Invocation** is the unit of work. It carries the tool ID, method, parameters, tenant and client identity, resolved credentials, and correlation metadata (request ID, trace ID, received timestamp).
 
@@ -179,7 +179,7 @@ Identity resolution happens once per MCP session (at `initialize` time) for HTTP
 
 ## Transport Support
 
-### Ingress — serving MCP clients
+### Ingress : serving MCP clients
 
 goakt-mcp exposes three factory methods on `Gateway` to create ingress HTTP handlers, plus a registration method for gRPC. Mount the returned `http.Handler` in your own HTTP server or router; register the gRPC service on your own `grpc.Server`.
 
@@ -203,10 +203,10 @@ The gRPC ingress exposes the `MCPToolService` protobuf service with three RPCs:
 | RPC              | Description                                                                           |
 |------------------|---------------------------------------------------------------------------------------|
 | `ListTools`      | Returns all registered tools and their schemas                                        |
-| `CallTool`       | Synchronous tool invocation — send a request, get a result                            |
-| `CallToolStream` | Streaming invocation — delivers progress events as they arrive, then the final result |
+| `CallTool`       | Synchronous tool invocation : send a request, get a result                            |
+| `CallToolStream` | Streaming invocation : delivers progress events as they arrive, then the final result |
 
-Unlike the HTTP handlers (which return an `http.Handler`), gRPC services register directly on a `grpc.Server`. Identity is resolved on every request via `GRPCIdentityResolver`, which reads from gRPC metadata — the gRPC equivalent of HTTP headers.
+Unlike the HTTP handlers (which return an `http.Handler`), gRPC services register directly on a `grpc.Server`. Identity is resolved on every request via `GRPCIdentityResolver`, which reads from gRPC metadata : the gRPC equivalent of HTTP headers.
 
 **Server setup:**
 
@@ -284,11 +284,11 @@ gw.RegisterGRPCService(srv, mcp.GRPCIngressConfig{
 
 **Tool name caching:** By default, `CallTool` and `CallToolStream` cache the tool-name-to-ToolID mapping for 5 seconds (`DefaultToolCacheTTL`) to avoid a `ListTools` actor Ask on every request. Set `ToolCacheTTL` on `GRPCIngressConfig` to tune or disable (`-1`) the cache.
 
-### Egress — connecting to tool backends
+### Egress : connecting to tool backends
 
 goakt-mcp natively supports three backend transport types.
 
-**Stdio** launches a child process and communicates with it over stdin/stdout using the MCP protocol. This is the standard transport for locally-installed MCP servers (filesystem, shell, code interpreters, etc.). The process is supervised — if it crashes, the session actor creates a fresh process on the next invocation.
+**Stdio** launches a child process and communicates with it over stdin/stdout using the MCP protocol. This is the standard transport for locally-installed MCP servers (filesystem, shell, code interpreters, etc.). The process is supervised : if it crashes, the session actor creates a fresh process on the next invocation.
 
 **HTTP** connects to a remote MCP server over HTTP. Full MCP Streamable HTTP semantics are used, including session management and streaming. W3C trace-context headers are propagated on every outbound call when tracing is enabled.
 
@@ -310,7 +310,7 @@ type IdentityResolver interface {
 }
 ```
 
-Common implementations read JWT claims, API key headers, mTLS certificate subject, or custom session tokens. A non-nil error rejects the incoming session with HTTP 400. The resolver runs once per MCP session — all subsequent requests reuse the resolved identity.
+Common implementations read JWT claims, API key headers, mTLS certificate subject, or custom session tokens. A non-nil error rejects the incoming session with HTTP 400. The resolver runs once per MCP session : all subsequent requests reuse the resolved identity.
 
 For **gRPC** ingress, the resolver receives the gRPC request context:
 
@@ -328,7 +328,7 @@ Each tenant can be configured with independent quota and policy settings. Tenant
 
 | Field                       | Description                                                           |
 |-----------------------------|-----------------------------------------------------------------------|
-| `ID`                        | Opaque string identifier — must match what `IdentityResolver` returns |
+| `ID`                        | Opaque string identifier : must match what `IdentityResolver` returns |
 | `Quotas.RequestsPerMinute`  | Maximum invocations per minute; zero means unlimited                  |
 | `Quotas.ConcurrentSessions` | Maximum live sessions at any moment; zero means unlimited             |
 | `Evaluator`                 | Optional custom `PolicyEvaluator` for this tenant                     |
@@ -337,8 +337,8 @@ Each tenant can be configured with independent quota and policy settings. Tenant
 
 goakt-mcp applies policy checks in two layers on every invocation:
 
-1. **Built-in checks** — rate limit, concurrency cap, and tool authorization (tenant allowlist when configured)
-2. **Custom evaluator** — your `PolicyEvaluator` implementation, called only when all built-in checks pass
+1. **Built-in checks** : rate limit, concurrency cap, and tool authorization (tenant allowlist when configured)
+2. **Custom evaluator** : your `PolicyEvaluator` implementation, called only when all built-in checks pass
 
 ```go
 type PolicyEvaluator interface {
@@ -348,7 +348,7 @@ type PolicyEvaluator interface {
 
 `PolicyInput` carries the `TenantID`, `ToolID`, live session count, and requests-in-current-minute so that evaluators can make context-aware decisions. Return `nil` to allow, or a `*RuntimeError` with `ErrCodePolicyDenied` to deny. Common patterns include OPA integration, attribute-based access control (ABAC), and environment-specific allow-lists.
 
-Every policy decision — allow or deny — is recorded in the audit journal.
+Every policy decision : allow or deny : is recorded in the audit journal.
 
 ## Credential Brokering
 
@@ -394,7 +394,7 @@ The `ResetCircuit` admin method closes an open circuit manually, enabling immedi
 
 ### Session Executor Recovery
 
-When a session actor detects a transport failure — either a non-nil Go error from `ToolExecutor.Execute` or a result with `ErrCodeTransportFailure` — it transparently attempts recovery:
+When a session actor detects a transport failure : either a non-nil Go error from `ToolExecutor.Execute` or a result with `ErrCodeTransportFailure` : it transparently attempts recovery:
 
 1. The failed executor is closed
 2. A fresh executor is created via the `ExecutorFactory`
@@ -476,7 +476,7 @@ type AuditSink interface {
 | `health_transition`    | A tool's operational state changes                       |
 | `circuit_state_change` | A circuit breaker transitions between states             |
 
-Each event carries the tenant ID, client ID, tool ID, request ID, trace ID, outcome, error code, and a freeform metadata map. Built-in sinks include `MemorySink` (for testing) and `FileSink` (NDJSON line-delimited file). Custom sinks can write to any durable store — Postgres, Kafka, BigQuery, S3, etc.
+Each event carries the tenant ID, client ID, tool ID, request ID, trace ID, outcome, error code, and a freeform metadata map. Built-in sinks include `MemorySink` (for testing) and `FileSink` (NDJSON line-delimited file). Custom sinks can write to any durable store : Postgres, Kafka, BigQuery, S3, etc.
 
 ## Cluster Mode
 
@@ -519,7 +519,7 @@ graph TB
 ### How it works
 
 - Every node runs its own `GatewayManager` with a hostname-suffixed name (`gateway-manager-<hostname>`) so that spawning multiple nodes never triggers a cluster-wide name collision.
-- The `RegistrarActor` (tool registry) runs as a **cluster singleton** — exactly one instance exists across the entire cluster, elected on whichever node starts first. Nodes that do not host the singleton reach it via GoAkt's distributed actor messaging.
+- The `RegistrarActor` (tool registry) runs as a **cluster singleton** : exactly one instance exists across the entire cluster, elected on whichever node starts first. Nodes that do not host the singleton reach it via GoAkt's distributed actor messaging.
 - `RouterActor` runs locally on every node. It resolves the singleton registrar by name and routes invocations to local or remote supervisors transparently.
 - Tool sessions and supervisors run where the registrar places them. In current topology, they are local to the singleton node; cluster-aware routing is an evolution path.
 
@@ -536,7 +536,7 @@ type DiscoveryProvider interface {
 }
 ```
 
-`DiscoverPeers` returns a list of peer addresses (host:port for the discovery port). goakt-mcp defines the `DiscoveryProvider` interface — you supply the implementation that matches your infrastructure (Kubernetes, Consul, DNS-SD, static list, etc.). The [cluster example](examples/cluster/) includes a sample Kubernetes-based provider.
+`DiscoverPeers` returns a list of peer addresses (host:port for the discovery port). goakt-mcp defines the `DiscoveryProvider` interface : you supply the implementation that matches your infrastructure (Kubernetes, Consul, DNS-SD, static list, etc.). The [cluster example](examples/cluster/) includes a sample Kubernetes-based provider.
 
 ### TLS
 
@@ -544,7 +544,7 @@ Set `ClusterConfig.TLS` to a `RemotingTLSConfig` to enable TLS for all remoting 
 
 ### Cluster-aware shutdown
 
-For clean ordered shutdown in Kubernetes, scale the StatefulSet to zero replicas before deleting it. With `podManagementPolicy: OrderedReady`, Kubernetes terminates pods in reverse ordinal order — each departing node has live peers to replicate actor state to, preventing replication errors. The [cluster example Makefile](examples/cluster/Makefile) `cluster-down` target demonstrates this pattern.
+For clean ordered shutdown in Kubernetes, scale the StatefulSet to zero replicas before deleting it. With `podManagementPolicy: OrderedReady`, Kubernetes terminates pods in reverse ordinal order : each departing node has live peers to replicate actor state to, preventing replication errors. The [cluster example Makefile](examples/cluster/Makefile) `cluster-down` target demonstrates this pattern.
 
 ## Configuration Reference
 
@@ -567,7 +567,7 @@ Controls timeouts and probe intervals for the actor runtime.
 | Field               | Description                                                               |
 |---------------------|---------------------------------------------------------------------------|
 | `Enabled`           | Activate cluster mode                                                     |
-| `DiscoveryProvider` | Required when enabled — peer discovery implementation                     |
+| `DiscoveryProvider` | Required when enabled : peer discovery implementation                     |
 | `DiscoveryPort`     | Port for the discovery protocol (default 15000)                           |
 | `PeersPort`         | Port for the gossip memberlist protocol (default 15000)                   |
 | `RemotingPort`      | Port for GoAkt actor-to-actor remoting (default 15001)                    |
@@ -591,15 +591,15 @@ Controls timeouts and probe intervals for the actor runtime.
 
 | Field             | Default | Description                                                  |
 |-------------------|---------|--------------------------------------------------------------|
-| `Providers`       | —       | Ordered slice of `mcp.CredentialsProvider` implementations   |
-| `CacheTTL`        | —       | How long to cache resolved credentials before re-fetching    |
-| `MaxCacheEntries` | —       | Maximum cached entries; evicts least-recently-used when full |
+| `Providers`       | :       | Ordered slice of `mcp.CredentialsProvider` implementations   |
+| `CacheTTL`        | :       | How long to cache resolved credentials before re-fetching    |
+| `MaxCacheEntries` | :       | Maximum cached entries; evicts least-recently-used when full |
 
 ### Tenants
 
 | Field                       | Description                                              |
 |-----------------------------|----------------------------------------------------------|
-| `ID`                        | Tenant identifier — must match `IdentityResolver` output |
+| `ID`                        | Tenant identifier : must match `IdentityResolver` output |
 | `Quotas.RequestsPerMinute`  | Requests-per-minute rate limit; zero = unlimited         |
 | `Quotas.ConcurrentSessions` | Concurrent session cap; zero = unlimited                 |
 | `Evaluator`                 | Optional `mcp.PolicyEvaluator` for custom authorization  |
@@ -612,16 +612,16 @@ Each entry in `Config.Tools` (or a call to `RegisterTool`) accepts the following
 |-----------------------|-----------------------------------------------------------------------------------------------|
 | `ID`                  | Unique tool identifier                                                                        |
 | `Transport`           | `stdio`, `http`, or `grpc`                                                                    |
-| `Stdio`               | `*StdioTransportConfig` — command, args, env, working directory                               |
-| `HTTP`                | `*HTTPTransportConfig` — URL and optional TLS config                                          |
-| `GRPC`                | `*GRPCTransportConfig` — target, service, method, TLS, metadata, descriptor set or reflection |
+| `Stdio`               | `*StdioTransportConfig` : command, args, env, working directory                               |
+| `HTTP`                | `*HTTPTransportConfig` : URL and optional TLS config                                          |
+| `GRPC`                | `*GRPCTransportConfig` : target, service, method, TLS, metadata, descriptor set or reflection |
 | `State`               | Initial state: `enabled` or `disabled`                                                        |
 | `Routing`             | `sticky` (session affinity, default) or `least_loaded`                                        |
 | `MaxSessionsPerTool`  | Backpressure limit; zero = unlimited                                                          |
 | `RequestTimeout`      | Per-tool invocation timeout; overrides runtime default                                        |
 | `IdleTimeout`         | Passivate idle sessions after this duration                                                   |
 | `StartupTimeout`      | Timeout for executor creation                                                                 |
-| `Circuit`             | `CircuitConfig` — failure threshold, open duration, half-open max requests                    |
+| `Circuit`             | `CircuitConfig` : failure threshold, open duration, half-open max requests                    |
 | `CredentialPolicy`    | `optional` (default) or `required`                                                            |
 | `AuthorizationPolicy` | `tenant_allowlist` to restrict tool to specific tenants                                       |
 
@@ -642,7 +642,7 @@ The `Gateway` struct is the sole public entry point. All methods are safe to cal
 
 | Method                                             | Description                                                                                      |
 |----------------------------------------------------|--------------------------------------------------------------------------------------------------|
-| `Invoke(ctx, inv) (*ExecutionResult, error)`       | Synchronous tool execution — blocks until the backend responds or times out                      |
+| `Invoke(ctx, inv) (*ExecutionResult, error)`       | Synchronous tool execution : blocks until the backend responds or times out                      |
 | `InvokeStream(ctx, inv) (*StreamingResult, error)` | Streaming execution; returns a `StreamingResult` with a `Progress` channel and a `Final` channel |
 
 ### Tool Management
@@ -692,28 +692,28 @@ These methods provide live visibility and control over a running gateway. They a
 
 The following interfaces are the extension points for customising goakt-mcp behaviour. All are defined in the `mcp` package.
 
-**Identity resolution (HTTP)** — called once per new HTTP/SSE/WebSocket session:
+**Identity resolution (HTTP)** : called once per new HTTP/SSE/WebSocket session:
 ```go
 type IdentityResolver interface {
     ResolveIdentity(r *http.Request) (TenantID, ClientID, error)
 }
 ```
 
-**Identity resolution (gRPC)** — called once per gRPC request:
+**Identity resolution (gRPC)** : called once per gRPC request:
 ```go
 type GRPCIdentityResolver interface {
     ResolveGRPCIdentity(ctx context.Context) (TenantID, ClientID, error)
 }
 ```
 
-**Policy evaluation** — called on every invocation, after built-in checks:
+**Policy evaluation** : called on every invocation, after built-in checks:
 ```go
 type PolicyEvaluator interface {
     Evaluate(ctx context.Context, input PolicyInput) *RuntimeError
 }
 ```
 
-**Credential resolution** — called by the credential broker per invocation:
+**Credential resolution** : called by the credential broker per invocation:
 ```go
 type CredentialsProvider interface {
     ID() string
@@ -721,7 +721,7 @@ type CredentialsProvider interface {
 }
 ```
 
-**Audit persistence** — receives every significant event:
+**Audit persistence** : receives every significant event:
 ```go
 type AuditSink interface {
     Write(event *AuditEvent) error
@@ -729,7 +729,7 @@ type AuditSink interface {
 }
 ```
 
-**Cluster peer discovery** — returns live peer addresses for gossip and remoting:
+**Cluster peer discovery** : returns live peer addresses for gossip and remoting:
 ```go
 type DiscoveryProvider interface {
     ID() string
@@ -739,7 +739,7 @@ type DiscoveryProvider interface {
 }
 ```
 
-**Custom tool executor** — bring your own transport:
+**Custom tool executor** : bring your own transport:
 ```go
 type ToolExecutor interface {
     Execute(ctx context.Context, inv *Invocation) (*ExecutionResult, error)
@@ -747,7 +747,7 @@ type ToolExecutor interface {
 }
 ```
 
-**Custom executor factory** — creates fresh executors per session:
+**Custom executor factory** : creates fresh executors per session:
 ```go
 type ExecutorFactory interface {
     Create(ctx context.Context, tool Tool, credentials map[string]string) (ToolExecutor, error)
