@@ -31,11 +31,12 @@ import "github.com/tochemey/goakt-mcp/mcp"
 // and passivation. Session creation is owned by the supervisor; sessions are
 // children of the tool supervisor.
 
-// GetOrCreateSession is a request to resolve or create a session for the given
-// tenant, client, and tool combination.
+// GetOrCreateSession is a request to resolve or activate a session grain for
+// the given tenant, client, and tool combination.
 //
-// The supervisor returns the session PID when found or newly spawned.
-// Credentials are passed when creating a new session for executor setup (e.g. HTTP auth).
+// The supervisor returns the session grain identity (activating the grain on
+// demand). Credentials are passed when the grain is first activated so its
+// executor can be set up with backend authentication.
 // Must be used with Ask. Response is GetOrCreateSessionResult.
 type GetOrCreateSession struct {
 	TenantID    mcp.TenantID
@@ -46,11 +47,33 @@ type GetOrCreateSession struct {
 
 // GetOrCreateSessionResult is the response to GetOrCreateSession.
 //
-// When Found is true, Session holds the *actor.PID of the SessionActor.
+// When Found is true, Session holds the *goaktactor.GrainIdentity of the
+// session grain. The field is typed as `any` so this package does not pull
+// in the goakt import; callers type-assert before using AskGrain / TellGrain.
 type GetOrCreateSessionResult struct {
 	Session any
 	Found   bool
 	Err     error
+}
+
+// SessionActivated is sent by a session grain to its ToolSupervisor at the
+// end of OnActivate. The supervisor increments its per-tool session count
+// used for backpressure decisions. Delivered via Tell so the grain's
+// activation path is not blocked on the supervisor's mailbox.
+type SessionActivated struct {
+	ToolID   mcp.ToolID
+	TenantID mcp.TenantID
+	ClientID mcp.ClientID
+}
+
+// SessionDeactivated is sent by a session grain to its ToolSupervisor when
+// the grain is about to be removed from memory (idle passivation, node
+// shutdown, explicit deactivation). The supervisor decrements its per-tool
+// session count.
+type SessionDeactivated struct {
+	ToolID   mcp.ToolID
+	TenantID mcp.TenantID
+	ClientID mcp.ClientID
 }
 
 // SessionInvoke is a request to execute an invocation through the session.

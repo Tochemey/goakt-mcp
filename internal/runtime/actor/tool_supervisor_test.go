@@ -616,7 +616,7 @@ func TestToolSupervisorDrainTool(t *testing.T) {
 func TestToolSupervisorGetOrCreateSession(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("creates session and returns PID", func(t *testing.T) {
+	t.Run("activates session grain and returns identity", func(t *testing.T) {
 		tool := validStdioTool("session-create-tool")
 		_, pid, stop := spawnTestSupervisor(t, tool)
 		defer stop()
@@ -627,17 +627,19 @@ func TestToolSupervisorGetOrCreateSession(t *testing.T) {
 			ToolID:   tool.ID,
 		}, askTimeout)
 		require.NoError(t, err)
+
 		result, ok := resp.(*runtime.GetOrCreateSessionResult)
 		require.True(t, ok)
 		require.NoError(t, result.Err)
 		require.True(t, result.Found)
 		require.NotNil(t, result.Session)
-		sessionPID, ok := result.Session.(*goaktactor.PID)
-		require.True(t, ok)
-		assert.True(t, sessionPID.IsRunning())
+
+		identity, ok := result.Session.(*goaktactor.GrainIdentity)
+		require.True(t, ok, "expected *goaktactor.GrainIdentity, got %T", result.Session)
+		assert.Equal(t, naming.SessionName("tenant-1", "client-1", tool.ID), identity.Name())
 	})
 
-	t.Run("returns existing session on repeat call", func(t *testing.T) {
+	t.Run("returns same grain identity on repeat call", func(t *testing.T) {
 		tool := validStdioTool("session-reuse-tool")
 		_, pid, stop := spawnTestSupervisor(t, tool)
 		defer stop()
@@ -660,9 +662,9 @@ func TestToolSupervisorGetOrCreateSession(t *testing.T) {
 		result2 := resp2.(*runtime.GetOrCreateSessionResult)
 		require.True(t, result2.Found)
 
-		pid1 := result1.Session.(*goaktactor.PID)
-		pid2 := result2.Session.(*goaktactor.PID)
-		assert.Equal(t, pid1.Name(), pid2.Name())
+		id1 := result1.Session.(*goaktactor.GrainIdentity)
+		id2 := result2.Session.(*goaktactor.GrainIdentity)
+		assert.True(t, id1.Equal(id2), "expected identical grain identity on repeat call")
 	})
 
 	t.Run("rejects tool ID mismatch", func(t *testing.T) {

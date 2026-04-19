@@ -44,6 +44,14 @@ const metadataKeyAuthorization = "authorization"
 // bearerPrefix is the prefix for Bearer token values in the Authorization header.
 const bearerPrefix = "bearer "
 
+// authenticatedStream wraps a [grpc.ServerStream] with an enriched context
+// that contains the validated [auth.TokenInfo]. This is needed because
+// stream interceptors cannot replace the context on the stream directly.
+type authenticatedStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
 // resolveGRPCAuthDefaults validates [mcp.EnterpriseAuthConfig] when present on
 // cfg and fills in defaults. When EnterpriseAuth is set and IdentityResolver is
 // nil, a [mcp.NewGRPCTokenIdentityResolver] is installed automatically using
@@ -202,14 +210,6 @@ func checkScopes(info *auth.TokenInfo, required []string) error {
 		}
 	}
 	return nil
-}
-
-// authenticatedStream wraps a [grpc.ServerStream] with an enriched context
-// that contains the validated [auth.TokenInfo]. This is needed because
-// stream interceptors cannot replace the context on the stream directly.
-type authenticatedStream struct {
-	grpc.ServerStream
-	ctx context.Context
 }
 
 // Context returns the enriched context with the validated token info.

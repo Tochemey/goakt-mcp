@@ -102,6 +102,21 @@ type EnterpriseAuthConfig struct {
 	// from token claims (e.g. an "org_id" custom claim) must provide a custom
 	// mapper.
 	IdentityMapper IdentityMapper
+
+	// TokenExchanger optionally performs RFC 8693 token exchange so the gateway
+	// can mint downstream tokens on behalf of the authenticated user. The
+	// typical deployment uses this for MCP Enterprise Managed Authorization
+	// (SEP-990): when the gateway calls a backend MCP server that requires a
+	// different audience than the ingress token, custom
+	// [CredentialsProvider] or [PolicyEvaluator] implementations call
+	// TokenExchanger.ExchangeToken with the user's subject token and receive
+	// an ID-JAG (or other requested token type) scoped to the backend.
+	//
+	// Optional; leave nil when the gateway does not need to mint downstream
+	// tokens. When set, the exchanger is exposed to runtime extensions via
+	// [Gateway] but is not invoked automatically on every request; calling
+	// code decides when an exchange is warranted.
+	TokenExchanger TokenExchanger
 }
 
 // IdentityMapper maps validated bearer token claims to the gateway's tenant
@@ -123,6 +138,23 @@ type IdentityMapper interface {
 // [IdentityMapper]. If f is a function with the appropriate signature,
 // IdentityMapperFunc(f) is an IdentityMapper that calls f.
 type IdentityMapperFunc func(info *auth.TokenInfo) (TenantID, ClientID, error)
+
+// tokenIdentityResolver implements [IdentityResolver] by reading
+// [auth.TokenInfo] from the request context.
+type tokenIdentityResolver struct {
+	mapper IdentityMapper
+}
+
+// grpcTokenInfoKey is the context key for storing validated [auth.TokenInfo]
+// in gRPC handler contexts. The SDK's HTTP middleware uses an unexported key,
+// so gRPC needs its own. [NewGRPCTokenIdentityResolver] reads from this key.
+type grpcTokenInfoKey struct{}
+
+// grpcTokenIdentityResolver implements [GRPCIdentityResolver] by reading
+// [auth.TokenInfo] from the gRPC context.
+type grpcTokenIdentityResolver struct {
+	mapper IdentityMapper
+}
 
 // MapIdentity calls f(info).
 func (f IdentityMapperFunc) MapIdentity(info *auth.TokenInfo) (TenantID, ClientID, error) {
@@ -165,12 +197,6 @@ func NewTokenIdentityResolver(mapper IdentityMapper) IdentityResolver {
 	return &tokenIdentityResolver{mapper: mapper}
 }
 
-// tokenIdentityResolver implements [IdentityResolver] by reading
-// [auth.TokenInfo] from the request context.
-type tokenIdentityResolver struct {
-	mapper IdentityMapper
-}
-
 // ResolveIdentity extracts the validated token claims from the request
 // context and delegates to the configured [IdentityMapper].
 func (r *tokenIdentityResolver) ResolveIdentity(req *http.Request) (TenantID, ClientID, error) {
@@ -180,11 +206,6 @@ func (r *tokenIdentityResolver) ResolveIdentity(req *http.Request) (TenantID, Cl
 	}
 	return r.mapper.MapIdentity(info)
 }
-
-// grpcTokenInfoKey is the context key for storing validated [auth.TokenInfo]
-// in gRPC handler contexts. The SDK's HTTP middleware uses an unexported key,
-// so gRPC needs its own. [NewGRPCTokenIdentityResolver] reads from this key.
-type grpcTokenInfoKey struct{}
 
 // GRPCContextWithTokenInfo returns a new context with the validated token info
 // stored for retrieval by [GRPCTokenInfoFromContext].
@@ -214,12 +235,6 @@ func NewGRPCTokenIdentityResolver(mapper IdentityMapper) GRPCIdentityResolver {
 		mapper = DefaultIdentityMapper()
 	}
 	return &grpcTokenIdentityResolver{mapper: mapper}
-}
-
-// grpcTokenIdentityResolver implements [GRPCIdentityResolver] by reading
-// [auth.TokenInfo] from the gRPC context.
-type grpcTokenIdentityResolver struct {
-	mapper IdentityMapper
 }
 
 // ResolveGRPCIdentity extracts the validated token claims from the gRPC

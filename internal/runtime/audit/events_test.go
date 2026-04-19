@@ -33,29 +33,48 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
+const (
+	testToolID        = "tool-1"
+	testToolIDClosed  = "tool-2"
+	testStateEnabled  = "enabled"
+	testStateDegraded = "degraded"
+	testStateOpen     = "open"
+	testStateClosed   = "closed"
+	testReasonValue   = "failure_threshold"
+	testCountKey      = "count"
+	testCountValue    = "5"
+)
+
 func TestHealthTransitionEvent(t *testing.T) {
-	ev := audit.HealthTransitionAuditEvent("tool-1", "enabled", "degraded")
+	ev := audit.HealthTransitionAuditEvent(testToolID, testStateEnabled, testStateDegraded)
+
 	require.NotNil(t, ev)
 	assert.Equal(t, mcp.AuditEventTypeHealthTransition, ev.Type)
-	assert.Equal(t, "tool-1", ev.ToolID)
-	assert.Equal(t, "degraded", ev.Outcome)
+	assert.Equal(t, testToolID, ev.ToolID)
+	assert.Equal(t, testStateDegraded, ev.Outcome)
 	assert.NotZero(t, ev.Timestamp)
+
 	require.NotNil(t, ev.Metadata)
-	assert.Equal(t, "enabled", ev.Metadata["from"])
-	assert.Equal(t, "degraded", ev.Metadata["to"])
+	assert.Equal(t, testStateEnabled, ev.Metadata[audit.MetadataKeyFromState])
+	assert.Equal(t, testStateDegraded, ev.Metadata[audit.MetadataKeyToState])
 }
 
 func TestCircuitStateChangeEvent(t *testing.T) {
-	meta := map[string]string{"reason": "failure_threshold", "count": "5"}
-	ev := audit.CircuitStateChangeAuditEvent("tool-1", "open", meta)
+	meta := map[string]string{
+		audit.MetadataKeyReason: testReasonValue,
+		testCountKey:            testCountValue,
+	}
+	ev := audit.CircuitStateChangeAuditEvent(testToolID, testStateOpen, meta)
+
 	require.NotNil(t, ev)
 	assert.Equal(t, mcp.AuditEventTypeCircuitStateChange, ev.Type)
-	assert.Equal(t, "tool-1", ev.ToolID)
-	assert.Equal(t, "open", ev.Outcome)
+	assert.Equal(t, testToolID, ev.ToolID)
+	assert.Equal(t, testStateOpen, ev.Outcome)
 	assert.NotZero(t, ev.Timestamp)
 	assert.Equal(t, meta, ev.Metadata)
 
-	ev = audit.CircuitStateChangeAuditEvent("tool-2", "closed", nil)
+	ev = audit.CircuitStateChangeAuditEvent(testToolIDClosed, testStateClosed, nil)
+
 	require.NotNil(t, ev)
 	assert.Nil(t, ev.Metadata)
 }

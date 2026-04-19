@@ -44,6 +44,15 @@ const (
 	defaultPingInterval    = 30 * time.Second
 )
 
+// wsHandler serves MCP sessions over WebSocket by upgrading each incoming
+// HTTP request, creating an SDK server session on top of the upgraded
+// connection, and driving keepalive pings on a fixed interval.
+type wsHandler struct {
+	getServer    func(*http.Request) *sdkmcp.Server
+	upgrader     *websocket.Upgrader
+	pingInterval time.Duration
+}
+
 func readBufferSize(c *mcp.WSConfig) int {
 	if c != nil && c.ReadBufferSize > 0 {
 		return c.ReadBufferSize
@@ -112,12 +121,6 @@ func New(gw pkg.Invoker, cfg mcp.IngressConfig, wsCfg *mcp.WSConfig) (http.Handl
 	}
 
 	return handler, nil
-}
-
-type wsHandler struct {
-	getServer    func(*http.Request) *sdkmcp.Server
-	upgrader     *websocket.Upgrader
-	pingInterval time.Duration
 }
 
 func (h *wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

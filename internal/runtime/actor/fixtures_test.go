@@ -135,6 +135,7 @@ func waitForActors() {
 // optionally ToolConfigExtension registered. Use for router/registrar tests that
 // need the full actor graph.
 func spawnFoundationalActorsForTest(ctx context.Context, system goaktactor.ActorSystem, cfg mcp.Config) {
+	_ = system.RegisterGrainKind(ctx, &sessionGrain{})
 	system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 	waitForActors()
 	system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
@@ -317,6 +318,7 @@ func spawnTestSupervisor(t *testing.T, tool mcp.Tool) (goaktactor.ActorSystem, *
 	t.Helper()
 	ctx := context.Background()
 	system, stop := testActorSystemWithTools(t, tool)
+	require.NoError(t, system.RegisterGrainKind(ctx, &sessionGrain{}))
 	_, err := system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 	require.NoError(t, err)
 	name := naming.ToolSupervisorName(tool.ID)

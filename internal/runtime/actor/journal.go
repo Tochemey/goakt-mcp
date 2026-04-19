@@ -25,6 +25,7 @@ package actor
 
 import (
 	goaktactor "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/eventstream"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 
 	"github.com/tochemey/goakt-mcp/mcp"
@@ -51,6 +52,7 @@ import (
 // All fields are unexported to enforce actor immutability rules.
 type journaler struct {
 	sink   mcp.AuditSink
+	stream eventstream.Stream
 	logger goaktlog.Logger
 }
 
@@ -64,8 +66,14 @@ func newJournaler() *journaler {
 // PreStart initializes Journaler before message processing begins.
 func (x *journaler) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
-	config := ctx.Extension(extension.ConfigExtensionID).(*extension.ConfigExtension).Config()
-	x.sink = createAuditSink(config.Audit)
+
+	cfg := ctx.Extension(extension.ConfigExtensionID).(*extension.ConfigExtension).Config()
+	x.sink = createAuditSink(cfg.Audit)
+
+	if streamExt, ok := ctx.Extension(extension.AuditStreamExtensionID).(*extension.AuditStreamExtension); ok && streamExt != nil {
+		x.stream = streamExt.Stream()
+	}
+
 	x.logger.Infof("actor=%s starting", naming.ActorNameJournal)
 	return nil
 }
@@ -91,14 +99,23 @@ func (x *journaler) PostStop(ctx *goaktactor.Context) error {
 	return nil
 }
 
-// handleRecordAuditEvent writes the audit event to the configured sink. Nil
-// events and nil sinks are silently ignored. Write failures are logged but do
-// not affect the calling actor (journal is off the critical path).
+// handleRecordAuditEvent writes the audit event to the configured sink and
+// publishes it on the audit event stream for any external subscribers. Nil
+// events are silently ignored. Write failures are logged but do not affect
+// the calling actor (journal is off the critical path). Stream publishing
+// is non-blocking.
 func (x *journaler) handleRecordAuditEvent(msg *runtime.RecordAuditEvent) {
-	if msg.Event == nil || x.sink == nil {
+	if msg.Event == nil {
 		return
 	}
-	if err := x.sink.Write(msg.Event); err != nil {
-		x.logger.Warnf("actor=%s audit write failed: %v", naming.ActorNameJournal, err)
+
+	if x.sink != nil {
+		if err := x.sink.Write(msg.Event); err != nil {
+			x.logger.Warnf("actor=%s audit write failed: %v", naming.ActorNameJournal, err)
+		}
+	}
+
+	if x.stream != nil {
+		x.stream.Publish(extension.AuditStreamTopic, msg.Event)
 	}
 }

@@ -33,27 +33,27 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
-func init() {
-	gob.Register(&mcp.StdioTransportConfig{})
-	gob.Register(&mcp.HTTPTransportConfig{})
-}
-
 // SessionDependencyID is the fixed identifier for the session dependency.
 const SessionDependencyID = "session"
 
-// SessionDependency wraps session identity, tool config, and optional executor
-// for injection into SessionActor. When Executor is non-nil, the session uses
-// it for real MCP execution; otherwise it returns stub results.
+// SessionDependency carries the serializable identity and configuration a
+// session grain needs to build its own executor during OnActivate.
+//
+// The executor itself is NOT held here on purpose: under grain semantics,
+// passing a pre-created executor via WithGrainDependencies is unsafe because
+// goakt's grain engine always invokes the factory and dependency options on
+// every GrainIdentity call, yet only runs OnActivate for the first
+// activation of an identity. Any pre-created executor attached on repeat
+// calls would be discarded — and leaked — because the already-active grain
+// never sees it. Moving executor construction into the grain's OnActivate
+// (via ExecutorFactoryExtension lookup) eliminates that leak entirely.
 type SessionDependency struct {
 	tenantID    mcp.TenantID
 	clientID    mcp.ClientID
 	toolID      mcp.ToolID
 	tool        mcp.Tool
-	executor    mcp.ToolExecutor
 	credentials map[string]string
 }
-
-var _ goaktextension.Dependency = (*SessionDependency)(nil)
 
 // sessionDependencyPayload is used for gob encoding.
 type sessionDependencyPayload struct {
@@ -64,10 +64,17 @@ type sessionDependencyPayload struct {
 	Credentials map[string]string
 }
 
-// NewSessionDependency creates a dependency for the given session identity and
-// tool. Pass nil for executor to use stub execution. The credentials map is
-// defensively copied to preserve immutability.
-func NewSessionDependency(tenantID mcp.TenantID, clientID mcp.ClientID, toolID mcp.ToolID, tool mcp.Tool, executor mcp.ToolExecutor, credentials map[string]string) *SessionDependency {
+var _ goaktextension.Dependency = (*SessionDependency)(nil)
+
+func init() {
+	gob.Register(&mcp.StdioTransportConfig{})
+	gob.Register(&mcp.HTTPTransportConfig{})
+}
+
+// NewSessionDependency creates a dependency for the given session identity,
+// tool, and resolved credentials. The credentials map is defensively copied
+// to preserve immutability across dependency reuse.
+func NewSessionDependency(tenantID mcp.TenantID, clientID mcp.ClientID, toolID mcp.ToolID, tool mcp.Tool, credentials map[string]string) *SessionDependency {
 	var credsCopy map[string]string
 	if len(credentials) > 0 {
 		credsCopy = make(map[string]string, len(credentials))
@@ -78,7 +85,6 @@ func NewSessionDependency(tenantID mcp.TenantID, clientID mcp.ClientID, toolID m
 		clientID:    clientID,
 		toolID:      toolID,
 		tool:        tool,
-		executor:    executor,
 		credentials: credsCopy,
 	}
 }
@@ -129,13 +135,10 @@ func (s *SessionDependency) ClientID() mcp.ClientID { return s.clientID }
 // ToolID returns the tool identifier.
 func (s *SessionDependency) ToolID() mcp.ToolID { return s.toolID }
 
-// Tool returns the tool definition (for idle timeout and transport config).
+// Tool returns the tool definition (used by the grain to size idle timeouts
+// and to hand to the executor factory during activation).
 func (s *SessionDependency) Tool() mcp.Tool { return s.tool }
 
-// Executor returns the optional tool executor for real MCP execution.
-// Nil means stub mode.
-func (s *SessionDependency) Executor() mcp.ToolExecutor { return s.executor }
-
 // Credentials returns the credentials used to create the executor.
-// Used by session executor recovery to recreate a failed executor.
+// The grain uses these when invoking the ExecutorFactory in OnActivate.
 func (s *SessionDependency) Credentials() map[string]string { return s.credentials }

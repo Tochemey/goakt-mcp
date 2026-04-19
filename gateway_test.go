@@ -25,6 +25,7 @@ package goaktmcp
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"testing"
@@ -34,6 +35,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/eventstream"
 	goaktlog "github.com/tochemey/goakt/v4/log"
 	"google.golang.org/grpc"
 
@@ -1826,4 +1828,170 @@ func TestResolverManagerNotFound(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "GatewayManager not found")
 	})
+}
+
+func TestGatewaySubscribeAudit(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns error before Start", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+
+		sub, err := gw.SubscribeAudit()
+
+		require.Error(t, err)
+		assert.Nil(t, sub)
+		assert.Contains(t, err.Error(), "gateway not started")
+	})
+
+	t.Run("delivers events published by the journal actor", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		t.Cleanup(func() { _ = gw.Stop(ctx) })
+
+		waitForActors()
+
+		sub, err := gw.SubscribeAudit()
+		require.NoError(t, err)
+		require.NotNil(t, sub)
+		t.Cleanup(func() { gw.UnsubscribeAudit(sub) })
+
+		journalPID, err := gw.System().ActorOf(ctx, naming.ActorNameJournal)
+		require.NoError(t, err)
+		require.NotNil(t, journalPID)
+
+		ev := &mcp.AuditEvent{
+			Type:     mcp.AuditEventTypeInvocationComplete,
+			TenantID: "tenant-audit",
+			ClientID: "client-audit",
+			ToolID:   "tool-audit",
+			Outcome:  "success",
+		}
+		require.NoError(t, goaktactor.Tell(ctx, journalPID, &runtime.RecordAuditEvent{Event: ev}))
+
+		received := waitForAuditEvent(t, sub, 500*time.Millisecond)
+
+		assert.Equal(t, mcp.AuditEventTypeInvocationComplete, received.Type)
+		assert.Equal(t, "tenant-audit", received.TenantID)
+		assert.Equal(t, "tool-audit", received.ToolID)
+		assert.Equal(t, "success", received.Outcome)
+	})
+
+	t.Run("UnsubscribeAudit with nil is a no-op", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		t.Cleanup(func() { _ = gw.Stop(ctx) })
+
+		assert.NotPanics(t, func() { gw.UnsubscribeAudit(nil) })
+	})
+
+	t.Run("UnsubscribeAudit stops event delivery", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		t.Cleanup(func() { _ = gw.Stop(ctx) })
+
+		waitForActors()
+
+		sub, err := gw.SubscribeAudit()
+		require.NoError(t, err)
+
+		gw.UnsubscribeAudit(sub)
+
+		journalPID, err := gw.System().ActorOf(ctx, naming.ActorNameJournal)
+		require.NoError(t, err)
+		require.NoError(t, goaktactor.Tell(ctx, journalPID, &runtime.RecordAuditEvent{
+			Event: &mcp.AuditEvent{
+				Type:    mcp.AuditEventTypeInvocationComplete,
+				ToolID:  "post-unsubscribe",
+				Outcome: "success",
+			},
+		}))
+		waitForActors()
+
+		assert.False(t, sub.Active(), "subscriber must be inactive after UnsubscribeAudit")
+	})
+
+	t.Run("returns error after Stop", func(t *testing.T) {
+		gw, err := New(testConfig())
+		require.NoError(t, err)
+		require.NoError(t, gw.Start(ctx))
+		require.NoError(t, gw.Stop(ctx))
+
+		sub, err := gw.SubscribeAudit()
+
+		require.Error(t, err)
+		assert.Nil(t, sub)
+	})
+}
+
+func TestGatewayDeadLetterHandling(t *testing.T) {
+	t.Run("formatDeadLetterPath returns unknown for nil path", func(t *testing.T) {
+		assert.Equal(t, "unknown", formatDeadLetterPath(nil))
+	})
+
+	t.Run("handleDeadLetterEvent logs sender receiver and reason", func(t *testing.T) {
+		recorder := newRecordingLogger()
+		gw := &Gateway{logger: recorder}
+
+		ev := goaktactor.NewDeadletter(nil, nil, "dropped-message", time.Now(), "actor stopped")
+
+		gw.handleDeadLetterEvent(ev)
+
+		require.Len(t, recorder.warns, 1)
+		entry := recorder.warns[0]
+		assert.Contains(t, entry, "dead letter")
+		assert.Contains(t, entry, "sender=unknown")
+		assert.Contains(t, entry, "receiver=unknown")
+		assert.Contains(t, entry, "reason=actor stopped")
+	})
+
+	t.Run("handleDeadLetterEvent defaults empty reason to unknown", func(t *testing.T) {
+		recorder := newRecordingLogger()
+		gw := &Gateway{logger: recorder}
+
+		ev := goaktactor.NewDeadletter(nil, nil, "dropped-message", time.Now(), "")
+
+		gw.handleDeadLetterEvent(ev)
+
+		require.Len(t, recorder.warns, 1)
+		assert.Contains(t, recorder.warns[0], "reason=unknown")
+	})
+}
+
+// recordingLogger captures every Warnf call so tests can assert on log
+// output without coupling to a specific logger implementation.
+type recordingLogger struct {
+	goaktlog.Logger
+	warns []string
+}
+
+func newRecordingLogger() *recordingLogger {
+	return &recordingLogger{Logger: goaktlog.DiscardLogger}
+}
+
+func (r *recordingLogger) Warnf(format string, args ...any) {
+	r.warns = append(r.warns, fmt.Sprintf(format, args...))
+}
+
+// waitForAuditEvent polls the subscriber until an event arrives or the deadline
+// passes, then returns the first *mcp.AuditEvent found. It fails the test if no
+// audit event is received in the allotted time.
+func waitForAuditEvent(t *testing.T, sub eventstream.Subscriber, timeout time.Duration) *mcp.AuditEvent {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		for msg := range sub.Iterator() {
+			if ev, ok := msg.Payload().(*mcp.AuditEvent); ok {
+				return ev
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("no audit event received within %s", timeout)
+	return nil
 }

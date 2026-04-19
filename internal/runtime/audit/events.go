@@ -29,9 +29,30 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
+// Metadata keys emitted on AuditEvent.Metadata. Callers and consumers of
+// audit events must reference these constants rather than inlining the
+// string literals so keys stay aligned across the codebase.
+const (
+	// MetadataKeyFromState labels the pre-transition state on
+	// HealthTransition and related events.
+	MetadataKeyFromState = "from"
+	// MetadataKeyToState labels the post-transition state on
+	// HealthTransition and related events.
+	MetadataKeyToState = "to"
+	// MetadataKeyReason labels the reason code on CircuitStateChange and
+	// similar lifecycle events.
+	MetadataKeyReason = "reason"
+	// MetadataKeyFailureCount labels the consecutive-failure count on
+	// CircuitStateChange events emitted when a circuit trips.
+	MetadataKeyFailureCount = "failure_count"
+)
+
 // HealthTransitionAuditEvent creates an audit event for a tool health state change.
 func HealthTransitionAuditEvent(toolID, fromState, toState string) *mcp.AuditEvent {
-	meta := map[string]string{"from": fromState, "to": toState}
+	meta := map[string]string{
+		MetadataKeyFromState: fromState,
+		MetadataKeyToState:   toState,
+	}
 	return &mcp.AuditEvent{
 		Type:      mcp.AuditEventTypeHealthTransition,
 		Timestamp: time.Now(),

@@ -34,6 +34,13 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
+// OTelContextPropagator adapts the OpenTelemetry propagation.TextMapPropagator
+// to GoAkt's remote.ContextPropagator interface. This allows OTel trace context
+// (W3C traceparent/tracestate) to travel across GoAkt remote actor calls.
+type OTelContextPropagator struct {
+	propagator propagation.TextMapPropagator
+}
+
 var (
 	tracerPtr  atomic.Pointer[trace.Tracer]
 	noopTracer = noop.NewTracerProvider().Tracer(instrumentationName)
@@ -66,13 +73,6 @@ func Tracer() trace.Tracer {
 // TracingEnabled reports whether a tracer has been registered. Lock-free.
 func TracingEnabled() bool {
 	return tracerPtr.Load() != nil
-}
-
-// OTelContextPropagator adapts the OpenTelemetry propagation.TextMapPropagator
-// to GoAkt's remote.ContextPropagator interface. This allows OTel trace context
-// (W3C traceparent/tracestate) to travel across GoAkt remote actor calls.
-type OTelContextPropagator struct {
-	propagator propagation.TextMapPropagator
 }
 
 // NewOTelContextPropagator creates a propagator that delegates to the global

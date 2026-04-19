@@ -26,6 +26,7 @@ package extension
 import (
 	"sync"
 
+	"github.com/tochemey/goakt/v4/eventstream"
 	goaktextension "github.com/tochemey/goakt/v4/extension"
 
 	"github.com/tochemey/goakt-mcp/mcp"
@@ -122,3 +123,38 @@ func (c *ConfigExtension) ID() string { return ConfigExtensionID }
 
 // Config returns the runtime configuration.
 func (c *ConfigExtension) Config() mcp.Config { return c.config }
+
+// AuditStreamExtensionID is the fixed identifier for the AuditStream extension.
+const AuditStreamExtensionID = "audit-stream"
+
+// AuditStreamTopic is the topic on which audit events are published. Subscribers
+// obtained from Gateway.SubscribeAudit receive messages carrying *mcp.AuditEvent
+// payloads on this topic.
+const AuditStreamTopic = "mcp.audit"
+
+// AuditStreamExtension is a system-level extension that exposes the audit
+// event stream to actors that need to publish (Journaler) or external callers
+// that subscribe (Gateway.SubscribeAudit). The underlying stream is owned by
+// the Gateway and torn down on Gateway.Stop.
+//
+// When this extension is not registered, audit publishing falls back to the
+// configured AuditSink only, preserving backward compatibility.
+type AuditStreamExtension struct {
+	stream eventstream.Stream
+}
+
+// Enforce that AuditStreamExtension implements the Extension interface.
+var _ goaktextension.Extension = (*AuditStreamExtension)(nil)
+
+// NewAuditStreamExtension creates an AuditStreamExtension backed by the given
+// stream. A nil stream is accepted and turns the extension into a no-op.
+func NewAuditStreamExtension(stream eventstream.Stream) *AuditStreamExtension {
+	return &AuditStreamExtension{stream: stream}
+}
+
+// ID returns the unique identifier for this extension.
+func (e *AuditStreamExtension) ID() string { return AuditStreamExtensionID }
+
+// Stream returns the underlying event stream, or nil when the extension was
+// created with a nil stream.
+func (e *AuditStreamExtension) Stream() eventstream.Stream { return e.stream }

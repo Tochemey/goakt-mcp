@@ -69,6 +69,11 @@ type loggerAdapter struct {
 	fields []any // accumulated key-value pairs from With()
 }
 
+// loggerWriter adapts Logger.Info to io.Writer for use with *log.Logger.
+type loggerWriter struct {
+	inner Logger
+}
+
 // compile-time check
 var _ goaktlog.Logger = (*loggerAdapter)(nil)
 
@@ -264,11 +269,6 @@ func (a *loggerAdapter) Flush() error           { return nil }
 
 func (a *loggerAdapter) StdLogger() *golog.Logger {
 	return golog.New(&loggerWriter{inner: a.inner}, "", 0)
-}
-
-// loggerWriter adapts Logger.Info to io.Writer for use with *log.Logger.
-type loggerWriter struct {
-	inner Logger
 }
 
 func (w *loggerWriter) Write(p []byte) (int, error) {

@@ -36,6 +36,21 @@ import (
 
 const instrumentationName = "github.com/tochemey/goakt-mcp/telemetry"
 
+// Metric attribute keys. Stable names used across every Record* function so
+// operators see a consistent dimension vocabulary on scraped metrics.
+const (
+	attrKeyReason   = "reason"
+	attrKeyToolID   = "tool_id"
+	attrKeyTenantID = "tenant_id"
+)
+
+// Credential cache result attribute values surfaced on the
+// goaktmcp.credential.cache counter.
+const (
+	credentialCacheHit  = "hit"
+	credentialCacheMiss = "miss"
+)
+
 // Metrics holds OpenTelemetry instruments for goakt-mcp runtime observability.
 // Created at gateway level via RegisterMetrics and used by actors via the
 // Record* functions. Mirrors the GoAkt pattern of registering instruments at
@@ -53,6 +68,9 @@ type Metrics struct {
 	sessionPassivated     metric.Int64Counter
 	credentialCacheResult metric.Int64Counter
 	policyEvalLatency     metric.Float64Histogram
+
+	// Actor system health metrics.
+	deadLetter metric.Int64Counter
 }
 
 var metricsPtr atomic.Pointer[Metrics]
@@ -143,6 +161,13 @@ func RegisterMetrics(meter metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 
+	if metrics.deadLetter, err = meter.Int64Counter(
+		"goaktmcp.actor.dead_letter",
+		metric.WithDescription("Messages delivered to the actor system dead-letter stream, tagged by reason"),
+	); err != nil {
+		return nil, err
+	}
+
 	metricsPtr.Store(metrics)
 	return metrics, nil
 }
@@ -160,7 +185,7 @@ func RecordToolAvailability(ctx context.Context, toolID mcp.ToolID, available bo
 		return
 	}
 	m.toolAvailability.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("tool_id", string(toolID)),
+		attribute.String(attrKeyToolID, string(toolID)),
 		attribute.Bool("available", available),
 	))
 }
@@ -173,8 +198,8 @@ func RecordInvocationLatency(ctx context.Context, toolID mcp.ToolID, tenantID mc
 		return
 	}
 	m.invocationLatency.Record(ctx, latencyMs, metric.WithAttributes(
-		attribute.String("tool_id", string(toolID)),
-		attribute.String("tenant_id", string(tenantID)),
+		attribute.String(attrKeyToolID, string(toolID)),
+		attribute.String(attrKeyTenantID, string(tenantID)),
 	))
 }
 
@@ -186,9 +211,9 @@ func RecordInvocationFailure(ctx context.Context, toolID mcp.ToolID, tenantID mc
 		return
 	}
 	m.invocationFailure.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("tool_id", string(toolID)),
-		attribute.String("tenant_id", string(tenantID)),
-		attribute.String("reason", reason),
+		attribute.String(attrKeyToolID, string(toolID)),
+		attribute.String(attrKeyTenantID, string(tenantID)),
+		attribute.String(attrKeyReason, reason),
 	))
 }
 
@@ -200,7 +225,7 @@ func RecordCircuitState(ctx context.Context, toolID mcp.ToolID, state string) {
 		return
 	}
 	m.circuitState.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("tool_id", string(toolID)),
+		attribute.String(attrKeyToolID, string(toolID)),
 		attribute.String("state", state),
 	))
 }
@@ -213,8 +238,8 @@ func RecordSessionCreated(ctx context.Context, toolID mcp.ToolID, tenantID mcp.T
 		return
 	}
 	attrs := metric.WithAttributes(
-		attribute.String("tool_id", string(toolID)),
-		attribute.String("tenant_id", string(tenantID)),
+		attribute.String(attrKeyToolID, string(toolID)),
+		attribute.String(attrKeyTenantID, string(tenantID)),
 	)
 	m.sessionCreated.Add(ctx, 1, attrs)
 	m.sessionActive.Add(ctx, 1, attrs)
@@ -228,8 +253,8 @@ func RecordSessionDestroyed(ctx context.Context, toolID mcp.ToolID, tenantID mcp
 		return
 	}
 	attrs := metric.WithAttributes(
-		attribute.String("tool_id", string(toolID)),
-		attribute.String("tenant_id", string(tenantID)),
+		attribute.String(attrKeyToolID, string(toolID)),
+		attribute.String(attrKeyTenantID, string(tenantID)),
 	)
 	m.sessionDestroyed.Add(ctx, 1, attrs)
 	m.sessionActive.Add(ctx, -1, attrs)
@@ -245,7 +270,7 @@ func RecordSessionPassivated(ctx context.Context, toolID mcp.ToolID) {
 		return
 	}
 	m.sessionPassivated.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("tool_id", string(toolID)),
+		attribute.String(attrKeyToolID, string(toolID)),
 	))
 }
 
@@ -256,13 +281,13 @@ func RecordCredentialCacheResult(ctx context.Context, toolID mcp.ToolID, tenantI
 	if m == nil {
 		return
 	}
-	result := "miss"
+	result := credentialCacheMiss
 	if hit {
-		result = "hit"
+		result = credentialCacheHit
 	}
 	m.credentialCacheResult.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("tool_id", string(toolID)),
-		attribute.String("tenant_id", string(tenantID)),
+		attribute.String(attrKeyToolID, string(toolID)),
+		attribute.String(attrKeyTenantID, string(tenantID)),
 		attribute.String("result", result),
 	))
 }
@@ -275,7 +300,20 @@ func RecordPolicyEvaluationLatency(ctx context.Context, tenantID mcp.TenantID, d
 		return
 	}
 	m.policyEvalLatency.Record(ctx, latencyMs, metric.WithAttributes(
-		attribute.String("tenant_id", string(tenantID)),
+		attribute.String(attrKeyTenantID, string(tenantID)),
 		attribute.String("decision", decision),
+	))
+}
+
+// RecordDeadLetter records a message that could not be delivered to its
+// target actor. The reason is whatever GoAkt reported on the Deadletter
+// event. No-op when metrics are not registered.
+func RecordDeadLetter(ctx context.Context, reason string) {
+	m := metricsPtr.Load()
+	if m == nil {
+		return
+	}
+	m.deadLetter.Add(ctx, 1, metric.WithAttributes(
+		attribute.String(attrKeyReason, reason),
 	))
 }
