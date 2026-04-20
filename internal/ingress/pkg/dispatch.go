@@ -101,11 +101,11 @@ func RequestToInvocation(req *sdkmcp.CallToolRequest, toolID mcp.ToolID, tenantI
 	}
 
 	// Determine the backend tool name and arguments.
-	backendName, _ := args["name"].(string)
+	backendName, _ := args[mcp.ParamKeyName].(string)
 	var backendArgs any
 	if backendName != "" {
 		// Nested shape: client specified a backend sub-tool name explicitly.
-		backendArgs = args["arguments"]
+		backendArgs = args[mcp.ParamKeyArguments]
 	} else {
 		// Flat shape: no sub-tool name; use the gateway tool ID as the backend
 		// tool name and forward the entire args map as arguments.
@@ -115,10 +115,10 @@ func RequestToInvocation(req *sdkmcp.CallToolRequest, toolID mcp.ToolID, tenantI
 
 	return &mcp.Invocation{
 		ToolID: toolID,
-		Method: "tools/call",
+		Method: mcp.MethodToolsCall,
 		Params: map[string]any{
-			"name":      backendName,
-			"arguments": backendArgs,
+			mcp.ParamKeyName:      backendName,
+			mcp.ParamKeyArguments: backendArgs,
 		},
 		Correlation: mcp.CorrelationMeta{
 			TenantID:  tenantID,
@@ -179,7 +179,7 @@ func OutputToCallToolResult(output map[string]any) *sdkmcp.CallToolResult {
 	// Attempt to reconstruct typed text content from the "content" key written
 	// by mcpconv.CallResultToOutput. Only text items are reconstructed; image,
 	// audio, and embedded resource items fall through to JSON serialization.
-	if rawContent, ok := output["content"]; ok {
+	if rawContent, ok := output[mcp.OutputKeyContent]; ok {
 		// json.Unmarshal into interface{} produces []any for arrays, not
 		// []map[string]any, so we must handle both the in-memory path (direct
 		// []map[string]any from contentToSlice) and the JSON-decoded path ([]any).
@@ -198,8 +198,8 @@ func OutputToCallToolResult(output map[string]any) *sdkmcp.CallToolResult {
 		if len(items) > 0 {
 			content := make([]sdkmcp.Content, 0, len(items))
 			for _, item := range items {
-				if typ, _ := item["type"].(string); typ == "text" {
-					if text, _ := item["text"].(string); text != "" {
+				if typ, _ := item[mcp.ContentKeyType].(string); typ == mcp.ContentTypeText {
+					if text, _ := item[mcp.ContentKeyText].(string); text != "" {
 						content = append(content, &sdkmcp.TextContent{Text: text})
 					}
 				}
@@ -241,9 +241,9 @@ func DispatchResourceRead(
 
 	inv := &mcp.Invocation{
 		ToolID: toolID,
-		Method: "resources/read",
+		Method: mcp.MethodResourcesRead,
 		Params: map[string]any{
-			"uri": req.Params.URI,
+			mcp.ParamKeyURI: req.Params.URI,
 		},
 		Correlation: mcp.CorrelationMeta{
 			TenantID:  tenantID,
@@ -297,7 +297,7 @@ func OutputToReadResourceResult(output map[string]any) *sdkmcp.ReadResourceResul
 
 	result := &sdkmcp.ReadResourceResult{}
 
-	rawContents, ok := output["contents"]
+	rawContents, ok := output[mcp.OutputKeyContents]
 	if !ok {
 		data, err := json.Marshal(output)
 		if err != nil {
@@ -326,16 +326,16 @@ func OutputToReadResourceResult(output map[string]any) *sdkmcp.ReadResourceResul
 		contents := make([]*sdkmcp.ResourceContents, 0, len(items))
 		for _, item := range items {
 			rc := &sdkmcp.ResourceContents{}
-			if uri, _ := item["uri"].(string); uri != "" {
+			if uri, _ := item[mcp.ContentKeyURI].(string); uri != "" {
 				rc.URI = uri
 			}
-			if mimeType, _ := item["mimeType"].(string); mimeType != "" {
+			if mimeType, _ := item[mcp.ContentKeyMIMEType].(string); mimeType != "" {
 				rc.MIMEType = mimeType
 			}
-			if text, _ := item["text"].(string); text != "" {
+			if text, _ := item[mcp.ContentKeyText].(string); text != "" {
 				rc.Text = text
 			}
-			if blob, ok := item["blob"].([]byte); ok && len(blob) > 0 {
+			if blob, ok := item[mcp.ContentKeyBlob].([]byte); ok && len(blob) > 0 {
 				rc.Blob = blob
 			}
 			contents = append(contents, rc)

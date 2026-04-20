@@ -60,6 +60,17 @@ import (
 
 const gatewayActorSystemName = "goakt-mcp"
 
+// Actor system event consumer tuning. The poll interval trades off event
+// latency against CPU wake-ups; one second is fast enough for passivation and
+// dead-letter observability without spinning.
+const eventConsumerPollInterval = time.Second
+
+// deadLetterUnknown is the sentinel used in log and metric tags when GoAkt
+// reports a dead-letter event without a reason or an addressable actor path.
+// Keeping the sentinel consistent between the reason field and the path
+// formatter lets operators alert on a single tag value.
+const deadLetterUnknown = "unknown"
+
 // Gateway is the top-level handle for the goakt-mcp gateway.
 //
 // Gateway owns the GoAkt actor system and orchestrates the full lifecycle of all
@@ -80,6 +91,12 @@ type Gateway struct {
 	// eventSub receives actor system events (e.g. ActorPassivated) for metrics.
 	eventSub    eventstream.Subscriber
 	eventStopCh chan struct{}
+
+	// auditStream is the per-Start event stream onto which the JournalActor
+	// publishes every AuditEvent. External subscribers obtain a Subscriber via
+	// Gateway.SubscribeAudit and poll it through eventstream.Subscriber.Iterator.
+	// Created in actorSystemOptions (once per Start) and torn down in Stop.
+	auditStream eventstream.Stream
 
 	// managerName is the actor name used for GatewayManager. In single-node mode it
 	// is always naming.ActorNameGatewayManager. In cluster mode it is suffixed with the
@@ -210,10 +227,62 @@ func (g *Gateway) Stop(ctx context.Context) error {
 	}
 
 	g.mu.Lock()
+	if g.auditStream != nil {
+		g.auditStream.Close()
+		g.auditStream = nil
+	}
 	g.system = nil
 	g.draining = false
 	g.mu.Unlock()
 	return nil
+}
+
+// SubscribeAudit returns a new eventstream.Subscriber that receives every
+// mcp.AuditEvent written by the Journal actor after Gateway.Start.
+//
+// Messages delivered on the returned Subscriber carry *mcp.AuditEvent as the
+// message payload, on the topic extension.AuditStreamTopic. Consume messages
+// by polling Subscriber.Iterator() periodically; the iterator drains messages
+// buffered at the time of invocation.
+//
+// SubscribeAudit returns an error when the gateway has not been started. The
+// returned subscriber becomes inert when the gateway is stopped. Callers must
+// pass the subscriber to UnsubscribeAudit when finished to release resources.
+func (g *Gateway) SubscribeAudit() (eventstream.Subscriber, error) {
+	g.mu.RLock()
+	stream := g.auditStream
+	g.mu.RUnlock()
+
+	if stream == nil {
+		return nil, mcp.NewRuntimeError(mcp.ErrCodeInternal, "gateway not started")
+	}
+
+	sub := stream.AddSubscriber()
+	stream.Subscribe(sub, actorextension.AuditStreamTopic)
+	return sub, nil
+}
+
+// UnsubscribeAudit removes a subscriber previously returned by SubscribeAudit
+// and releases its buffered messages. A nil subscriber is a no-op. Unsubscribing
+// from a Gateway that has already been stopped is also a no-op.
+//
+// RemoveSubscriber drains the subscriber from every topic it is currently
+// attached to and then flips it inactive, so a single call covers both the
+// topic cleanup and the shutdown signal.
+func (g *Gateway) UnsubscribeAudit(sub eventstream.Subscriber) {
+	if sub == nil {
+		return
+	}
+
+	g.mu.RLock()
+	stream := g.auditStream
+	g.mu.RUnlock()
+
+	if stream == nil {
+		return
+	}
+
+	stream.RemoveSubscriber(sub)
 }
 
 // System returns the underlying GoAkt actor system.
@@ -339,9 +408,11 @@ func GRPCAuthInterceptors(ea *mcp.EnterpriseAuthConfig) (grpc.UnaryServerInterce
 }
 
 // startEventConsumer subscribes to the actor system event stream and starts a
-// background goroutine that polls for ActorPassivated events. This is the only
-// reliable way to detect session passivation: GoAkt publishes ActorPassivated
-// exclusively when the passivation strategy fires, not on explicit stops.
+// background goroutine that polls for ActorPassivated and Deadletter events.
+// Passivation is the only reliable signal for idle-session reclamation (GoAkt
+// publishes ActorPassivated exclusively when the passivation strategy fires,
+// not on explicit stops); dead letters surface undelivered messages that
+// would otherwise be invisible.
 func (g *Gateway) startEventConsumer(system goaktactor.ActorSystem) {
 	sub, err := system.Subscribe()
 	if err != nil {
@@ -356,7 +427,7 @@ func (g *Gateway) startEventConsumer(system goaktactor.ActorSystem) {
 	g.eventStopCh = stopCh
 	g.mu.Unlock()
 
-	go g.consumePassivationEvents(sub, stopCh)
+	go g.consumeSystemEvents(sub, stopCh)
 }
 
 // stopEventConsumer signals the background event consumer to stop and
@@ -377,30 +448,68 @@ func (g *Gateway) stopEventConsumer(system goaktactor.ActorSystem) {
 	}
 }
 
-// consumePassivationEvents periodically drains the event stream subscriber and
-// records a passivation metric for each ActorPassivated event whose address
-// identifies a session actor. The tool ID is extracted from the supervisor
-// parent component of the actor address.
-func (g *Gateway) consumePassivationEvents(sub eventstream.Subscriber, stopCh <-chan struct{}) {
-	ticker := time.NewTicker(time.Second)
+// consumeSystemEvents periodically drains the event stream subscriber and
+// dispatches each known lifecycle event to its recorder. Unknown payload
+// types are ignored so future GoAkt events do not break this loop.
+func (g *Gateway) consumeSystemEvents(sub eventstream.Subscriber, stopCh <-chan struct{}) {
+	ticker := time.NewTicker(eventConsumerPollInterval)
 	defer ticker.Stop()
+
 	for {
 		select {
 		case <-stopCh:
 			return
 		case <-ticker.C:
 			for msg := range sub.Iterator() {
-				ev, ok := msg.Payload().(*goaktactor.ActorPassivated)
-				if !ok {
-					continue
-				}
-				toolID := toolIDFromPath(ev.ActorPath())
-				if !toolID.IsZero() {
-					telemetry.RecordSessionPassivated(context.Background(), toolID)
+				switch ev := msg.Payload().(type) {
+				case *goaktactor.ActorPassivated:
+					g.handlePassivationEvent(ev)
+				case *goaktactor.Deadletter:
+					g.handleDeadLetterEvent(ev)
 				}
 			}
 		}
 	}
+}
+
+// handlePassivationEvent records a session passivation metric for the tool
+// implied by the passivated actor's path. Non-session actors are ignored.
+func (g *Gateway) handlePassivationEvent(ev *goaktactor.ActorPassivated) {
+	toolID := toolIDFromPath(ev.ActorPath())
+	if toolID.IsZero() {
+		return
+	}
+
+	telemetry.RecordSessionPassivated(context.Background(), toolID)
+}
+
+// handleDeadLetterEvent logs the undelivered message and increments the
+// dead-letter counter. The reason string is the one GoAkt attached to the
+// event (e.g. "actor stopped", "mailbox full"). Sender and receiver paths
+// are logged so operators can trace which actor caused the drop.
+func (g *Gateway) handleDeadLetterEvent(ev *goaktactor.Deadletter) {
+	reason := ev.Reason()
+	if reason == "" {
+		reason = deadLetterUnknown
+	}
+
+	g.logger.Warnf("dead letter: sender=%s receiver=%s reason=%s",
+		formatDeadLetterPath(ev.Sender()),
+		formatDeadLetterPath(ev.Receiver()),
+		reason,
+	)
+
+	telemetry.RecordDeadLetter(context.Background(), reason)
+}
+
+// formatDeadLetterPath renders an actor Path for dead-letter logs. A nil Path
+// is reported as "unknown" instead of the empty string so log readers can
+// tell the difference between a real un-named sender and a missing field.
+func formatDeadLetterPath(p goaktactor.Path) string {
+	if p == nil {
+		return deadLetterUnknown
+	}
+	return p.Name()
 }
 
 // toolIDFromPath extracts the tool ID from a passivated session's
@@ -519,6 +628,13 @@ func (g *Gateway) actorSystemOptions(tlsInfo *gtls.Info) []goaktactor.Option {
 	execFactory := egress.NewCompositeExecutorFactory(g.config.Runtime.StartupTimeout, nil)
 	schemaFetcher := egress.NewCompositeSchemaFetcher(g.config.Runtime.StartupTimeout, nil)
 	resourceFetcher := egress.NewCompositeResourceFetcher(g.config.Runtime.StartupTimeout, nil)
+
+	auditStream := eventstream.New()
+
+	g.mu.Lock()
+	g.auditStream = auditStream
+	g.mu.Unlock()
+
 	opts := []goaktactor.Option{
 		goaktactor.WithLogger(g.logger),
 		goaktactor.WithActorInitMaxRetries(3),
@@ -528,6 +644,7 @@ func (g *Gateway) actorSystemOptions(tlsInfo *gtls.Info) []goaktactor.Option {
 			actorextension.NewResourceFetcherExtension(resourceFetcher),
 			actorextension.NewToolConfigExtension(),
 			actorextension.NewConfigExtension(g.config),
+			actorextension.NewAuditStreamExtension(auditStream),
 		),
 	}
 

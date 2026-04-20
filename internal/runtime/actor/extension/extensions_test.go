@@ -30,6 +30,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tochemey/goakt/v4/eventstream"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 )
@@ -128,7 +129,7 @@ func TestSessionDependency(t *testing.T) {
 	toolID := mcp.ToolID("tool-1")
 	tool := stdioTool(toolID)
 
-	dep := NewSessionDependency(tenantID, clientID, toolID, tool, nil, nil)
+	dep := NewSessionDependency(tenantID, clientID, toolID, tool, nil)
 
 	t.Run("ID returns SessionDependencyID", func(t *testing.T) {
 		assert.Equal(t, SessionDependencyID, dep.ID())
@@ -139,7 +140,6 @@ func TestSessionDependency(t *testing.T) {
 		assert.Equal(t, clientID, dep.ClientID())
 		assert.Equal(t, toolID, dep.ToolID())
 		assert.Equal(t, tool, dep.Tool())
-		assert.Nil(t, dep.Executor())
 	})
 
 	t.Run("MarshalBinary and UnmarshalBinary round-trip", func(t *testing.T) {
@@ -170,6 +170,32 @@ func TestConfigExtension(t *testing.T) {
 	require.Equal(t, conf, ext.Config())
 }
 
+func TestAuditStreamExtension(t *testing.T) {
+	t.Run("ID returns AuditStreamExtensionID", func(t *testing.T) {
+		ext := NewAuditStreamExtension(nil)
+		assert.Equal(t, AuditStreamExtensionID, ext.ID())
+	})
+
+	t.Run("Stream returns the wrapped stream", func(t *testing.T) {
+		stream := eventstream.New()
+		t.Cleanup(stream.Close)
+
+		ext := NewAuditStreamExtension(stream)
+
+		assert.Same(t, stream, ext.Stream())
+	})
+
+	t.Run("Stream returns nil when nil stream provided", func(t *testing.T) {
+		ext := NewAuditStreamExtension(nil)
+
+		assert.Nil(t, ext.Stream())
+	})
+
+	t.Run("AuditStreamTopic is the documented topic name", func(t *testing.T) {
+		assert.Equal(t, "mcp.audit", AuditStreamTopic)
+	})
+}
+
 func TestSchemaFetcherExtension(t *testing.T) {
 	fetcher := &mockSchemaFetcher{}
 	ext := NewSchemaFetcherExtension(fetcher)
@@ -180,25 +206,25 @@ func TestSchemaFetcherExtension(t *testing.T) {
 
 func TestSessionDependencyCredentials(t *testing.T) {
 	creds := map[string]string{"api-key": "secret"}
-	dep := NewSessionDependency("t1", "c1", "tool1", stdioTool("tool1"), nil, creds)
+	dep := NewSessionDependency("t1", "c1", "tool1", stdioTool("tool1"), creds)
 	assert.Equal(t, creds, dep.Credentials())
 
 	t.Run("credentials are defensively copied", func(t *testing.T) {
 		original := map[string]string{"key": "val"}
-		dep := NewSessionDependency("t1", "c1", "tool1", stdioTool("tool1"), nil, original)
+		dep := NewSessionDependency("t1", "c1", "tool1", stdioTool("tool1"), original)
 		// Mutate the original map after construction
 		original["key"] = "mutated"
 		assert.Equal(t, "val", dep.Credentials()["key"], "dependency should not be affected by external mutation")
 	})
 
 	t.Run("nil credentials remain nil", func(t *testing.T) {
-		dep := NewSessionDependency("t1", "c1", "tool1", stdioTool("tool1"), nil, nil)
+		dep := NewSessionDependency("t1", "c1", "tool1", stdioTool("tool1"), nil)
 		assert.Nil(t, dep.Credentials())
 	})
 
 	t.Run("credentials survive MarshalBinary/UnmarshalBinary round-trip", func(t *testing.T) {
 		creds := map[string]string{"api-key": "secret", "token": "abc123"}
-		dep := NewSessionDependency("t1", "c1", "tool1", stdioTool("tool1"), nil, creds)
+		dep := NewSessionDependency("t1", "c1", "tool1", stdioTool("tool1"), creds)
 
 		data, err := dep.MarshalBinary()
 		require.NoError(t, err)

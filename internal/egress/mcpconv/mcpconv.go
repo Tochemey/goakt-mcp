@@ -33,18 +33,25 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 )
 
+// fallbackToolErrorMessage is returned when a CallToolResult reports an
+// error but has no text content to extract a human-readable message from.
+const fallbackToolErrorMessage = "tool error"
+
 // ParamsFromInvocation extracts the tool name and arguments from an Invocation.
-// Params is expected to contain "name" and "arguments" keys per the MCP tools/call
-// convention. When "name" is absent, the ToolID is used as a fallback.
+// Params is expected to contain the standard MCP tools/call keys
+// (mcp.ParamKeyName and mcp.ParamKeyArguments). When the name key is absent,
+// the ToolID is used as a fallback so single-operation tools don't require
+// the caller to duplicate the tool name in both places.
 func ParamsFromInvocation(inv *mcp.Invocation) (string, any) {
 	if inv == nil || inv.Params == nil {
 		return "", nil
 	}
-	name, _ := inv.Params["name"].(string)
+
+	name, _ := inv.Params[mcp.ParamKeyName].(string)
 	if name == "" {
 		name = string(inv.ToolID)
 	}
-	return name, inv.Params["arguments"]
+	return name, inv.Params[mcp.ParamKeyArguments]
 }
 
 // CallResultToOutput converts an MCP CallToolResult into the runtime output map.
@@ -53,35 +60,37 @@ func CallResultToOutput(res *sdkmcp.CallToolResult) map[string]any {
 	if res == nil {
 		return nil
 	}
+
 	out := make(map[string]any, 2)
 	if len(res.Content) > 0 {
-		out["content"] = contentToSlice(res.Content)
+		out[mcp.OutputKeyContent] = contentToSlice(res.Content)
 	}
 	if res.StructuredContent != nil {
-		out["structuredContent"] = res.StructuredContent
+		out[mcp.OutputKeyStructuredContent] = res.StructuredContent
 	}
 	return out
 }
 
 // ContentErrorText extracts a human-readable error message from a CallToolResult.
-// Falls back to "tool error" when no text content is present.
+// Falls back to fallbackToolErrorMessage when no text content is present.
 func ContentErrorText(res *sdkmcp.CallToolResult) string {
 	if res == nil || len(res.Content) == 0 {
-		return "tool error"
+		return fallbackToolErrorMessage
 	}
 	if t, ok := res.Content[0].(*sdkmcp.TextContent); ok {
 		return t.Text
 	}
-	return "tool error"
+	return fallbackToolErrorMessage
 }
 
 // ResourceParamsFromInvocation extracts the resource URI from an Invocation.
-// Params is expected to contain a "uri" key per the MCP resources/read convention.
+// Params is expected to contain mcp.ParamKeyURI per the resources/read convention.
 func ResourceParamsFromInvocation(inv *mcp.Invocation) string {
 	if inv == nil || inv.Params == nil {
 		return ""
 	}
-	uri, _ := inv.Params["uri"].(string)
+
+	uri, _ := inv.Params[mcp.ParamKeyURI].(string)
 	return uri
 }
 
@@ -91,6 +100,7 @@ func ReadResourceResultToOutput(res *sdkmcp.ReadResourceResult) map[string]any {
 	if res == nil {
 		return nil
 	}
+
 	out := make(map[string]any, 1)
 	if len(res.Contents) > 0 {
 		contents := make([]map[string]any, 0, len(res.Contents))
@@ -98,20 +108,21 @@ func ReadResourceResultToOutput(res *sdkmcp.ReadResourceResult) map[string]any {
 			if c == nil {
 				continue
 			}
+
 			item := make(map[string]any, 4)
-			item["uri"] = c.URI
+			item[mcp.ContentKeyURI] = c.URI
 			if c.MIMEType != "" {
-				item["mimeType"] = c.MIMEType
+				item[mcp.ContentKeyMIMEType] = c.MIMEType
 			}
 			if c.Text != "" {
-				item["text"] = c.Text
+				item[mcp.ContentKeyText] = c.Text
 			}
 			if len(c.Blob) > 0 {
-				item["blob"] = c.Blob
+				item[mcp.ContentKeyBlob] = c.Blob
 			}
 			contents = append(contents, item)
 		}
-		out["contents"] = contents
+		out[mcp.OutputKeyContents] = contents
 	}
 	return out
 }
@@ -122,45 +133,45 @@ func contentToSlice(c []sdkmcp.Content) []map[string]any {
 		switch t := item.(type) {
 		case *sdkmcp.TextContent:
 			s = append(s, map[string]any{
-				"type": "text",
-				"text": t.Text,
+				mcp.ContentKeyType: mcp.ContentTypeText,
+				mcp.ContentKeyText: t.Text,
 			})
 		case *sdkmcp.ImageContent:
 			s = append(s, map[string]any{
-				"type":     "image",
-				"data":     base64.StdEncoding.EncodeToString(t.Data),
-				"mimeType": t.MIMEType,
+				mcp.ContentKeyType:     mcp.ContentTypeImage,
+				mcp.ContentKeyData:     base64.StdEncoding.EncodeToString(t.Data),
+				mcp.ContentKeyMIMEType: t.MIMEType,
 			})
 		case *sdkmcp.AudioContent:
 			s = append(s, map[string]any{
-				"type":     "audio",
-				"data":     base64.StdEncoding.EncodeToString(t.Data),
-				"mimeType": t.MIMEType,
+				mcp.ContentKeyType:     mcp.ContentTypeAudio,
+				mcp.ContentKeyData:     base64.StdEncoding.EncodeToString(t.Data),
+				mcp.ContentKeyMIMEType: t.MIMEType,
 			})
 		case *sdkmcp.EmbeddedResource:
-			m := map[string]any{"type": "resource"}
+			m := map[string]any{mcp.ContentKeyType: mcp.ContentTypeResource}
 			if t.Resource != nil {
-				m["uri"] = t.Resource.URI
+				m[mcp.ContentKeyURI] = t.Resource.URI
 				if t.Resource.MIMEType != "" {
-					m["mimeType"] = t.Resource.MIMEType
+					m[mcp.ContentKeyMIMEType] = t.Resource.MIMEType
 				}
 				if t.Resource.Text != "" {
-					m["text"] = t.Resource.Text
+					m[mcp.ContentKeyText] = t.Resource.Text
 				}
 			}
 			s = append(s, m)
 		case *sdkmcp.ResourceLink:
 			m := map[string]any{
-				"type": "resource_link",
-				"uri":  t.URI,
-				"name": t.Name,
+				mcp.ContentKeyType: mcp.ContentTypeResourceLink,
+				mcp.ContentKeyURI:  t.URI,
+				mcp.ContentKeyName: t.Name,
 			}
 			if t.MIMEType != "" {
-				m["mimeType"] = t.MIMEType
+				m[mcp.ContentKeyMIMEType] = t.MIMEType
 			}
 			s = append(s, m)
 		default:
-			s = append(s, map[string]any{"type": "unknown"})
+			s = append(s, map[string]any{mcp.ContentKeyType: mcp.ContentTypeUnknown})
 		}
 	}
 	return s

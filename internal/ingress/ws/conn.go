@@ -41,14 +41,6 @@ type wsTransport struct {
 	conn *wsConn
 }
 
-// Compile-time check that wsTransport satisfies the Transport interface.
-var _ sdkmcp.Transport = (*wsTransport)(nil)
-
-// Connect returns the pre-established WebSocket connection.
-func (t *wsTransport) Connect(_ context.Context) (sdkmcp.Connection, error) {
-	return t.conn, nil
-}
-
 // wsConn implements [sdkmcp.Connection] over a gorilla/websocket connection.
 type wsConn struct {
 	conn      *websocket.Conn
@@ -60,6 +52,14 @@ type wsConn struct {
 
 	closeOnce sync.Once
 	done      chan struct{}
+}
+
+// Compile-time check that wsTransport satisfies the Transport interface.
+var _ sdkmcp.Transport = (*wsTransport)(nil)
+
+// Connect returns the pre-established WebSocket connection.
+func (t *wsTransport) Connect(_ context.Context) (sdkmcp.Connection, error) {
+	return t.conn, nil
 }
 
 // newWSConn wraps a WebSocket connection as an MCP Connection.

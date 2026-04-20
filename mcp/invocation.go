@@ -34,12 +34,6 @@ type CorrelationMeta struct {
 	TraceID   TraceID
 }
 
-// IsZero reports whether the CorrelationMeta is entirely empty.
-func (c CorrelationMeta) IsZero() bool {
-	return c.TenantID.IsZero() && c.ClientID.IsZero() &&
-		c.RequestID.IsZero() && c.TraceID.IsZero()
-}
-
 // Invocation represents one logical tool execution request.
 //
 // It carries the full identity context, correlation metadata, MCP payload, and
@@ -80,6 +74,16 @@ type Invocation struct {
 // ExecutionStatus describes the outcome category of a completed tool invocation.
 type ExecutionStatus string
 
+// ExecutionResult is the normalized outcome returned by the runtime after
+// a tool invocation completes.
+type ExecutionResult struct {
+	Status      ExecutionStatus
+	Output      map[string]any
+	Err         *RuntimeError
+	Duration    time.Duration
+	Correlation CorrelationMeta
+}
+
 const (
 	// ExecutionStatusSuccess indicates the tool call completed and returned output.
 	ExecutionStatusSuccess ExecutionStatus = "success"
@@ -97,14 +101,10 @@ const (
 	ExecutionStatusThrottled ExecutionStatus = "throttled"
 )
 
-// ExecutionResult is the normalized outcome returned by the runtime after
-// a tool invocation completes.
-type ExecutionResult struct {
-	Status      ExecutionStatus
-	Output      map[string]any
-	Err         *RuntimeError
-	Duration    time.Duration
-	Correlation CorrelationMeta
+// IsZero reports whether the CorrelationMeta is entirely empty.
+func (c CorrelationMeta) IsZero() bool {
+	return c.TenantID.IsZero() && c.ClientID.IsZero() &&
+		c.RequestID.IsZero() && c.TraceID.IsZero()
 }
 
 // Succeeded reports whether the invocation completed with a successful result.

@@ -7,7 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### Sessions Migrated to GoAkt Grains (virtual actors)
+
+- The per-`(tenant, client, tool)` `SessionActor` is replaced by a `sessionGrain` that implements the `goaktactor.Grain` interface. Sessions are now activated on demand by goakt's grain engine via `GrainIdentity` and addressed through `ActorSystem.AskGrain` / `TellGrain` rather than actor PIDs.
+- Idle passivation is delegated to `WithGrainDeactivateAfter(idleTimeout)`; the hand-rolled `PausePassivation`/`ResumePassivation` dance inside session invocations is gone because the grain mailbox already serializes with in-flight work.
+- Executor construction moved into the grain's `OnActivate` (from the supervisor). The supervisor previously pre-created an executor on every `GetOrCreateSession` call, but goakt's grain engine always invokes the factory/dependency options even when the grain is already active; that executor was silently orphaned — a resource leak under load. Reading the `ExecutorFactoryExtension` inside the grain itself eliminates the leak because the construction only happens on first activation. `SessionDependency.Executor` and the `executor` parameter of `NewSessionDependency` are removed accordingly.
+- In-flight streaming invocations are now tracked by a `sync.WaitGroup` on the grain. `OnDeactivate` waits for all streaming goroutines to finish before closing the executor, preventing a mid-stream passivation tear-down when a stream runs longer than the idle timeout.
+- `forwardStream` now uses a bounded `select` with `streamForwardSendTimeout` (30s) when forwarding progress events to the caller. A disconnected consumer that never drains the channel no longer leaks the forwarding goroutine; it times out, cancels the executor context, and exits cleanly.
+- `ToolSupervisor.GetOrCreateSession` now calls `ActorSystem.GrainIdentity` and returns the resulting `*goaktactor.GrainIdentity` in `runtime.GetOrCreateSessionResult.Session`. Callers (the Router) dispatch via `ActorSystem.AskGrain`.
+- Supervisor session accounting (backpressure + admin enumeration) moved from `ctx.Self().ChildrenCount()` / `Children()` to an in-memory map of `sessionRegistration` entries. The grain sends `runtime.SessionActivated` on `OnActivate` and `runtime.SessionDeactivated` on `OnDeactivate`; the supervisor maintains the authoritative per-tool map from those messages.
+- Executor recovery stays intact: on transport failure the grain rebuilds its executor via `ExecutorFactoryExtension` and retries once.
+- Streaming invocations (`SessionInvokeStream`) work the same — the grain forwards progress and final events through a `StreamingResult` while the handler returns immediately so the mailbox stays free for the next message.
+- The `GatewayManager.PreStart` registers the grain kind on the actor system so remote activation / recreation works in cluster mode.
+- Legacy files deleted: `internal/runtime/actor/session.go` (499 LOC), `internal/runtime/actor/session_test.go` (821 LOC). New files: `internal/runtime/actor/session_grain.go` and `internal/runtime/actor/session_grain_test.go` (7 focused tests covering invoke, stream, fallback, identity, failure reporting).
+
+#### Registrar Tool Catalog Extraction
+
+- The in-memory `map[ToolID]Tool` + three parallel metadata maps inside the RegistryActor are replaced by a dedicated `toolCatalog` type (`internal/runtime/actor/registrar_catalog.go`) that bundles each tool with its schemas and MCP resource metadata in a single entry.
+- `toolCatalog` exposes a narrow API (`Put`, `UpdateTool`, `Remove`, `Get`, `Has`, `List`, `SetSchemas`, `SetResources`, etc.) so a future CRDT-backed implementation can slot in behind the same contract without changing the actor's message flow.
+- Registrar's per-handler logic is shorter and the storage invariants (stale schemas cleared on re-registration, metadata cleared on Remove) now live in one place.
+- Tested with 10 new unit tests covering every catalog mutation path.
+
 ### Added
+
+#### Dead-Letter Observability
+
+- `Gateway` now consumes `*goaktactor.Deadletter` events from the actor system event stream in addition to passivation events. Every undelivered message is logged at Warn level with sender, receiver, and reason fields.
+- New OpenTelemetry counter `goaktmcp.actor.dead_letter` tagged by `reason` surfaces dead-letter rates for alerting; exposed via `telemetry.RecordDeadLetter`.
+- Event consumer renamed from `consumePassivationEvents` to `consumeSystemEvents` to reflect the wider scope.
+
+### Changed
+
+#### Router Pipeline Refactor
+
+- The Router actor's synchronous and streaming handlers now share a single pre-execution pipeline (`runPreExecutionPipeline`): tool lookup, policy evaluation, supervisor lookup, accept-work check, credential resolution, and session resolution happen in one place with uniform telemetry and audit emission.
+- Stage-specific failure handling collapsed into `emitRouteFailure`, `emitValidationFailure`, `emitExecutionFailure`, `emitInvocationComplete`. Scattered `errors.As` for error-code extraction centralised in `errorCodeFrom`.
+- Audit-outcome strings (`invalid`, `error`, `unavailable`, `credential_unavailable`, `session_error`, `execution_error`, `streaming`) are now package-level constants in `router_pipeline.go` rather than inline literals at each call site.
+- Metrics attribute keys (`tool_id`, `tenant_id`, `reason`) and credential-cache result values (`hit`, `miss`) in `internal/runtime/telemetry/metrics.go` are now named constants.
+
+#### Audit Event Stream
+
+- `Gateway.SubscribeAudit()` returns a `eventstream.Subscriber` that receives every `*mcp.AuditEvent` written by the Journal actor after `Gateway.Start`. Consumers poll via `Subscriber.Iterator()` for in-process fan-out of audit events alongside the existing `AuditSink` path.
+- `Gateway.UnsubscribeAudit(sub)` cleanly removes a subscriber and tears down its buffered state.
+- `AuditStreamExtension` system-level extension exposes the audit `eventstream.Stream` to the `Journaler` actor, which publishes on the `mcp.audit` topic (`extension.AuditStreamTopic`) in addition to writing to the configured `AuditSink`.
+- `audit.MetadataKeyReason`, `audit.MetadataKeyFailureCount`, `audit.MetadataKeyFromState`, `audit.MetadataKeyToState` constants replace inline metadata keys in audit event emitters.
+
+#### Enterprise Token Exchange (RFC 8693)
+
+- `TokenExchanger` interface and `TokenExchangeRequest`/`TokenExchangeResult` domain types for performing RFC 8693 token exchange on behalf of authenticated users (MCP Enterprise Managed Authorization, SEP-990).
+- `NewOAuthTokenExchanger` constructs a `TokenExchanger` backed by the MCP SDK's `oauthex.ExchangeToken`; defaults to `oauthex.TokenTypeIDJAG` for `RequestedTokenType` when unset.
+- `EnterpriseAuthConfig.TokenExchanger` wires a `TokenExchanger` into the gateway so custom `CredentialsProvider` and `PolicyEvaluator` implementations can mint downstream tokens from the inbound user token without knowing IdP topology.
+- `ErrTokenExchangerConfigRequired` sentinel error for missing required configuration (endpoint or client credentials).
+
+### Changed
+
+#### Circuit Breaker Internals
+
+- `mcp.CircuitBreaker` is now a first-class state machine type with explicit `Acquire`, `OnSuccess`, `OnFailure`, `Reset`, and `Peek` methods, replacing the fields-on-actor approach in `toolSupervisor`.
+- `mcp.CircuitAcquireOutcome` enum and `mcp.CircuitTransition` struct describe `Acquire` results and state transitions explicitly, with stable `CircuitTransitionReason` constants (`failure_threshold_exceeded`, `half_open_probe_failed`, `half_open_probe_success`, `open_duration_elapsed`, `manual_reset`).
+- `NewCircuitBreakerWithClock` accepts an injectable clock for deterministic tests.
+- `toolSupervisor` delegates all circuit logic to `mcp.CircuitBreaker`; audit and telemetry emission go through a single `emitTransition` helper.
 
 #### MCP Resources (List + Read)
 

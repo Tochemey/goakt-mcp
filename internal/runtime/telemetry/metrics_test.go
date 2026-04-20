@@ -47,6 +47,7 @@ func TestRecordFunctions_NoPanicWhenUnregistered(t *testing.T) {
 	assert.NotPanics(t, func() { RecordSessionPassivated(ctx, mcp.ToolID("tool1")) })
 	assert.NotPanics(t, func() { RecordCredentialCacheResult(ctx, mcp.ToolID("tool1"), mcp.TenantID("tenant1"), true) })
 	assert.NotPanics(t, func() { RecordPolicyEvaluationLatency(ctx, mcp.TenantID("tenant1"), "allow", 1.5) })
+	assert.NotPanics(t, func() { RecordDeadLetter(ctx, "mailbox full") })
 }
 
 func TestRegisterMetrics(t *testing.T) {
@@ -121,6 +122,13 @@ func TestRecordFunctions_WithRegisteredMetrics(t *testing.T) {
 		assert.NotPanics(t, func() {
 			RecordPolicyEvaluationLatency(ctx, mcp.TenantID("tenant-1"), "allow", 2.5)
 			RecordPolicyEvaluationLatency(ctx, mcp.TenantID("tenant-1"), "deny", 1.0)
+		})
+	})
+
+	t.Run("RecordDeadLetter does not panic when registered", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			RecordDeadLetter(ctx, "actor stopped")
+			RecordDeadLetter(ctx, "mailbox full")
 		})
 	})
 }

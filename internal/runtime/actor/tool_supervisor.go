@@ -26,12 +26,10 @@ package actor
 import (
 	"context"
 	"strconv"
-	"strings"
 	"time"
 
 	goaktactor "github.com/tochemey/goakt/v4/actor"
 	goaktlog "github.com/tochemey/goakt/v4/log"
-	"github.com/tochemey/goakt/v4/passivation"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
@@ -42,11 +40,32 @@ import (
 	"github.com/tochemey/goakt-mcp/internal/runtime/telemetry"
 )
 
+// Reason strings returned on CanAcceptWorkResult when the supervisor rejects
+// work. Dashboards and tests match on these values, so the strings are kept
+// stable here rather than inlined at each call site.
+const (
+	canAcceptReasonToolMismatch    = "tool ID mismatch"
+	canAcceptReasonToolDisabled    = "tool is disabled"
+	canAcceptReasonToolDraining    = "tool is draining"
+	canAcceptReasonCircuitOpen     = "circuit is open"
+	canAcceptReasonHalfOpenLimit   = "half-open probe limit reached"
+	canAcceptReasonBackpressureCap = "tool session limit reached (backpressure)"
+)
+
+// sessionRegistration is the per-tenant+client tuple the supervisor tracks
+// for every active session grain. The map of these tuples (keyed by the
+// grain name) is the supervisor's authoritative view of local session
+// count and identity used by backpressure checks and admin queries.
+type sessionRegistration struct {
+	TenantID mcp.TenantID
+	ClientID mcp.ClientID
+}
+
 // toolSupervisor is the ToolSupervisor Actor.
 //
 // There is one supervisor per registered tool. The supervisor owns the tool's
-// circuit breaker state, failure counting, and recovery timing. It decides
-// whether work should proceed or fail fast based on circuit state and
+// circuit breaker state and per-tool session count, and decides whether
+// work should proceed or fail fast based on circuit state and
 // administrative disable status.
 //
 // Spawn: Registrar spawns ToolSupervisor in spawnSupervisor via
@@ -62,18 +81,22 @@ import (
 // PostStart, using the tool ID derived from the actor name. Circuit parameters use
 // runtime defaults unless overridden by a CircuitConfigExtension system extension.
 //
+// Sessions are goakt virtual actors (grains), not child actors. The
+// supervisor owns a name-keyed map of [sessionRegistration] that lifecycle
+// messages ([runtime.SessionActivated] / [runtime.SessionDeactivated])
+// keep up to date. The supervisor never spawns sessions directly: it
+// activates grain identities via ActorSystem.GrainIdentity and returns the
+// identity to the caller.
+//
 // All fields are unexported to enforce actor immutability rules.
 type toolSupervisor struct {
-	tool             mcp.Tool
-	circuitState     mcp.CircuitState
-	failureCount     int
-	openAt           time.Time
-	halfOpenRequests int
-	circuitConfig    mcp.CircuitConfig
-	journal          *goaktactor.PID
-	logger           goaktlog.Logger
-	self             *goaktactor.PID
-	draining         bool
+	tool     mcp.Tool
+	circuit  *mcp.CircuitBreaker
+	journal  *goaktactor.PID
+	logger   goaktlog.Logger
+	self     *goaktactor.PID
+	draining bool
+	sessions map[string]sessionRegistration
 }
 
 var _ goaktactor.Actor = (*toolSupervisor)(nil)
@@ -84,16 +107,14 @@ func newToolSupervisor() *toolSupervisor {
 	return &toolSupervisor{}
 }
 
-// PreStart initializes the logger and circuit defaults. Tool config is resolved
-// later in PostStart once the actor is fully registered in the actor system.
+// PreStart initializes the logger, circuit breaker, and session map. Tool
+// config is resolved later in PostStart once the actor is fully registered
+// in the actor system; a CircuitConfigExtension override replaces the
+// breaker there.
 func (x *toolSupervisor) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
-	x.circuitState = mcp.CircuitClosed
-	x.circuitConfig = mcp.CircuitConfig{
-		FailureThreshold:    mcp.DefaultCircuitFailureThreshold,
-		OpenDuration:        mcp.DefaultCircuitOpenDuration,
-		HalfOpenMaxRequests: mcp.DefaultCircuitHalfOpenMaxRequests,
-	}
+	x.circuit = mcp.NewCircuitBreaker(mcp.CircuitConfig{})
+	x.sessions = make(map[string]sessionRegistration)
 	return nil
 }
 
@@ -134,7 +155,7 @@ func (x *toolSupervisor) Receive(ctx *goaktactor.ReceiveContext) {
 		// Optionally override circuit config from the system-level extension.
 		// Used in tests to reduce OpenDuration without per-actor injection.
 		if circuitExt, ok := ctx.Extension(actorextension.CircuitConfigExtensionID).(*actorextension.CircuitConfigExtension); ok && circuitExt != nil {
-			x.circuitConfig = circuitExt.Config()
+			x.circuit = mcp.NewCircuitBreaker(circuitExt.Config())
 		}
 
 		x.logger.Infof("actor supervisor:%s started circuit=closed", x.tool.ID)
@@ -146,6 +167,10 @@ func (x *toolSupervisor) Receive(ctx *goaktactor.ReceiveContext) {
 		x.handleReportFailure(ctx, msg)
 	case *runtime.ReportSuccess:
 		x.handleReportSuccess(ctx, msg)
+	case *runtime.SessionActivated:
+		x.handleSessionActivated(msg)
+	case *runtime.SessionDeactivated:
+		x.handleSessionDeactivated(msg)
 	case *runtime.SupervisorCountSessionsForTenant:
 		x.handleCountSessionsForTenant(ctx, msg)
 	case *runtime.RefreshToolConfig:
@@ -177,97 +202,83 @@ func (x *toolSupervisor) PostStop(ctx *goaktactor.Context) error {
 }
 
 // handleCanAcceptWork checks whether this supervisor can accept new work by
-// evaluating tool disable status, circuit state, half-open probe limits, and
-// per-tool backpressure (MaxSessionsPerTool). Responds with CanAcceptWorkResult
-// indicating accept/reject, the reason, and the current session count.
-// SessionCount is always populated so the caller can use it for further
-// decisions (e.g. backpressure) without a separate round-trip.
+// evaluating tool disable status, drain flag, circuit state, half-open probe
+// limits, and per-tool backpressure (MaxSessionsPerTool). Responds with
+// CanAcceptWorkResult indicating accept/reject, the reason, and the current
+// session count. SessionCount is always populated so the caller can use it
+// for further decisions (e.g. backpressure) without a separate round-trip.
 func (x *toolSupervisor) handleCanAcceptWork(ctx *goaktactor.ReceiveContext, msg *runtime.CanAcceptWork) {
-	sessionCount := ctx.Self().ChildrenCount()
+	sessionCount := len(x.sessions)
 
 	if msg.ToolID != x.tool.ID {
-		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "tool ID mismatch", SessionCount: sessionCount})
+		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: canAcceptReasonToolMismatch, SessionCount: sessionCount})
 		return
 	}
 
 	if x.tool.State == mcp.ToolStateDisabled {
-		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "tool is disabled", SessionCount: sessionCount})
+		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: canAcceptReasonToolDisabled, SessionCount: sessionCount})
 		return
 	}
 
 	if x.draining {
-		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "tool is draining", SessionCount: sessionCount})
+		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: canAcceptReasonToolDraining, SessionCount: sessionCount})
 		return
 	}
 
-	x.maybeTransitionFromOpen()
-	if !x.circuitState.CanAccept() {
-		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "circuit is open", SessionCount: sessionCount})
-		return
-	}
+	outcome, transition := x.circuit.Acquire()
+	x.emitTransition(transition)
 
-	if x.circuitState == mcp.CircuitHalfOpen && x.halfOpenRequests >= x.circuitConfig.HalfOpenMaxRequests {
-		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "half-open probe limit reached", SessionCount: sessionCount})
+	switch outcome {
+	case mcp.CircuitAcquireRejectedOpen:
+		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: canAcceptReasonCircuitOpen, SessionCount: sessionCount})
+		return
+	case mcp.CircuitAcquireRejectedHalfOpenLimit:
+		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: canAcceptReasonHalfOpenLimit, SessionCount: sessionCount})
 		return
 	}
 
 	if x.tool.MaxSessionsPerTool > 0 && sessionCount >= x.tool.MaxSessionsPerTool {
-		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: "tool session limit reached (backpressure)", SessionCount: sessionCount})
+		ctx.Response(&runtime.CanAcceptWorkResult{Accept: false, Reason: canAcceptReasonBackpressureCap, SessionCount: sessionCount})
 		return
-	}
-
-	if x.circuitState == mcp.CircuitHalfOpen {
-		x.halfOpenRequests++
 	}
 
 	ctx.Response(&runtime.CanAcceptWorkResult{Accept: true, SessionCount: sessionCount})
 }
 
-// handleGetOrCreateSession resolves an existing child session for the given
-// tenant+client+tool triple, or spawns a new one with passivation. The session
-// is a child of this supervisor, ensuring cleanup on supervisor stop.
+// handleGetOrCreateSession activates (or resolves) the session grain for
+// the given tenant+client+tool triple and returns the grain identity. The
+// SessionDependency passed through [goaktactor.WithGrainDependencies]
+// carries only the identity, tool, and credentials; the grain itself
+// builds the executor via the ExecutorFactoryExtension on first activation.
+//
+// Deliberately NOT pre-creating the executor here prevents a resource leak:
+// goakt's grain engine always invokes the factory options on every
+// GrainIdentity call, but only runs OnActivate on the first activation of
+// a given name. Any executor attached to a repeat call's dependencies
+// would be ignored by the already-active grain and never closed.
 func (x *toolSupervisor) handleGetOrCreateSession(ctx *goaktactor.ReceiveContext, msg *runtime.GetOrCreateSession) {
 	if msg.ToolID != x.tool.ID {
 		ctx.Response(&runtime.GetOrCreateSessionResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID mismatch")})
 		return
 	}
 
+	sessDep := actorextension.NewSessionDependency(msg.TenantID, msg.ClientID, msg.ToolID, x.tool, msg.Credentials)
 	name := naming.SessionName(msg.TenantID, msg.ClientID, msg.ToolID)
-	cid := ctx.Child(name)
-	if cid != nil && cid.IsRunning() {
-		ctx.Response(&runtime.GetOrCreateSessionResult{Session: cid, Found: true})
-		return
-	}
 
-	var executor mcp.ToolExecutor
-	if ext := ctx.Extension(actorextension.ExecutorFactoryExtensionID); ext != nil {
-		if ef, ok := ext.(*actorextension.ExecutorFactoryExtension); ok {
-			var err error
-			executor, err = ef.Factory().Create(ctx.Context(), x.tool, msg.Credentials)
-			if err != nil {
-				x.logger.Warnf("actor supervisor:%s create executor: %v", x.tool.ID, err)
-				ctx.Response(&runtime.GetOrCreateSessionResult{Err: mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to create executor", err)})
-				return
-			}
-		}
-	}
-
-	sessDep := actorextension.NewSessionDependency(msg.TenantID, msg.ClientID, msg.ToolID, x.tool, executor, msg.Credentials)
-	idleTimeout := sessionIdleTimeout(x.tool)
-
-	pid, err := x.self.SpawnChild(ctx.Context(), name, newSession(),
-		goaktactor.WithDependencies(sessDep),
-		goaktactor.WithPassivationStrategy(passivation.NewTimeBasedStrategy(idleTimeout)))
+	identity, err := ctx.ActorSystem().GrainIdentity(
+		ctx.Context(),
+		name,
+		newSessionGrain,
+		goaktactor.WithGrainDependencies(sessDep),
+		goaktactor.WithGrainDeactivateAfter(sessionIdleTimeout(x.tool)),
+	)
 	if err != nil {
-		if executor != nil {
-			_ = executor.Close()
-		}
-		x.logger.Warnf("actor supervisor:%s spawn session: %v", x.tool.ID, err)
-		ctx.Response(&runtime.GetOrCreateSessionResult{Err: mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to spawn session", err)})
+		x.logger.Warnf("actor supervisor:%s activate session grain: %v", x.tool.ID, err)
+		ctx.Response(&runtime.GetOrCreateSessionResult{Err: mcp.WrapRuntimeError(mcp.ErrCodeInternal, "failed to activate session grain", err)})
 		return
 	}
 
-	ctx.Response(&runtime.GetOrCreateSessionResult{Session: pid, Found: true})
+	ctx.Response(&runtime.GetOrCreateSessionResult{Session: identity, Found: true})
 }
 
 // sessionIdleTimeout returns the tool's configured idle timeout or the default
@@ -279,76 +290,62 @@ func sessionIdleTimeout(tool mcp.Tool) time.Duration {
 	return mcp.DefaultSessionIdleTimeout
 }
 
-// handleReportFailure increments the failure counter and transitions the circuit
-// to open when the threshold is reached or when a half-open probe fails.
+// handleReportFailure records a failure on the circuit breaker. A returned
+// transition (Closed→Open threshold exceeded, or HalfOpen→Open probe failed)
+// is emitted as an audit and telemetry event.
 func (x *toolSupervisor) handleReportFailure(_ *goaktactor.ReceiveContext, msg *runtime.ReportFailure) {
 	if msg.ToolID != x.tool.ID {
 		return
 	}
 
-	x.failureCount++
-	x.logger.Debugf("actor supervisor:%s failure count=%d circuit=%s", x.tool.ID, x.failureCount, x.circuitState)
-
-	if x.circuitState == mcp.CircuitHalfOpen {
-		x.circuitState = mcp.CircuitOpen
-		x.openAt = time.Now()
-		x.halfOpenRequests = 0
-		x.logger.Warnf("actor supervisor:%s circuit reopened after probe failure", x.tool.ID)
-		x.recordCircuitStateChange(string(mcp.CircuitOpen), map[string]string{"reason": "half_open_probe_failed"})
-		return
-	}
-
-	if x.circuitState == mcp.CircuitClosed && x.failureCount >= x.circuitConfig.FailureThreshold {
-		x.circuitState = mcp.CircuitOpen
-		x.openAt = time.Now()
-		x.logger.Warnf("actor supervisor:%s circuit opened after %d failures", x.tool.ID, x.failureCount)
-		x.recordCircuitStateChange(string(mcp.CircuitOpen), map[string]string{"failure_count": strconv.Itoa(x.failureCount)})
-	}
+	transition := x.circuit.OnFailure()
+	x.logger.Debugf("actor supervisor:%s failure count=%d circuit=%s", x.tool.ID, x.circuit.FailureCount(), x.circuit.State())
+	x.emitTransition(transition)
 }
 
-// handleReportSuccess resets the failure counter on closed-circuit success and
-// closes the circuit when a half-open probe succeeds.
+// handleReportSuccess records a success on the circuit breaker. A returned
+// transition (HalfOpen→Closed probe success) is emitted as an audit and
+// telemetry event.
 func (x *toolSupervisor) handleReportSuccess(_ *goaktactor.ReceiveContext, msg *runtime.ReportSuccess) {
 	if msg.ToolID != x.tool.ID {
 		return
 	}
 
-	if x.circuitState == mcp.CircuitHalfOpen {
-		x.circuitState = mcp.CircuitClosed
-		x.failureCount = 0
-		x.halfOpenRequests = 0
-		x.logger.Infof("actor supervisor:%s circuit closed after successful probe", x.tool.ID)
-		x.recordCircuitStateChange(string(mcp.CircuitClosed), map[string]string{"reason": "half_open_probe_success"})
+	transition := x.circuit.OnSuccess()
+	x.emitTransition(transition)
+}
+
+// handleSessionActivated records a session grain's activation so the
+// supervisor's per-tool session count reflects reality for backpressure
+// and admin reporting. Messages for other tools are ignored defensively.
+func (x *toolSupervisor) handleSessionActivated(msg *runtime.SessionActivated) {
+	if msg.ToolID != x.tool.ID {
 		return
 	}
 
-	if x.circuitState == mcp.CircuitClosed {
-		x.failureCount = 0
-	}
+	name := naming.SessionName(msg.TenantID, msg.ClientID, msg.ToolID)
+	x.sessions[name] = sessionRegistration{TenantID: msg.TenantID, ClientID: msg.ClientID}
 }
 
-// maybeTransitionFromOpen checks if the circuit has been open long enough to try half-open.
-func (x *toolSupervisor) maybeTransitionFromOpen() {
-	if x.circuitState != mcp.CircuitOpen {
+// handleSessionDeactivated drops a session from the supervisor's map when
+// the grain engine passivates or deactivates it.
+func (x *toolSupervisor) handleSessionDeactivated(msg *runtime.SessionDeactivated) {
+	if msg.ToolID != x.tool.ID {
 		return
 	}
 
-	if time.Since(x.openAt) >= x.circuitConfig.OpenDuration {
-		x.circuitState = mcp.CircuitHalfOpen
-		x.halfOpenRequests = 0
-		x.logger.Infof("actor supervisor:%s circuit half-open for recovery probe", x.tool.ID)
-		x.recordCircuitStateChange(string(mcp.CircuitHalfOpen), map[string]string{"reason": "open_duration_elapsed"})
-	}
+	name := naming.SessionName(msg.TenantID, msg.ClientID, msg.ToolID)
+	delete(x.sessions, name)
 }
 
-// handleCountSessionsForTenant counts this supervisor's child sessions that
-// belong to the given tenant. Session names follow SessionName(tenantID,
-// clientID, toolID) = "session-{tenantID}-{clientID}-{toolID}".
+// handleCountSessionsForTenant counts session grains owned by this
+// supervisor (i.e. for this tool) that belong to the given tenant. The
+// answer comes from the supervisor's in-memory registration map, which
+// lifecycle messages keep authoritative.
 func (x *toolSupervisor) handleCountSessionsForTenant(ctx *goaktactor.ReceiveContext, msg *runtime.SupervisorCountSessionsForTenant) {
-	prefix := "session-" + string(msg.TenantID) + "-"
 	count := 0
-	for _, child := range ctx.Self().Children() {
-		if child != nil && child.IsRunning() && strings.HasPrefix(child.Name(), prefix) {
+	for _, reg := range x.sessions {
+		if reg.TenantID == msg.TenantID {
 			count++
 		}
 	}
@@ -374,19 +371,22 @@ func (x *toolSupervisor) handleRefreshToolConfig(ctx *goaktactor.ReceiveContext,
 }
 
 // handleGetToolStatus returns the current operational status of the tool:
-// state, circuit breaker state, active session count, and drain flag.
+// state, circuit breaker state, active session count, and drain flag. Calling
+// Peek applies any pending Open→HalfOpen transition so the reported circuit
+// state is time-accurate.
 func (x *toolSupervisor) handleGetToolStatus(ctx *goaktactor.ReceiveContext, msg *runtime.GetToolStatus) {
 	if msg.ToolID != x.tool.ID {
 		ctx.Response(&runtime.GetToolStatusResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID mismatch")})
 		return
 	}
-	x.maybeTransitionFromOpen()
+	state, transition := x.circuit.Peek()
+	x.emitTransition(transition)
 	ctx.Response(&runtime.GetToolStatusResult{
 		Status: mcp.ToolStatus{
 			ToolID:       x.tool.ID,
 			State:        x.tool.State,
-			Circuit:      x.circuitState,
-			SessionCount: ctx.Self().ChildrenCount(),
+			Circuit:      state,
+			SessionCount: len(x.sessions),
 			Draining:     x.draining,
 		},
 	})
@@ -399,12 +399,11 @@ func (x *toolSupervisor) handleResetCircuit(ctx *goaktactor.ReceiveContext, msg 
 		ctx.Response(&runtime.ResetCircuitResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInvalidRequest, "tool ID mismatch")})
 		return
 	}
-	prev := x.circuitState
-	x.circuitState = mcp.CircuitClosed
-	x.failureCount = 0
-	x.halfOpenRequests = 0
-	x.logger.Infof("actor supervisor:%s circuit reset to closed (was %s)", x.tool.ID, prev)
-	x.recordCircuitStateChange(string(mcp.CircuitClosed), map[string]string{"reason": "manual_reset"})
+	transition := x.circuit.Reset()
+	if transition != nil {
+		x.logger.Infof("actor supervisor:%s circuit reset to closed (was %s)", x.tool.ID, transition.From)
+	}
+	x.emitTransition(transition)
 	ctx.Response(&runtime.ResetCircuitResult{})
 }
 
@@ -420,38 +419,50 @@ func (x *toolSupervisor) handleDrainTool(ctx *goaktactor.ReceiveContext, msg *ru
 	ctx.Response(&runtime.DrainToolResult{})
 }
 
-// handleListSupervisorSessions enumerates active child sessions by asking each
-// for its identity via GetSessionIdentity.
+// handleListSupervisorSessions enumerates the session grains this supervisor
+// tracks. Identity info is kept in the in-memory registration map; the
+// grain naming scheme is also exposed so callers can address the grain via
+// ActorSystem.AskGrain or TellGrain if they need to push admin messages.
 func (x *toolSupervisor) handleListSupervisorSessions(ctx *goaktactor.ReceiveContext) {
-	children := ctx.Self().Children()
-	sessions := make([]mcp.SessionInfo, 0, len(children))
-	for _, child := range children {
-		if child == nil || !child.IsRunning() {
-			continue
-		}
-		resp, err := goaktactor.Ask(ctx.Context(), child, &runtime.GetSessionIdentity{}, mcp.DefaultRequestTimeout)
-		if err != nil {
-			continue
-		}
-		if identity, ok := resp.(*runtime.GetSessionIdentityResult); ok {
-			sessions = append(sessions, mcp.SessionInfo{
-				Name:     child.Name(),
-				ToolID:   identity.ToolID,
-				TenantID: identity.TenantID,
-				ClientID: identity.ClientID,
-			})
-		}
+	sessions := make([]mcp.SessionInfo, 0, len(x.sessions))
+	for name, reg := range x.sessions {
+		sessions = append(sessions, mcp.SessionInfo{
+			Name:     name,
+			ToolID:   x.tool.ID,
+			TenantID: reg.TenantID,
+			ClientID: reg.ClientID,
+		})
 	}
 	ctx.Response(&runtime.ListSupervisorSessionsResult{Sessions: sessions})
 }
 
-// recordCircuitStateChange sends a circuit state change audit event to the
-// JournalActor and records a CircuitState metric when metrics are registered.
-func (x *toolSupervisor) recordCircuitStateChange(state string, metadata map[string]string) {
-	telemetry.RecordCircuitState(context.Background(), x.tool.ID, state)
+// emitTransition records a circuit state change to the audit journal and the
+// OTel CircuitState metric. A nil transition is a no-op, so callers do not
+// need to gate their own calls.
+func (x *toolSupervisor) emitTransition(transition *mcp.CircuitTransition) {
+	if transition == nil {
+		return
+	}
+	x.logger.Infof("actor supervisor:%s circuit %s→%s (%s)", x.tool.ID, transition.From, transition.To, transition.Reason)
+
+	telemetry.RecordCircuitState(context.Background(), x.tool.ID, string(transition.To))
+
 	if x.journal == nil || !x.journal.IsRunning() {
 		return
 	}
-	ev := audit.CircuitStateChangeAuditEvent(string(x.tool.ID), state, metadata)
+	meta := circuitTransitionMetadata(transition)
+	ev := audit.CircuitStateChangeAuditEvent(string(x.tool.ID), string(transition.To), meta)
 	_ = goaktactor.Tell(context.Background(), x.journal, &runtime.RecordAuditEvent{Event: ev})
+}
+
+// circuitTransitionMetadata renders a CircuitTransition into the string map
+// that AuditEvent.Metadata expects. MetadataKeyReason carries the transition
+// reason; MetadataKeyFailureCount is included for threshold-exceeded
+// transitions so operators can see how many failures tripped the breaker.
+func circuitTransitionMetadata(transition *mcp.CircuitTransition) map[string]string {
+	meta := map[string]string{audit.MetadataKeyReason: string(transition.Reason)}
+	if transition.Reason == mcp.CircuitReasonThresholdExceeded {
+		meta[audit.MetadataKeyFailureCount] = strconv.Itoa(transition.FailureCount)
+	}
+	return meta
 }

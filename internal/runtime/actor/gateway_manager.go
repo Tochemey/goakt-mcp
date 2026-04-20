@@ -68,10 +68,18 @@ func NewGatewayManager() *GatewayManager {
 // PreStart initializes the GatewayManager before message processing begins.
 // At this stage the actor context is available but the actor system has not yet
 // delivered the PostStart signal. Heavy initialization belongs in the PostStart handler.
+//
+// The session grain kind is registered here so GrainIdentity lookups from the
+// supervisor can activate session grains. RegisterGrainKind is idempotent, so
+// repeating the call across restarts is safe.
 func (x *GatewayManager) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
 	// this call should never panic since ConfigExtension is registered on the system at startup
 	x.config = ctx.Extension(extension.ConfigExtensionID).(*extension.ConfigExtension).Config()
+
+	if err := ctx.ActorSystem().RegisterGrainKind(ctx.Context(), &sessionGrain{}); err != nil {
+		return err
+	}
 	return nil
 }
 

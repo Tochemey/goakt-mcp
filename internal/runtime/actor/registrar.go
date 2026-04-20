@@ -52,13 +52,18 @@ import (
 //   - Cluster mode: system.SpawnSingleton(ctx, ActorNameRegistrar, newRegistrar(), opts...)
 //     when cluster.IsClusterConfigured(cfg) is true. NewRegistrar() is registered
 //     as a cluster kind in cluster.BuildOptions.
+//
+// State layout:
+//   - catalog holds the serializable tool entries (Tool + fetched metadata).
+//     A future CRDT-backed implementation can replace the catalog without
+//     changing the actor's message protocol.
+//   - supervisors holds per-node PID references for spawned ToolSupervisors;
+//     these are intentionally kept outside the catalog because PIDs are
+//     node-local and cannot be replicated.
 type registrar struct {
-	tools             map[mcp.ToolID]mcp.Tool
-	schemas           map[mcp.ToolID][]mcp.ToolSchema
-	resources         map[mcp.ToolID][]mcp.ResourceSchema
-	resourceTemplates map[mcp.ToolID][]mcp.ResourceTemplateSchema
-	supervisors       map[mcp.ToolID]*goaktactor.PID
-	logger            goaktlog.Logger
+	catalog     *toolCatalog
+	supervisors map[mcp.ToolID]*goaktactor.PID
+	logger      goaktlog.Logger
 }
 
 var _ goaktactor.Actor = (*registrar)(nil)
@@ -75,10 +80,7 @@ func NewRegistrar() goaktactor.Actor { return newRegistrar() }
 // PreStart initializes Registrar before message processing begins.
 func (x *registrar) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
-	x.tools = make(map[mcp.ToolID]mcp.Tool)
-	x.schemas = make(map[mcp.ToolID][]mcp.ToolSchema)
-	x.resources = make(map[mcp.ToolID][]mcp.ResourceSchema)
-	x.resourceTemplates = make(map[mcp.ToolID][]mcp.ResourceTemplateSchema)
+	x.catalog = newToolCatalog()
 	x.supervisors = make(map[mcp.ToolID]*goaktactor.PID)
 	ctx.Logger().Infof("actor=%s starting", naming.ActorNameRegistrar)
 	return nil
@@ -142,12 +144,12 @@ func (x *registrar) handleRegisterTool(ctx *goaktactor.ReceiveContext, msg *runt
 	}
 
 	tool := msg.Tool
-	if existing, ok := x.tools[tool.ID]; ok && existing.State == mcp.ToolStateDisabled {
+	if existing, ok := x.catalog.Get(tool.ID); ok && existing.State == mcp.ToolStateDisabled {
 		tool.State = mcp.ToolStateDisabled
 	}
 
 	x.stopSupervisorIfExists(ctx, tool.ID)
-	x.tools[tool.ID] = tool
+	x.catalog.Put(tool)
 	x.fetchAndCacheSchemas(ctx, tool)
 	x.fetchAndCacheResources(ctx, tool)
 	pid := x.spawnSupervisor(ctx, tool)
@@ -156,8 +158,10 @@ func (x *registrar) handleRegisterTool(ctx *goaktactor.ReceiveContext, msg *runt
 	}
 
 	x.logger.Infof("actor=%s registered tool=%s schemas=%d resources=%d templates=%d",
-		naming.ActorNameRegistrar, tool.ID, len(x.schemas[tool.ID]),
-		len(x.resources[tool.ID]), len(x.resourceTemplates[tool.ID]))
+		naming.ActorNameRegistrar, tool.ID,
+		len(x.catalog.Schemas(tool.ID)),
+		len(x.catalog.Resources(tool.ID)),
+		len(x.catalog.ResourceTemplates(tool.ID)))
 	x.respondIfAsk(ctx, &runtime.RegisterToolResult{})
 }
 
@@ -165,7 +169,7 @@ func (x *registrar) handleRegisterTool(ctx *goaktactor.ReceiveContext, msg *runt
 // and transport configuration are preserved from the original registration.
 // Returns ErrToolNotFound when the tool does not exist.
 func (x *registrar) handleUpdateTool(ctx *goaktactor.ReceiveContext, msg *runtime.UpdateTool) {
-	existing, ok := x.tools[msg.Tool.ID]
+	existing, ok := x.catalog.Get(msg.Tool.ID)
 	if !ok {
 		x.respondIfAsk(ctx, &runtime.UpdateToolResult{Err: mcp.ErrToolNotFound})
 		return
@@ -183,7 +187,7 @@ func (x *registrar) handleUpdateTool(ctx *goaktactor.ReceiveContext, msg *runtim
 	}
 
 	updated.State = existing.State
-	x.tools[updated.ID] = updated
+	x.catalog.UpdateTool(updated)
 	x.updateToolExtension(ctx, updated)
 	x.notifySupervisor(ctx, updated.ID)
 	x.logger.Infof("actor=%s updated tool=%s", naming.ActorNameRegistrar, updated.ID)
@@ -194,14 +198,14 @@ func (x *registrar) handleUpdateTool(ctx *goaktactor.ReceiveContext, msg *runtim
 // in the registry but all new requests are rejected. Returns ErrToolNotFound
 // when the tool does not exist.
 func (x *registrar) handleDisableTool(ctx *goaktactor.ReceiveContext, msg *runtime.DisableTool) {
-	existing, ok := x.tools[msg.ToolID]
+	existing, ok := x.catalog.Get(msg.ToolID)
 	if !ok {
 		x.respondIfAsk(ctx, &runtime.DisableToolResult{Err: mcp.ErrToolNotFound})
 		return
 	}
 
 	existing.State = mcp.ToolStateDisabled
-	x.tools[msg.ToolID] = existing
+	x.catalog.UpdateTool(existing)
 	x.updateToolExtension(ctx, existing)
 	x.notifySupervisor(ctx, msg.ToolID)
 	x.logger.Infof("actor=%s disabled tool=%s", naming.ActorNameRegistrar, msg.ToolID)
@@ -211,16 +215,13 @@ func (x *registrar) handleDisableTool(ctx *goaktactor.ReceiveContext, msg *runti
 // handleRemoveTool removes a tool from the registry and stops its supervisor.
 // Returns ErrToolNotFound when the tool does not exist.
 func (x *registrar) handleRemoveTool(ctx *goaktactor.ReceiveContext, msg *runtime.RemoveTool) {
-	if _, ok := x.tools[msg.ToolID]; !ok {
+	if !x.catalog.Has(msg.ToolID) {
 		x.respondIfAsk(ctx, &runtime.RemoveToolResult{Err: mcp.ErrToolNotFound})
 		return
 	}
 
 	x.stopSupervisorIfExists(ctx, msg.ToolID)
-	delete(x.tools, msg.ToolID)
-	delete(x.schemas, msg.ToolID)
-	delete(x.resources, msg.ToolID)
-	delete(x.resourceTemplates, msg.ToolID)
+	x.catalog.Remove(msg.ToolID)
 	delete(x.supervisors, msg.ToolID)
 	x.logger.Infof("actor=%s removed tool=%s", naming.ActorNameRegistrar, msg.ToolID)
 	x.respondIfAsk(ctx, &runtime.RemoveToolResult{})
@@ -229,7 +230,7 @@ func (x *registrar) handleRemoveTool(ctx *goaktactor.ReceiveContext, msg *runtim
 // handleQueryTool looks up a tool by ID and returns the authoritative definition.
 // Returns Found=false and ErrToolNotFound when the tool is not registered.
 func (x *registrar) handleQueryTool(ctx *goaktactor.ReceiveContext, msg *runtime.QueryTool) {
-	tool, ok := x.tools[msg.ToolID]
+	tool, ok := x.catalog.Get(msg.ToolID)
 	if !ok {
 		x.respondIfAsk(ctx, &runtime.QueryToolResult{Found: false, Err: mcp.ErrToolNotFound})
 		return
@@ -241,13 +242,13 @@ func (x *registrar) handleQueryTool(ctx *goaktactor.ReceiveContext, msg *runtime
 // degraded, unavailable). Used by health probes and discovery to reflect actual
 // tool availability.
 func (x *registrar) handleUpdateToolHealth(ctx *goaktactor.ReceiveContext, msg *runtime.UpdateToolHealth) {
-	existing, ok := x.tools[msg.ToolID]
+	existing, ok := x.catalog.Get(msg.ToolID)
 	if !ok {
 		x.respondIfAsk(ctx, &runtime.UpdateToolHealthResult{Err: mcp.ErrToolNotFound})
 		return
 	}
 	existing.State = msg.State
-	x.tools[msg.ToolID] = existing
+	x.catalog.UpdateTool(existing)
 	x.logger.Debugf("actor=%s updated health tool=%s state=%s", naming.ActorNameRegistrar, msg.ToolID, msg.State)
 	x.respondIfAsk(ctx, &runtime.UpdateToolHealthResult{})
 }
@@ -261,16 +262,20 @@ func (x *registrar) handleBootstrapTools(ctx *goaktactor.ReceiveContext, msg *ru
 			x.logger.Warnf("actor=%s bootstrap skip tool=%s: %v", naming.ActorNameRegistrar, tool.ID, err)
 			continue
 		}
+
 		x.stopSupervisorIfExists(ctx, tool.ID)
-		x.tools[tool.ID] = tool
+		x.catalog.Put(tool)
 		x.fetchAndCacheSchemas(ctx, tool)
 		x.fetchAndCacheResources(ctx, tool)
 		if pid := x.spawnSupervisor(ctx, tool); pid != nil {
 			x.supervisors[tool.ID] = pid
 		}
+
 		x.logger.Infof("actor=%s bootstrap registered tool=%s schemas=%d resources=%d templates=%d",
-			naming.ActorNameRegistrar, tool.ID, len(x.schemas[tool.ID]),
-			len(x.resources[tool.ID]), len(x.resourceTemplates[tool.ID]))
+			naming.ActorNameRegistrar, tool.ID,
+			len(x.catalog.Schemas(tool.ID)),
+			len(x.catalog.Resources(tool.ID)),
+			len(x.catalog.ResourceTemplates(tool.ID)))
 	}
 }
 
@@ -287,14 +292,7 @@ func (x *registrar) handleGetSupervisor(ctx *goaktactor.ReceiveContext, msg *run
 
 // handleListTools returns all registered tools with their cached schemas attached.
 func (x *registrar) handleListTools(ctx *goaktactor.ReceiveContext) {
-	tools := make([]mcp.Tool, 0, len(x.tools))
-	for _, t := range x.tools {
-		t.Schemas = x.schemas[t.ID]
-		t.Resources = x.resources[t.ID]
-		t.ResourceTemplates = x.resourceTemplates[t.ID]
-		tools = append(tools, t)
-	}
-	x.respondIfAsk(ctx, &runtime.ListToolsResult{Tools: tools})
+	x.respondIfAsk(ctx, &runtime.ListToolsResult{Tools: x.catalog.List()})
 }
 
 // handleCountSessionsForTenant sums session counts for the tenant across all
@@ -371,14 +369,14 @@ func (x *registrar) stopSupervisorIfExists(ctx *goaktactor.ReceiveContext, toolI
 // The supervisor is notified of the config change via RefreshToolConfig.
 // Returns ErrToolNotFound when the tool does not exist.
 func (x *registrar) handleEnableTool(ctx *goaktactor.ReceiveContext, msg *runtime.EnableTool) {
-	existing, ok := x.tools[msg.ToolID]
+	existing, ok := x.catalog.Get(msg.ToolID)
 	if !ok {
 		x.respondIfAsk(ctx, &runtime.EnableToolResult{Err: mcp.ErrToolNotFound})
 		return
 	}
 
 	existing.State = mcp.ToolStateEnabled
-	x.tools[msg.ToolID] = existing
+	x.catalog.UpdateTool(existing)
 	x.updateToolExtension(ctx, existing)
 	x.notifySupervisor(ctx, msg.ToolID)
 	x.logger.Infof("actor=%s enabled tool=%s", naming.ActorNameRegistrar, msg.ToolID)
@@ -403,7 +401,7 @@ func (x *registrar) notifySupervisor(ctx *goaktactor.ReceiveContext, toolID mcp.
 // handleGetToolStatus relays GetToolStatus to the tool's supervisor and returns
 // the result. Returns ErrToolNotFound when no supervisor exists for the tool.
 func (x *registrar) handleGetToolStatus(ctx *goaktactor.ReceiveContext, msg *runtime.GetToolStatus) {
-	if _, registered := x.tools[msg.ToolID]; !registered {
+	if !x.catalog.Has(msg.ToolID) {
 		x.respondIfAsk(ctx, &runtime.GetToolStatusResult{Err: mcp.ErrToolNotFound})
 		return
 	}
@@ -422,7 +420,7 @@ func (x *registrar) handleGetToolStatus(ctx *goaktactor.ReceiveContext, msg *run
 		x.respondIfAsk(ctx, &runtime.GetToolStatusResult{Err: mcp.NewRuntimeError(mcp.ErrCodeInternal, "unexpected response type")})
 		return
 	}
-	result.Status.Schemas = x.schemas[msg.ToolID]
+	result.Status.Schemas = x.catalog.Schemas(msg.ToolID)
 	x.respondIfAsk(ctx, result)
 }
 
@@ -430,7 +428,7 @@ func (x *registrar) handleGetToolStatus(ctx *goaktactor.ReceiveContext, msg *run
 // Returns ErrToolNotFound when the tool is not registered, or
 // ErrCodeToolUnavailable when the supervisor is not running.
 func (x *registrar) handleResetCircuit(ctx *goaktactor.ReceiveContext, msg *runtime.ResetCircuit) {
-	if _, registered := x.tools[msg.ToolID]; !registered {
+	if !x.catalog.Has(msg.ToolID) {
 		x.respondIfAsk(ctx, &runtime.ResetCircuitResult{Err: mcp.ErrToolNotFound})
 		return
 	}
@@ -456,7 +454,7 @@ func (x *registrar) handleResetCircuit(ctx *goaktactor.ReceiveContext, msg *runt
 // Returns ErrToolNotFound when the tool is not registered, or
 // ErrCodeToolUnavailable when the supervisor is not running.
 func (x *registrar) handleDrainTool(ctx *goaktactor.ReceiveContext, msg *runtime.DrainTool) {
-	if _, registered := x.tools[msg.ToolID]; !registered {
+	if !x.catalog.Has(msg.ToolID) {
 		x.respondIfAsk(ctx, &runtime.DrainToolResult{Err: mcp.ErrToolNotFound})
 		return
 	}
@@ -533,14 +531,14 @@ func (x *registrar) runningSupervisors() []*goaktactor.PID {
 
 // fetchAndCacheSchemas resolves the SchemaFetcherExtension from the actor system,
 // fetches tool schemas from the backend MCP server, and stores them in the
-// schemas map. Stale schemas are cleared before fetching so that a failed
-// re-registration does not leave outdated schemas in the cache. Fetch failures
-// are logged and result in an empty schema cache for the tool, allowing the
-// runtime to operate without schemas.
+// catalog. Stale schemas are cleared before fetching so a failed re-registration
+// does not leave outdated schemas in the cache. Fetch failures are logged and
+// result in an empty schema cache for the tool, allowing the runtime to
+// operate without schemas.
 func (x *registrar) fetchAndCacheSchemas(ctx *goaktactor.ReceiveContext, tool mcp.Tool) {
 	// Clear any previously cached schemas so a fetch failure does not leave
 	// stale data from an earlier registration.
-	delete(x.schemas, tool.ID)
+	x.catalog.SetSchemas(tool.ID, nil)
 
 	ext := ctx.Extension(actorextension.SchemaFetcherExtensionID)
 	fetcherExt, ok := ext.(*actorextension.SchemaFetcherExtension)
@@ -560,18 +558,18 @@ func (x *registrar) fetchAndCacheSchemas(ctx *goaktactor.ReceiveContext, tool mc
 		x.logger.Warnf("actor=%s schema fetch failed for tool=%s: %v", naming.ActorNameRegistrar, tool.ID, err)
 		return
 	}
-	x.schemas[tool.ID] = schemas
+
+	x.catalog.SetSchemas(tool.ID, schemas)
 }
 
 // fetchAndCacheResources resolves the ResourceFetcherExtension from the actor
-// system, fetches resource metadata from the backend MCP server, and stores them
-// in the resources and resourceTemplates maps. Stale entries are cleared before
-// fetching so that a failed re-registration does not leave outdated data.
-// Fetch failures are logged and result in empty caches for the tool, allowing
-// the runtime to operate without resources.
+// system, fetches MCP resource metadata from the backend server, and stores
+// it in the catalog. Stale entries are cleared before fetching so a failed
+// re-registration does not leave outdated data. Fetch failures are logged
+// and result in empty caches for the tool, allowing the runtime to operate
+// without resources.
 func (x *registrar) fetchAndCacheResources(ctx *goaktactor.ReceiveContext, tool mcp.Tool) {
-	delete(x.resources, tool.ID)
-	delete(x.resourceTemplates, tool.ID)
+	x.catalog.SetResources(tool.ID, nil, nil)
 
 	ext := ctx.Extension(actorextension.ResourceFetcherExtensionID)
 	fetcherExt, ok := ext.(*actorextension.ResourceFetcherExtension)
@@ -591,18 +589,19 @@ func (x *registrar) fetchAndCacheResources(ctx *goaktactor.ReceiveContext, tool 
 		x.logger.Warnf("actor=%s resource fetch failed for tool=%s: %v", naming.ActorNameRegistrar, tool.ID, err)
 		return
 	}
-	x.resources[tool.ID] = resources
-	x.resourceTemplates[tool.ID] = templates
+
+	x.catalog.SetResources(tool.ID, resources, templates)
 }
 
 // handleGetToolSchema returns the cached schemas for a tool.
 // Returns ErrToolNotFound when the tool is not registered.
 func (x *registrar) handleGetToolSchema(ctx *goaktactor.ReceiveContext, msg *runtime.GetToolSchema) {
-	if _, ok := x.tools[msg.ToolID]; !ok {
+	if !x.catalog.Has(msg.ToolID) {
 		x.respondIfAsk(ctx, &runtime.GetToolSchemaResult{Err: mcp.ErrToolNotFound})
 		return
 	}
-	x.respondIfAsk(ctx, &runtime.GetToolSchemaResult{Schemas: x.schemas[msg.ToolID]})
+
+	x.respondIfAsk(ctx, &runtime.GetToolSchemaResult{Schemas: x.catalog.Schemas(msg.ToolID)})
 }
 
 // respondIfAsk sends the response when the message was delivered via Ask.
