@@ -43,11 +43,14 @@ import (
 )
 
 const (
+	testIDPBaseURL        = "https://idp.example.com"
 	testTokenEndpointPath = "/oauth/token"        //nolint:gosec // test endpoint path, not a credential
 	testIssuedAccessToken = "issued-id-jag-token" //nolint:gosec // fake test token value
 
 	testIssuedTokenType     = oauthex.TokenTypeIDJAG
 	testIssuedTokenTypeResp = "N_A"
+
+	testMaxFormBodyBytes = 1 << 20
 )
 
 func TestNewOAuthTokenExchanger_RejectsMissingConfig(t *testing.T) {
@@ -71,7 +74,7 @@ func TestNewOAuthTokenExchanger_RejectsMissingConfig(t *testing.T) {
 
 	t.Run("nil client credentials returns ErrTokenExchangerConfigRequired", func(t *testing.T) {
 		exchanger, err := mcp.NewOAuthTokenExchanger(&mcp.OAuthTokenExchangerConfig{
-			TokenEndpoint: "https://idp.example.com/oauth/token",
+			TokenEndpoint: testIDPBaseURL + testTokenEndpointPath,
 		})
 
 		require.Error(t, err)
@@ -206,7 +209,7 @@ func basicClientCredentials() *oauthex.ClientCredentials {
 func testExchanger(t *testing.T, server *httptest.Server) mcp.TokenExchanger {
 	t.Helper()
 
-	endpoint := "https://idp.example.com" + testTokenEndpointPath
+	endpoint := testIDPBaseURL + testTokenEndpointPath
 	var httpClient *http.Client
 
 	if server != nil {
@@ -245,6 +248,7 @@ func newTestIDPServer(t *testing.T, resp stubIDPResponse) *httptest.Server {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc(testTokenEndpointPath, func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, testMaxFormBodyBytes)
 		require.NoError(t, r.ParseForm())
 		if resp.onRequest != nil {
 			resp.onRequest(r.PostForm)
