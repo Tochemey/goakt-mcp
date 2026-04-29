@@ -134,13 +134,13 @@ func waitForActors() {
 // and Router with their canonical names. The system must have ConfigExtension and
 // optionally ToolConfigExtension registered. Use for router/registrar tests that
 // need the full actor graph.
-func spawnFoundationalActorsForTest(ctx context.Context, system goaktactor.ActorSystem, cfg mcp.Config) {
+func spawnFoundationalActorsForTest(ctx context.Context, system goaktactor.ActorSystem) {
 	_ = system.RegisterGrainKind(ctx, &sessionGrain{})
 	system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 	waitForActors()
 	system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 	waitForActors()
-	system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
+	system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker())
 	waitForActors()
 	system.Spawn(ctx, naming.ActorNameCredentialBroker, newCredentialBroker())
 	waitForActors()

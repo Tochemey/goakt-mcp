@@ -505,7 +505,7 @@ func TestGatewayAPI(t *testing.T) {
 		require.NoError(t, err)
 		waitForActors()
 
-		actor.SpawnFoundationalActorsForExternalTest(ctx, system, cfg)
+		actor.SpawnFoundationalActorsForExternalTest(ctx, system)
 		waitForActors()
 
 		gw, err := New(testConfig(), withSystemForTesting(system))

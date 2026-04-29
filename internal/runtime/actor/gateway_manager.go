@@ -132,7 +132,7 @@ func (x *GatewayManager) spawnFoundationalActors(ctx *goaktactor.ReceiveContext)
 	healthChecker := ctx.Spawn(naming.ActorNameHealth, newHealthChecker(), goaktactor.WithLongLived())
 
 	// spawn the policy maker
-	policyMaker := ctx.Spawn(naming.ActorNamePolicy, newPolicyMaker(x.config), goaktactor.WithLongLived())
+	policyMaker := ctx.Spawn(naming.ActorNamePolicy, newPolicyMaker(), goaktactor.WithLongLived())
 
 	// spawn the credential broker actor
 	credentialBroker := x.spawnCredentialBroker(ctx)

@@ -30,10 +30,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	goaktactor "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/testkit"
 
 	"github.com/tochemey/goakt-mcp/mcp"
 
 	"github.com/tochemey/goakt-mcp/internal/naming"
+	actorextension "github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 )
 
@@ -41,11 +43,13 @@ func TestPolicyActor(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("spawns and evaluates allow", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		cfg := testConfig()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)),
+		)
 		defer stop()
 
-		cfg := testConfig()
-		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -63,11 +67,13 @@ func TestPolicyActor(t *testing.T) {
 	})
 
 	t.Run("denies when tenant not in allowlist", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		cfg := testConfigWithTenants("allowed-tenant")
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)),
+		)
 		defer stop()
 
-		cfg := testConfigWithTenants("allowed-tenant")
-		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -92,11 +98,13 @@ func TestPolicyActor(t *testing.T) {
 	})
 
 	t.Run("allows when tenant in allowlist", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		cfg := testConfigWithTenants("allowed-tenant")
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)),
+		)
 		defer stop()
 
-		cfg := testConfigWithTenants("allowed-tenant")
-		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -116,14 +124,16 @@ func TestPolicyActor(t *testing.T) {
 	})
 
 	t.Run("throttles when RequestsPerMinute limit is reached", func(t *testing.T) {
-		system, stop := testActorSystem(t)
-		defer stop()
-
 		cfg := testConfig()
 		cfg.Tenants = []mcp.TenantConfig{
 			{ID: "rate-tenant", Quotas: mcp.TenantQuotaConfig{RequestsPerMinute: 2}},
 		}
-		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)),
+		)
+		defer stop()
+
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -158,11 +168,13 @@ func TestPolicyActor(t *testing.T) {
 	})
 
 	t.Run("denies nil input", func(t *testing.T) {
-		system, stop := testActorSystem(t)
+		cfg := testConfig()
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)),
+		)
 		defer stop()
 
-		cfg := testConfig()
-		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -175,10 +187,10 @@ func TestPolicyActor(t *testing.T) {
 	})
 
 	t.Run("unhandles unknown message", func(t *testing.T) {
-		kit, ctx := newTestKit(t)
-
 		cfg := testConfig()
-		pid, err := kit.ActorSystem().Spawn(ctx, "policy-unknown", newPolicyMaker(cfg))
+		kit, ctx := newTestKit(t, testkit.WithExtensions(actorextension.NewConfigExtension(cfg)))
+
+		pid, err := kit.ActorSystem().Spawn(ctx, "policy-unknown", newPolicyMaker())
 		require.NoError(t, err)
 		require.NoError(t, pid.Tell(ctx, pid, "unknown"))
 		waitForActors()

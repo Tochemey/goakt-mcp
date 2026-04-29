@@ -788,9 +788,11 @@ func TestPolicyActorCustomEvaluator(t *testing.T) {
 			},
 		}
 
-		system, stop := testActorSystem(t)
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)),
+		)
 		defer stop()
-		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -818,9 +820,11 @@ func TestPolicyActorCustomEvaluator(t *testing.T) {
 			},
 		}
 
-		system, stop := testActorSystem(t)
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)),
+		)
 		defer stop()
-		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker())
 		require.NoError(t, err)
 		waitForActors()
 
@@ -844,9 +848,11 @@ func TestPolicyActorCustomEvaluator(t *testing.T) {
 			{ID: "tenant-3", Evaluator: nil},
 		}
 
-		system, stop := testActorSystem(t)
+		system, stop := testActorSystem(t,
+			goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)),
+		)
 		defer stop()
-		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
+		pid, err := system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker())
 		require.NoError(t, err)
 		waitForActors()
 

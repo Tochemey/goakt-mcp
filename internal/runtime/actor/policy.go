@@ -32,6 +32,7 @@ import (
 	"github.com/tochemey/goakt-mcp/mcp"
 
 	"github.com/tochemey/goakt-mcp/internal/naming"
+	"github.com/tochemey/goakt-mcp/internal/runtime/actor/extension"
 	"github.com/tochemey/goakt-mcp/internal/runtime/policy"
 )
 
@@ -42,8 +43,8 @@ import (
 // and delegates to the policy Evaluator for authorization and quota checks.
 //
 // Spawn: GatewayManager spawns policy actor in spawnFoundationalActors via
-// ctx.Spawn(ActorNamePolicy, newPolicyMaker(cfg)) as a child of GatewayManager.
-// The config is passed from GatewayManager's config.
+// ctx.Spawn(ActorNamePolicy, newPolicyMaker()) as a child of GatewayManager.
+// The runtime config is resolved from the ConfigExtension in PreStart.
 //
 // Relocation: No. policy actor runs on the local node as a child of GatewayManager
 // and does not relocate in cluster mode.
@@ -62,19 +63,21 @@ type policyMaker struct {
 
 var _ goaktactor.Actor = (*policyMaker)(nil)
 
-// newPolicyMaker creates a policy actor instance.
-// The config is passed at construction; the actor receives it from the spawner.
-func newPolicyMaker(config mcp.Config) *policyMaker {
-	return &policyMaker{
-		evaluator:     policy.NewEvaluator(config),
-		config:        config,
-		requestCounts: make(map[mcp.TenantID]int),
-	}
+// newPolicyMaker creates a policy actor instance. Configuration and the
+// evaluator are resolved from the ConfigExtension during PreStart.
+func newPolicyMaker() *policyMaker {
+	return &policyMaker{}
 }
 
 // PreStart initializes the policy actor before message processing begins.
+// The runtime config is resolved from the ConfigExtension and used to build
+// the Evaluator. The ConfigExtension is registered on the actor system at
+// startup, so the type assertion is safe.
 func (x *policyMaker) PreStart(ctx *goaktactor.Context) error {
 	x.logger = ctx.Logger()
+	x.config = ctx.Extension(extension.ConfigExtensionID).(*extension.ConfigExtension).Config()
+	x.evaluator = policy.NewEvaluator(x.config)
+	x.requestCounts = make(map[mcp.TenantID]int)
 	x.logger.Infof("actor=%s started", naming.ActorNamePolicy)
 	return nil
 }

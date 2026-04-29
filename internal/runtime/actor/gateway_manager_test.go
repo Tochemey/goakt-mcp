@@ -166,7 +166,7 @@ func TestExternalTestHelpers(t *testing.T) {
 			extension.NewConfigExtension(cfg),
 		))
 
-		SpawnFoundationalActorsForExternalTest(ctx, kit.ActorSystem(), cfg)
+		SpawnFoundationalActorsForExternalTest(ctx, kit.ActorSystem())
 
 		pid, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)

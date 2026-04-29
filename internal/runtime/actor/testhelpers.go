@@ -55,12 +55,12 @@ func ExternalTestConfig() mcp.Config {
 // CredentialBroker, and Router as top-level actors. Use for gateway API tests
 // that need the full actor graph with a minimal GatewayManager (no children)
 // to exercise the resolveRegistrar/resolveRouter fallback path.
-func SpawnFoundationalActorsForExternalTest(ctx context.Context, system goaktactor.ActorSystem, cfg mcp.Config) {
+func SpawnFoundationalActorsForExternalTest(ctx context.Context, system goaktactor.ActorSystem) {
 	system.Spawn(ctx, naming.ActorNameJournal, newJournaler())
 	waitForActorsExternal()
 	system.Spawn(ctx, naming.ActorNameRegistrar, newRegistrar())
 	waitForActorsExternal()
-	system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker(cfg))
+	system.Spawn(ctx, naming.ActorNamePolicy, newPolicyMaker())
 	waitForActorsExternal()
 	system.Spawn(ctx, naming.ActorNameCredentialBroker, newCredentialBroker())
 	waitForActorsExternal()

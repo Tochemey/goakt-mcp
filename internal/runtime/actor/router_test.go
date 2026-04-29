@@ -56,7 +56,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestRouterActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -153,7 +153,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -183,7 +183,7 @@ func TestRouterActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
@@ -204,7 +204,7 @@ func TestRouterActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
@@ -228,7 +228,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -260,7 +260,7 @@ func TestRouterActor(t *testing.T) {
 			testkit.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 
-		spawnFoundationalActorsForTest(ctx, kit.ActorSystem(), cfg)
+		spawnFoundationalActorsForTest(ctx, kit.ActorSystem())
 
 		_, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -298,7 +298,7 @@ func TestRouterActor(t *testing.T) {
 			testkit.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 
-		spawnFoundationalActorsForTest(ctx, kit.ActorSystem(), cfg)
+		spawnFoundationalActorsForTest(ctx, kit.ActorSystem())
 
 		_, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -331,7 +331,7 @@ func TestRouterActor(t *testing.T) {
 			testkit.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 
-		spawnFoundationalActorsForTest(ctx, kit.ActorSystem(), cfg)
+		spawnFoundationalActorsForTest(ctx, kit.ActorSystem())
 
 		_, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -370,7 +370,7 @@ func TestRouterActor(t *testing.T) {
 			testkit.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 
-		spawnFoundationalActorsForTest(ctx, kit.ActorSystem(), cfg)
+		spawnFoundationalActorsForTest(ctx, kit.ActorSystem())
 
 		_, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -423,7 +423,7 @@ func TestRouterActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -451,7 +451,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -486,7 +486,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -527,7 +527,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -568,7 +568,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -612,7 +612,7 @@ func TestRouterActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
@@ -635,7 +635,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -664,7 +664,7 @@ func TestRouterActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
@@ -684,7 +684,7 @@ func TestRouterActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
@@ -705,7 +705,7 @@ func TestRouterActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
@@ -729,7 +729,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -761,7 +761,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -806,7 +806,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -839,7 +839,7 @@ func TestRouterActor(t *testing.T) {
 			testkit.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 
-		spawnFoundationalActorsForTest(ctx, kit.ActorSystem(), cfg)
+		spawnFoundationalActorsForTest(ctx, kit.ActorSystem())
 
 		_, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -872,7 +872,7 @@ func TestRouterActor(t *testing.T) {
 			testkit.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 
-		spawnFoundationalActorsForTest(ctx, kit.ActorSystem(), cfg)
+		spawnFoundationalActorsForTest(ctx, kit.ActorSystem())
 
 		_, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -906,7 +906,7 @@ func TestRouterActor(t *testing.T) {
 			testkit.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)),
 		)
 
-		spawnFoundationalActorsForTest(ctx, kit.ActorSystem(), cfg)
+		spawnFoundationalActorsForTest(ctx, kit.ActorSystem())
 
 		_, err := kit.ActorSystem().ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -945,7 +945,7 @@ func TestRouterActor(t *testing.T) {
 		system, stop := testActorSystem(t, goaktactor.WithExtensions(actorextension.NewToolConfigExtension(), actorextension.NewConfigExtension(cfg)))
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -973,7 +973,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -1008,7 +1008,7 @@ func TestRouterActor(t *testing.T) {
 		)
 		defer stop()
 
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -1145,7 +1145,7 @@ func TestRouterPreStartDefaultRequestTimeout(t *testing.T) {
 	defer stop()
 
 	ctx := context.Background()
-	spawnFoundationalActorsForTest(ctx, system, cfg)
+	spawnFoundationalActorsForTest(ctx, system)
 
 	// Just verify the router starts successfully with zero timeout config
 	routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
@@ -1167,7 +1167,7 @@ func TestRouterTracingEnabled(t *testing.T) {
 		defer stop()
 
 		ctx := context.Background()
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -1199,7 +1199,7 @@ func TestRouterTracingEnabled(t *testing.T) {
 		defer stop()
 
 		ctx := context.Background()
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
@@ -1224,7 +1224,7 @@ func TestRouterTracingEnabled(t *testing.T) {
 		defer stop()
 
 		ctx := context.Background()
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -1255,7 +1255,7 @@ func TestRouterTracingEnabled(t *testing.T) {
 		defer stop()
 
 		ctx := context.Background()
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 		require.NoError(t, err)
@@ -1282,7 +1282,7 @@ func TestRouterTracingWithPolicyDeny(t *testing.T) {
 		defer stop()
 
 		ctx := context.Background()
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -1315,7 +1315,7 @@ func TestRouterTracingWithPolicyDeny(t *testing.T) {
 		defer stop()
 
 		ctx := context.Background()
-		spawnFoundationalActorsForTest(ctx, system, cfg)
+		spawnFoundationalActorsForTest(ctx, system)
 
 		registryPID, err := system.ActorOf(ctx, naming.ActorNameRegistrar)
 		require.NoError(t, err)
@@ -1347,7 +1347,7 @@ func TestRouterReceiveUnhandledMessage(t *testing.T) {
 	defer stop()
 
 	ctx := context.Background()
-	spawnFoundationalActorsForTest(ctx, system, cfg)
+	spawnFoundationalActorsForTest(ctx, system)
 
 	routerPID, err := system.ActorOf(ctx, naming.ActorNameRouter)
 	require.NoError(t, err)
