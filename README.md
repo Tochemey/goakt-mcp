@@ -12,9 +12,11 @@
   <a href="https://pkg.go.dev/github.com/tochemey/goakt-mcp"><img src="https://pkg.go.dev/badge/github.com/tochemey/goakt-mcp" alt="Go Reference"></a>
 </p>
 
-**goakt-mcp** is a production-ready MCP (Model Context Protocol) gateway library for Go. It goes far beyond a thin JSON-RPC proxy : it is an operational control plane for MCP workloads that manages tool lifecycle, session affinity, credential brokering, policy enforcement, circuit breaking, auditing, and cluster-aware routing behind a single, clean `Gateway` API.
+> **Project status:** Early-stage and opinionated. The library is feature-complete for the operational concerns described below and exercised by tests and examples, but it has not yet been deployed by a named production user. Treat it as a design under active iteration : I'm looking for design partners willing to run it in real workloads and shape it from there. Maintained on a best-effort basis; issues and pull requests are welcome and reviewed as time allows, but responses may take a while. If you depend on this library today, expect to fork or carry patches for anything time-sensitive.
 
-Built on [GoAkt](https://github.com/Tochemey/goakt), a high-performance Go actor framework, every tool, session, and control-plane concern is modelled as a supervised actor with clear lifecycle boundaries : making the system inherently resilient, observable, and scalable from a single node to a multi-node Kubernetes cluster.
+**goakt-mcp** is an MCP (Model Context Protocol) gateway library for Go that aims to go beyond a thin JSON-RPC proxy. It is structured as an operational control plane for MCP workloads : tool lifecycle, session affinity, credential brokering, policy enforcement, circuit breaking, auditing, and cluster-aware routing behind a single `Gateway` API.
+
+It is built on [GoAkt](https://github.com/Tochemey/goakt), a Go actor framework. Every tool, session, and control-plane concern is modelled as a supervised actor with clear lifecycle boundaries, with the goal of containing failures locally and degrading gracefully under partial failure. The same shape scales from a single node to a multi-node Kubernetes cluster, though the cluster topology is still evolving (see [Cluster Mode](#cluster-mode)).
 
 ## Why goakt-mcp
 
@@ -33,7 +35,7 @@ The actor model is a strong fit for this problem space. Each tool has a dedicate
 - **Triple transport egress** : invoke tools over stdio (child process), HTTP (remote MCP server), or gRPC (with proto descriptor sets or server reflection)
 - **Four ingress transports** : serve MCP clients via Streamable HTTP, Server-Sent Events, WebSocket, or gRPC (with streaming progress support)
 - **Streaming invocations** : `InvokeStream` returns a `StreamingResult` with a progress event channel and a final result channel, backed by gRPC server-streaming RPCs
-- **Enterprise authentication** : OAuth 2.0 Bearer token validation, pluggable `TokenVerifier`, `IdentityMapper`, and RFC 9728 Protected Resource Metadata discovery (`/.well-known/oauth-protected-resource`); includes gRPC auth interceptors for unary and streaming RPCs
+- **OAuth 2.0 / OIDC authentication** : Bearer token validation, pluggable `TokenVerifier`, `IdentityMapper`, and RFC 9728 Protected Resource Metadata discovery (`/.well-known/oauth-protected-resource`); includes gRPC auth interceptors for unary and streaming RPCs
 - **Multi-tenancy** : per-tenant quota enforcement (rate limiting + concurrency caps) and pluggable policy evaluation
 - **Credential brokering** : resolve secrets from any source (vault, env, KMS) and inject them into invocations, with a configurable LRU cache
 - **Session affinity** : sticky session ownership per tenant + client + tool; or least-loaded balancing for stateless tools
@@ -185,7 +187,7 @@ Identity resolution happens once per MCP session (at `initialize` time) for HTTP
 
 goakt-mcp exposes three factory methods on `Gateway` to create ingress HTTP handlers, plus a registration method for gRPC. Mount the returned `http.Handler` in your own HTTP server or router; register the gRPC service on your own `grpc.Server`.
 
-- **`Gateway.Handler`** : Streamable HTTP, MCP 2025-11-25 spec, Production clients, Claude Desktop, agents
+- **`Gateway.Handler`** : Streamable HTTP, MCP 2025-11-25 spec, current MCP clients, Claude Desktop, agents
 - **`Gateway.SSEHandler`** : Server-Sent Events, MCP 2024-11-05 spec, Legacy clients, browser-based agents
 - **`Gateway.WSHandler`** : WebSocket, full-duplex streaming, Latency-sensitive, bidirectional streams
 - **`Gateway.RegisterGRPCService`** : gRPC, Protobuf/gRPC, Service-to-service, streaming progress, polyglot
@@ -261,7 +263,7 @@ for {
 
 Tool arguments are JSON-encoded bytes, not typed proto fields. This allows the gRPC ingress to forward arbitrary tool schemas without requiring compiled `.pb.go` types for every backend tool.
 
-**Enterprise auth for gRPC** uses interceptors. The `GRPCAuthInterceptors` function returns unary and stream interceptors that validate Bearer tokens from the `authorization` gRPC metadata key, enforce required scopes, and store the validated token info in the context:
+**OAuth/OIDC auth for gRPC** uses interceptors. The `GRPCAuthInterceptors` function returns unary and stream interceptors that validate Bearer tokens from the `authorization` gRPC metadata key, enforce required scopes, and store the validated token info in the context:
 
 ```go
 unary, stream, _ := goaktmcp.GRPCAuthInterceptors(&mcp.EnterpriseAuthConfig{
@@ -781,10 +783,10 @@ All examples are in the [`examples/`](examples/) directory and can be run with `
 - **[admin](examples/admin-policy)** : Full admin API and a custom `PolicyEvaluator`
 - **[quotas](examples/quota-assess)** : Per-tenant rate limiting and concurrency enforcement
 - **[full-config](examples/full-config)** : Complete configuration reference covering every field
-- **[ai-hub](examples/ai-hub)** : Production-grade multi-tenant AI tool hub: stdio + HTTP egress, Streamable HTTP ingress, pluggable policy, credential broker, durable audit, OpenTelemetry, and the full admin API
+- **[ai-hub](examples/ai-hub)** : End-to-end multi-tenant AI tool hub example: stdio + HTTP egress, Streamable HTTP ingress, pluggable policy, credential broker, durable audit, OpenTelemetry, and the full admin API
 - **[cluster](examples/cluster)** : Three-node Kubernetes cluster with Kubernetes peer discovery, nginx session affinity, and Jaeger tracing
 
-The [ai-hub](examples/ai-hub) example is the recommended starting point for understanding how all pieces fit together in a real deployment. The [cluster](examples/cluster) example includes a complete [Makefile](examples/cluster/Makefile) and Kubernetes manifests for deploying to a local [Kind](https://kind.sigs.k8s.io/) cluster.
+The [ai-hub](examples/ai-hub) example is the recommended starting point for understanding how all pieces fit together end-to-end. The [cluster](examples/cluster) example includes a complete [Makefile](examples/cluster/Makefile) and Kubernetes manifests for deploying to a local [Kind](https://kind.sigs.k8s.io/) cluster.
 
 ## Contributing
 

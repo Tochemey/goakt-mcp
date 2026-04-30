@@ -3,7 +3,7 @@ module github.com/tochemey/goakt-mcp
 go 1.26.0
 
 require (
-	github.com/modelcontextprotocol/go-sdk v1.5.0
+	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/stretchr/testify v1.11.1
 	github.com/tochemey/goakt/v4 v4.2.2
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.68.0
